@@ -190,6 +190,8 @@ type ImageBuildOptions struct {
 	// Outputs defines configurations for exporting build results. Only supported
 	// in BuildKit mode
 	Outputs []ImageBuildOutput
+
+	Volumes     []string
 }
 
 // ImageBuildOutput defines configuration for exporting a build result

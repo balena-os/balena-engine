@@ -159,6 +159,15 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 		options.Version = v
 	}
 
+	var volumes = []string{}
+	volumesJSON := r.FormValue("volumes")
+	if volumesJSON != "" {
+		if err := json.Unmarshal([]byte(volumesJSON), &volumes); err != nil {
+			return nil, err
+		}
+		options.Volumes = volumes
+	}
+
 	return options, nil
 }
 

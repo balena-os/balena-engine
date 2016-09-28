@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/docker/cli/cli/compose/loader"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
@@ -446,6 +447,14 @@ func (b *Builder) probeAndCreate(dispatchState *dispatchState, runConfig *contai
 }
 
 func (b *Builder) create(runConfig *container.Config) (string, error) {
+	// only allow bind-mounting during build
+	for _, bind := range b.options.Volumes {
+		parsed, _ := loader.ParseVolume(bind)
+		if parsed.Source == "" {
+			return "", fmt.Errorf("Cannot use non-bind mount during build: %s", bind)
+		}
+	}
+
 	logrus.Debugf("[BUILDER] Command to be executed: %v", runConfig.Cmd)
 
 	isWCOW := runtime.GOOS == "windows" && b.platform != nil && b.platform.OS == "windows"
@@ -484,6 +493,7 @@ func hostConfigFromOptions(options *types.ImageBuildOptions, isWCOW bool) *conta
 		// Set a log config to override any default value set on the daemon
 		LogConfig:  defaultLogConfig,
 		ExtraHosts: options.ExtraHosts,
+		Binds:      options.Volumes,
 	}
 
 	// For WCOW, the default of 20GB hard-coded in the platform
