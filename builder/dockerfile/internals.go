@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/cli/cli/compose/loader"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
@@ -472,6 +473,14 @@ func (b *Builder) probeAndCreate(dispatchState *dispatchState, runConfig *contai
 }
 
 func (b *Builder) create(runConfig *container.Config) (string, error) {
+	// only allow bind-mounting during build
+	for _, bind := range b.options.Volumes {
+		parsed, _ := loader.ParseVolume(bind)
+		if parsed.Source == "" {
+			return "", fmt.Errorf("Cannot use non-bind mount during build: %s", bind)
+		}
+	}
+
 	hostConfig := hostConfigFromOptions(b.options)
 	optionsPlatform := system.ParsePlatform(b.options.Platform)
 	container, err := b.containerManager.Create(runConfig, hostConfig, optionsPlatform.OS)
@@ -508,6 +517,7 @@ func hostConfigFromOptions(options *types.ImageBuildOptions) *container.HostConf
 		// Set a log config to override any default value set on the daemon
 		LogConfig:  defaultLogConfig,
 		ExtraHosts: options.ExtraHosts,
+		Binds:      options.Volumes,
 	}
 }
 

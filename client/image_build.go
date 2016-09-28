@@ -131,8 +131,16 @@ func (cli *Client) imageBuildOptionsToQuery(options types.ImageBuildOptions) (ur
 	if options.SessionID != "" {
 		query.Set("session", options.SessionID)
 	}
+
 	if options.Platform != "" {
 		query.Set("platform", strings.ToLower(options.Platform))
 	}
+
+	volumesJSON, err := json.Marshal(options.Volumes)
+	if err != nil {
+		return query, err
+	}
+	query.Set("volumes", string(volumesJSON))
+
 	return query, nil
 }
