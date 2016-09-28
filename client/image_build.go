@@ -140,5 +140,12 @@ func (cli *Client) imageBuildOptionsToQuery(ctx context.Context, options types.I
 		}
 		query.Set("outputs", string(outputsJSON))
 	}
+
+	volumesJSON, err := json.Marshal(options.Volumes)
+	if err != nil {
+		return query, err
+	}
+	query.Set("volumes", string(volumesJSON))
+
 	return query, nil
 }
