@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // NewAtomicFileWriter returns WriteCloser so that writing to it writes to a
@@ -65,6 +66,9 @@ func (w *atomicFileWriter) Close() (retErr error) {
 			os.Remove(w.f.Name())
 		}
 	}()
+	if err := w.f.Chmod(w.perm); err != nil {
+		return err
+	}
 	if err := w.f.Sync(); err != nil {
 		w.f.Close()
 		return err
@@ -72,11 +76,22 @@ func (w *atomicFileWriter) Close() (retErr error) {
 	if err := w.f.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(w.f.Name(), w.perm); err != nil {
-		return err
-	}
 	if w.writeErr == nil {
-		return os.Rename(w.f.Name(), w.fn)
+		if err := os.Rename(w.f.Name(), w.fn); err != nil {
+			return err
+		}
+
+		parentDir, err := os.OpenFile(filepath.Dir(w.fn), syscall.O_DIRECTORY, 0)
+		if err != nil {
+			return err
+		}
+
+		defer func() {
+			parentDir.Close()
+		}()
+		if err := parentDir.Sync(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
