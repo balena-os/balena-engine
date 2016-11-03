@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/containerd/continuity/fs"
 	"github.com/docker/docker/daemon/graphdriver"
@@ -695,6 +696,10 @@ func (d *Driver) ApplyDiff(id string, parent string, diff io.Reader) (size int64
 	}); err != nil {
 		return 0, err
 	}
+
+	// FIXME: Instead of syncing all the filesystems we should be fsyncing each
+	// file as the tar archive gets unpacked
+	syscall.Sync()
 
 	return directory.Size(context.TODO(), applyDir)
 }
