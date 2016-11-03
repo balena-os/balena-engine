@@ -673,6 +673,10 @@ func (d *Driver) ApplyDiff(id string, parent string, diff io.Reader) (size int64
 		return 0, err
 	}
 
+	// FIXME: Instead of syncing all the filesystems we should be fsyncing each
+	// file as the tar archive gets unpacked
+	syscall.Sync()
+
 	return directory.Size(applyDir)
 }
 
