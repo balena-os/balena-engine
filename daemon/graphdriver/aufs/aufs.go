@@ -33,6 +33,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/docker/docker/daemon/graphdriver"
@@ -521,6 +522,10 @@ func (a *Driver) ApplyDiff(id, parent string, diff io.Reader) (size int64, err e
 	if err = a.applyDiff(id, diff); err != nil {
 		return
 	}
+
+	// FIXME: Instead of syncing all the filesystems we should be fsyncing each
+	// file as the tar archive gets unpacked
+	syscall.Sync()
 
 	return a.DiffSize(id, parent)
 }
