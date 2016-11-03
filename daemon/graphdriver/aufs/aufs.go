@@ -35,6 +35,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/containerd/containerd/pkg/userns"
 	"github.com/docker/docker/daemon/graphdriver"
@@ -43,6 +44,7 @@ import (
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/directory"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/parsers"
 	"github.com/moby/locker"
 	"github.com/moby/sys/mount"
 	"github.com/opencontainers/selinux/go-selinux/label"
@@ -79,11 +81,17 @@ type Driver struct {
 	naiveDiff     graphdriver.DiffDriver
 	locker        *locker.Locker
 	mntL          sync.Mutex
+	syncDiffs     bool
 }
 
 // Init returns a new AUFS driver.
 // An error is returned if AUFS is not supported.
 func Init(root string, options []string, idMap idtools.IdentityMapping) (graphdriver.Driver, error) {
+	syncDiffs, err := parseOptions(options)
+	if err != nil {
+		return nil, err
+	}
+
 	// Try to load the aufs kernel module
 	if err := supportsAufs(); err != nil {
 		logger.Error(err)
@@ -125,6 +133,7 @@ func Init(root string, options []string, idMap idtools.IdentityMapping) (graphdr
 		pathCache: make(map[string]string),
 		ctr:       graphdriver.NewRefCounter(graphdriver.NewFsChecker(graphdriver.FsMagicAufs)),
 		locker:    locker.New(),
+		syncDiffs: syncDiffs,
 	}
 
 	currentID := idtools.CurrentIdentity()
@@ -165,8 +174,30 @@ func Init(root string, options []string, idMap idtools.IdentityMapping) (graphdr
 		}
 	}
 
+	logger.Debugf("syncDiffs=%v", syncDiffs)
 	a.naiveDiff = graphdriver.NewNaiveDiffDriver(a, a.idMap)
 	return a, nil
+}
+
+func parseOptions(options []string) (bool, error) {
+	var o bool = true
+	for _, option := range options {
+		key, val, err := parsers.ParseKeyValueOpt(option)
+		if err != nil {
+			return o, err
+		}
+		key = strings.ToLower(key)
+		switch key {
+		case "aufs.sync_diffs":
+			o, err = strconv.ParseBool(val)
+			if err != nil {
+				return o, err
+			}
+		default:
+			return o, fmt.Errorf("aufs: unknown option %s", key)
+		}
+	}
+	return o, nil
 }
 
 // Return a nil error if the kernel supports aufs
@@ -476,6 +507,12 @@ func (a *Driver) ApplyDiff(id, parent string, diff io.Reader) (size int64, err e
 	// AUFS doesn't need the parent id to apply the diff if it is the direct parent.
 	if err = a.applyDiff(id, diff); err != nil {
 		return
+	}
+
+	if a.syncDiffs {
+		// FIXME: Instead of syncing all the filesystems we should be fsyncing each
+		// file as the tar archive gets unpacked
+		syscall.Sync()
 	}
 
 	return a.DiffSize(id, parent)
