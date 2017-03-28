@@ -2,12 +2,12 @@
 % Docker Community
 % JUNE 2014
 # NAME
-docker-tag - Tag an image into a repository
+docker-tag - Create a tag `TARGET_IMAGE` that refers to `SOURCE_IMAGE`
 
 # SYNOPSIS
 **docker tag**
 [**--help**]
-NAME[:TAG] NAME[:TAG]
+SOURCE_NAME[:TAG] TARGET_NAME[:TAG]
 
 # DESCRIPTION
 Assigns a new alias to an image in a registry. An alias refers to the
@@ -24,15 +24,16 @@ entire image name including the optional `TAG` after the ':'.
    present, it may optionally be followed by a port number in the format 
    `:8080`. If not present, the command uses Docker's public registry located at
    `registry-1.docker.io` by default. Name components may contain lowercase 
-   characters, digits and separators. A separator is defined as a period, one or 
+   letters, digits and separators. A separator is defined as a period, one or
    two underscores, or one or more dashes. A name component may not start or end 
    with a separator.
 
 **TAG**
    The tag assigned to the image to version and distinguish images with the same
-   name. The tag name may contain lowercase and uppercase characters, digits, 
-   underscores, periods and dashes. A tag name may not start with a period or a 
-   dash and may contain a maximum of 128 characters.
+   name. The tag name must be valid ASCII and may contain lowercase and
+   uppercase letters, digits, underscores, periods and hyphens. A tag name
+   may not start with a period or a hyphen and may contain a maximum of 128
+   characters.
 
 # EXAMPLES
 

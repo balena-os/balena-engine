@@ -16,11 +16,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/pkg/archive"
@@ -34,9 +36,6 @@ import (
 	"github.com/docker/docker/pkg/tarsum"
 	"github.com/docker/docker/pkg/urlutil"
 	"github.com/docker/docker/runconfig/opts"
-	"github.com/docker/engine-api/types"
-	"github.com/docker/engine-api/types/container"
-	"github.com/docker/engine-api/types/strslice"
 )
 
 func (b *Builder) commit(id string, autoCmd strslice.StrSlice, comment string) error {
@@ -181,7 +180,7 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		return nil
 	}
 
-	container, err := b.docker.ContainerCreate(types.ContainerCreateConfig{Config: b.runConfig}, true)
+	container, err := b.docker.ContainerCreate(types.ContainerCreateConfig{Config: b.runConfig})
 	if err != nil {
 		return err
 	}
@@ -255,9 +254,9 @@ func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {
 	// ignoring error because the file was already opened successfully
 	tmpFileSt, err := tmpFile.Stat()
 	if err != nil {
+		tmpFile.Close()
 		return
 	}
-	tmpFile.Close()
 
 	// Set the mtime to the Last-Modified header value if present
 	// Otherwise just remove atime and mtime
@@ -271,6 +270,8 @@ func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {
 			mTime = parsedMTime
 		}
 	}
+
+	tmpFile.Close()
 
 	if err = system.Chtimes(tmpFileName, mTime, mTime); err != nil {
 		return
@@ -373,18 +374,6 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 	return copyInfos, nil
 }
 
-func containsWildcards(name string) bool {
-	for i := 0; i < len(name); i++ {
-		ch := name[i]
-		if ch == '\\' {
-			i++
-		} else if ch == '*' || ch == '?' || ch == '[' {
-			return true
-		}
-	}
-	return false
-}
-
 func (b *Builder) processImageFrom(img builder.Image) error {
 	if img != nil {
 		b.image = img.ImageID()
@@ -421,7 +410,7 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 		fmt.Fprintf(b.Stderr, "# Executing %d build %s...\n", nTriggers, word)
 	}
 
-	// Copy the ONBUILD triggers, and remove them from the config, since the config will be comitted.
+	// Copy the ONBUILD triggers, and remove them from the config, since the config will be committed.
 	onBuildTriggers := b.runConfig.OnBuild
 	b.runConfig.OnBuild = []string{}
 
@@ -432,15 +421,14 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 			return err
 		}
 
-		for i, n := range ast.Children {
-			switch strings.ToUpper(n.Value) {
-			case "ONBUILD":
-				return fmt.Errorf("Chaining ONBUILD via `ONBUILD ONBUILD` isn't allowed")
-			case "MAINTAINER", "FROM":
-				return fmt.Errorf("%s isn't allowed as an ONBUILD trigger", n.Value)
+		total := len(ast.Children)
+		for _, n := range ast.Children {
+			if err := b.checkDispatch(n, true); err != nil {
+				return err
 			}
-
-			if err := b.dispatch(i, n); err != nil {
+		}
+		for i, n := range ast.Children {
+			if err := b.dispatch(i, total, n); err != nil {
 				return err
 			}
 		}
@@ -449,18 +437,16 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 	return nil
 }
 
-// probeCache checks if `b.docker` implements builder.ImageCache and image-caching
-// is enabled (`b.UseCache`).
-// If so attempts to look up the current `b.image` and `b.runConfig` pair with `b.docker`.
+// probeCache checks if cache match can be found for current build instruction.
 // If an image is found, probeCache returns `(true, nil)`.
 // If no image is found, it returns `(false, nil)`.
 // If there is any error, it returns `(false, err)`.
 func (b *Builder) probeCache() (bool, error) {
-	c, ok := b.docker.(builder.ImageCache)
-	if !ok || b.options.NoCache || b.cacheBusted {
+	c := b.imageCache
+	if c == nil || b.options.NoCache || b.cacheBusted {
 		return false, nil
 	}
-	cache, err := c.GetCachedImageOnBuild(b.image, b.runConfig)
+	cache, err := c.GetCache(b.image, b.runConfig)
 	if err != nil {
 		return false, err
 	}
@@ -497,9 +483,11 @@ func (b *Builder) create() (string, error) {
 
 	// TODO: why not embed a hostconfig in builder?
 	hostConfig := &container.HostConfig{
-		Isolation: b.options.Isolation,
-		ShmSize:   b.options.ShmSize,
-		Resources: resources,
+		SecurityOpt: b.options.SecurityOpt,
+		Isolation:   b.options.Isolation,
+		ShmSize:     b.options.ShmSize,
+		Resources:   resources,
+		NetworkMode: container.NetworkMode(b.options.NetworkMode),
 	}
 
 	config := *b.runConfig
@@ -508,7 +496,7 @@ func (b *Builder) create() (string, error) {
 	c, err := b.docker.ContainerCreate(types.ContainerCreateConfig{
 		Config:     b.runConfig,
 		HostConfig: hostConfig,
-	}, true)
+	})
 	if err != nil {
 		return "", err
 	}
@@ -536,10 +524,7 @@ func (b *Builder) run(cID string) (err error) {
 	}()
 
 	finished := make(chan struct{})
-	var once sync.Once
-	finish := func() { close(finished) }
 	cancelErrCh := make(chan error, 1)
-	defer once.Do(finish)
 	go func() {
 		select {
 		case <-b.clientCtx.Done():
@@ -552,23 +537,38 @@ func (b *Builder) run(cID string) (err error) {
 		}
 	}()
 
-	if err := b.docker.ContainerStart(cID, nil, true); err != nil {
+	if err := b.docker.ContainerStart(cID, nil, "", ""); err != nil {
+		close(finished)
+		if cancelErr := <-cancelErrCh; cancelErr != nil {
+			logrus.Debugf("Build cancelled (%v) and got an error from ContainerStart: %v",
+				cancelErr, err)
+		}
 		return err
 	}
 
 	// Block on reading output from container, stop on err or chan closed
 	if err := <-errCh; err != nil {
+		close(finished)
+		if cancelErr := <-cancelErrCh; cancelErr != nil {
+			logrus.Debugf("Build cancelled (%v) and got an error from errCh: %v",
+				cancelErr, err)
+		}
 		return err
 	}
 
 	if ret, _ := b.docker.ContainerWait(cID, -1); ret != 0 {
+		close(finished)
+		if cancelErr := <-cancelErrCh; cancelErr != nil {
+			logrus.Debugf("Build cancelled (%v) and got a non-zero code from ContainerWait: %d",
+				cancelErr, ret)
+		}
 		// TODO: change error type, because jsonmessage.JSONError assumes HTTP
 		return &jsonmessage.JSONError{
 			Message: fmt.Sprintf("The command '%s' returned a non-zero code: %d", strings.Join(b.runConfig.Cmd, " "), ret),
 			Code:    ret,
 		}
 	}
-	once.Do(finish)
+	close(finished)
 	return <-cancelErrCh
 }
 

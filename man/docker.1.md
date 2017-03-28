@@ -5,7 +5,7 @@
 docker \- Docker image and container command line interface
 
 # SYNOPSIS
-**docker** [OPTIONS] COMMAND [arg...]
+**docker** [OPTIONS] COMMAND [ARG...]
 
 **docker** daemon [--help|...]
 
@@ -161,7 +161,7 @@ inside it)
   See **docker-rename(1)** for full documentation on the **rename** command.
 
 **restart**
-  Restart a container
+  Restart one or more containers
   See **docker-restart(1)** for full documentation on the **restart** command.
 
 **rm**

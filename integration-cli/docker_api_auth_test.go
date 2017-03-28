@@ -3,13 +3,13 @@ package main
 import (
 	"net/http"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/integration/checker"
-	"github.com/docker/engine-api/types"
 	"github.com/go-check/check"
 )
 
 // Test case for #22244
-func (s *DockerSuite) TestAuthApi(c *check.C) {
+func (s *DockerSuite) TestAuthAPI(c *check.C) {
 	testRequires(c, Network)
 	config := types.AuthConfig{
 		Username: "no-user",

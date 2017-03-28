@@ -9,13 +9,14 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/docker/docker/api"
 	"github.com/docker/docker/dockerversion"
 	"github.com/docker/docker/pkg/homedir"
 	"github.com/docker/docker/pkg/integration/checker"
 	"github.com/go-check/check"
 )
 
-func (s *DockerSuite) TestConfigHttpHeader(c *check.C) {
+func (s *DockerSuite) TestConfigHTTPHeader(c *check.C) {
 	testRequires(c, UnixCli) // Can't set/unset HOME on windows right now
 	// We either need a level of Go that supports Unsetenv (for cases
 	// when HOME/USERPROFILE isn't set), or we need to be able to use
@@ -25,6 +26,7 @@ func (s *DockerSuite) TestConfigHttpHeader(c *check.C) {
 
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("API-Version", api.DefaultVersion)
 			headers = r.Header
 		}))
 	defer server.Close()

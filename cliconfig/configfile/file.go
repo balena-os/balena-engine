@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/docker/engine-api/types"
+	"github.com/docker/docker/api/types"
 )
 
 const (
@@ -22,13 +22,18 @@ const (
 
 // ConfigFile ~/.docker/config.json file info
 type ConfigFile struct {
-	AuthConfigs      map[string]types.AuthConfig `json:"auths"`
-	HTTPHeaders      map[string]string           `json:"HttpHeaders,omitempty"`
-	PsFormat         string                      `json:"psFormat,omitempty"`
-	ImagesFormat     string                      `json:"imagesFormat,omitempty"`
-	DetachKeys       string                      `json:"detachKeys,omitempty"`
-	CredentialsStore string                      `json:"credsStore,omitempty"`
-	Filename         string                      `json:"-"` // Note: for internal use only
+	AuthConfigs          map[string]types.AuthConfig `json:"auths"`
+	HTTPHeaders          map[string]string           `json:"HttpHeaders,omitempty"`
+	PsFormat             string                      `json:"psFormat,omitempty"`
+	ImagesFormat         string                      `json:"imagesFormat,omitempty"`
+	NetworksFormat       string                      `json:"networksFormat,omitempty"`
+	VolumesFormat        string                      `json:"volumesFormat,omitempty"`
+	StatsFormat          string                      `json:"statsFormat,omitempty"`
+	DetachKeys           string                      `json:"detachKeys,omitempty"`
+	CredentialsStore     string                      `json:"credsStore,omitempty"`
+	CredentialHelpers    map[string]string           `json:"credHelpers,omitempty"`
+	Filename             string                      `json:"-"` // Note: for internal use only
+	ServiceInspectFormat string                      `json:"serviceInspectFormat,omitempty"`
 }
 
 // LegacyLoadFromReader reads the non-nested configuration data given and sets up the
@@ -92,7 +97,8 @@ func (configFile *ConfigFile) LoadFromReader(configData io.Reader) error {
 // in this file or not.
 func (configFile *ConfigFile) ContainsAuth() bool {
 	return configFile.CredentialsStore != "" ||
-		(configFile.AuthConfigs != nil && len(configFile.AuthConfigs) > 0)
+		len(configFile.CredentialHelpers) > 0 ||
+		len(configFile.AuthConfigs) > 0
 }
 
 // SaveToWriter encodes and writes out all the authorization information to

@@ -7,7 +7,7 @@ import (
 	"github.com/go-check/check"
 )
 
-func (s *DockerSuite) TestInfoApi(c *check.C) {
+func (s *DockerSuite) TestInfoAPI(c *check.C) {
 	endpoint := "/info"
 
 	status, body, err := sockRequest("GET", endpoint, nil)
@@ -37,4 +37,17 @@ func (s *DockerSuite) TestInfoApi(c *check.C) {
 	for _, linePrefix := range stringsToCheck {
 		c.Assert(out, checker.Contains, linePrefix)
 	}
+}
+
+func (s *DockerSuite) TestInfoAPIVersioned(c *check.C) {
+	testRequires(c, DaemonIsLinux) // Windows only supports 1.25 or later
+	endpoint := "/v1.20/info"
+
+	status, body, err := sockRequest("GET", endpoint, nil)
+	c.Assert(status, checker.Equals, http.StatusOK)
+	c.Assert(err, checker.IsNil)
+
+	out := string(body)
+	c.Assert(out, checker.Contains, "ExecutionDriver")
+	c.Assert(out, checker.Contains, "not supported")
 }

@@ -1,14 +1,23 @@
-<!--[metadata]>
-+++
-title = "Docker network driver plugins"
-description = "Network driver plugins."
-keywords = ["Examples, Usage, plugins, docker, documentation, user guide"]
-[menu.main]
-parent = "engine_extend"
-+++
-<![end-metadata]-->
+---
+title: "Docker network driver plugins"
+description: "Network driver plugins."
+keywords: "Examples, Usage, plugins, docker, documentation, user guide"
+---
+
+<!-- This file is maintained within the docker/docker Github
+     repository at https://github.com/docker/docker/. Make all
+     pull requests against that repo. If you see this file in
+     another repository, consider it read-only there, as it will
+     periodically be overwritten by the definitive file. Pull
+     requests which include edits to this file in other repositories
+     will be rejected.
+-->
 
 # Engine network driver plugins
+
+This document describes Docker Engine network driver plugins generally
+available in Docker Engine. To view information on plugins
+managed by Docker Engine, refer to [Docker Engine plugin system](index.md).
 
 Docker Engine network plugins enable Engine deployments to be extended to
 support a wide range of networking technologies, such as VXLAN, IPVLAN, MACVLAN
@@ -21,7 +30,7 @@ kind of protocol.
 ## Network driver plugins and swarm mode
 
 Docker 1.12 adds support for cluster management and orchestration called
-[swarm mode](../swarm/index.md). Docker Engine running in swarm mode currently
+[swarm mode](https://docs.docker.com/engine/swarm/). Docker Engine running in swarm mode currently
 only supports the built-in overlay driver for networking. Therefore existing
 networking plugins will not work in swarm mode.
 
@@ -41,7 +50,7 @@ commands. For example,
 
     $ docker network create --driver weave mynet
 
-Some network driver plugins are listed in [plugins](plugins.md)
+Some network driver plugins are listed in [plugins](legacy_plugins.md)
 
 The `mynet` network is now owned by `weave`, so subsequent commands
 referring to that network will be sent to the plugin,
@@ -52,7 +61,7 @@ referring to that network will be sent to the plugin,
 ## Write a network plugin
 
 Network plugins implement the [Docker plugin
-API](https://docs.docker.com/extend/plugin_api/) and the network plugin protocol
+API](plugin_api.md) and the network plugin protocol
 
 ## Network plugin protocol
 
@@ -64,5 +73,5 @@ documented as part of libnetwork:
 
 To interact with the Docker maintainers and other interested users, see the IRC channel `#docker-network`.
 
--  [Docker networks feature overview](../userguide/networking/index.md)
+-  [Docker networks feature overview](https://docs.docker.com/engine/userguide/networking/)
 -  The [LibNetwork](https://github.com/docker/libnetwork) project

@@ -276,8 +276,8 @@ func (s *DockerAuthzSuite) TestAuthZPluginDenyRequest(c *check.C) {
 	c.Assert(res, check.Equals, fmt.Sprintf("Error response from daemon: authorization denied by plugin %s: %s\n", testAuthZPlugin, unauthorizedMessage))
 }
 
-// TestAuthZPluginApiDenyResponse validates that when authorization plugin deny the request, the status code is forbidden
-func (s *DockerAuthzSuite) TestAuthZPluginApiDenyResponse(c *check.C) {
+// TestAuthZPluginAPIDenyResponse validates that when authorization plugin deny the request, the status code is forbidden
+func (s *DockerAuthzSuite) TestAuthZPluginAPIDenyResponse(c *check.C) {
 	err := s.d.Start("--authorization-plugin=" + testAuthZPlugin)
 	c.Assert(err, check.IsNil)
 	s.ctrl.reqRes.Allow = false
@@ -441,6 +441,25 @@ func (s *DockerAuthzSuite) TestAuthZPluginEnsureLoadImportWorking(c *check.C) {
 	c.Assert(err, check.IsNil, check.Commentf(out))
 	out, err = s.d.Cmd("import", exportedImagePath)
 	c.Assert(err, check.IsNil, check.Commentf(out))
+}
+
+func (s *DockerAuthzSuite) TestAuthZPluginHeader(c *check.C) {
+	c.Assert(s.d.Start("--debug", "--authorization-plugin="+testAuthZPlugin), check.IsNil)
+	s.ctrl.reqRes.Allow = true
+	s.ctrl.resRes.Allow = true
+	c.Assert(s.d.LoadBusybox(), check.IsNil)
+
+	daemonURL, err := url.Parse(s.d.sock())
+
+	conn, err := net.DialTimeout(daemonURL.Scheme, daemonURL.Path, time.Second*10)
+	c.Assert(err, check.IsNil)
+	client := httputil.NewClientConn(conn, nil)
+	req, err := http.NewRequest("GET", "/version", nil)
+	c.Assert(err, check.IsNil)
+	resp, err := client.Do(req)
+
+	c.Assert(err, check.IsNil)
+	c.Assert(resp.Header["Content-Type"][0], checker.Equals, "application/json")
 }
 
 // assertURIRecorded verifies that the given URI was sent and recorded in the authz plugin

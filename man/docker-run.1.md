@@ -15,8 +15,13 @@ docker-run - Run a command in a new container
 [**--cap-drop**[=*[]*]]
 [**--cgroup-parent**[=*CGROUP-PATH*]]
 [**--cidfile**[=*CIDFILE*]]
+[**--cpu-count**[=*0*]]
+[**--cpu-percent**[=*0*]]
 [**--cpu-period**[=*0*]]
 [**--cpu-quota**[=*0*]]
+[**--cpu-rt-period**[=*0*]]
+[**--cpu-rt-runtime**[=*0*]]
+[**--cpus**[=*0.0*]]
 [**--cpuset-cpus**[=*CPUSET-CPUS*]]
 [**--cpuset-mems**[=*CPUSET-MEMS*]]
 [**-d**|**--detach**]
@@ -27,7 +32,7 @@ docker-run - Run a command in a new container
 [**--device-write-bps**[=*[]*]]
 [**--device-write-iops**[=*[]*]]
 [**--dns**[=*[]*]]
-[**--dns-opt**[=*[]*]]
+[**--dns-option**[=*[]*]]
 [**--dns-search**[=*[]*]]
 [**-e**|**--env**[=*[]*]]
 [**--entrypoint**[=*ENTRYPOINT*]]
@@ -36,6 +41,8 @@ docker-run - Run a command in a new container
 [**--group-add**[=*[]*]]
 [**-h**|**--hostname**[=*HOSTNAME*]]
 [**--help**]
+[**--init**]
+[**--init-path**[=*[]*]]
 [**-i**|**--interactive**]
 [**--ip**[=*IPv4-ADDRESS*]]
 [**--ip6**[=*IPv6-ADDRESS*]]
@@ -70,6 +77,7 @@ docker-run - Run a command in a new container
 [**--security-opt**[=*[]*]]
 [**--storage-opt**[=*[]*]]
 [**--stop-signal**[=*SIGNAL*]]
+[**--stop-timeout**[=*TIMEOUT*]]
 [**--shm-size**[=*[]*]]
 [**--sig-proxy**[=*true*]]
 [**--sysctl**[=*[]*]]
@@ -169,6 +177,18 @@ division of CPU shares:
 **--cidfile**=""
    Write the container ID to the file
 
+**--cpu-count**=*0*
+    Limit the number of CPUs available for execution by the container.
+    
+    On Windows Server containers, this is approximated as a percentage of total CPU usage.
+
+    On Windows Server containers, the processor resource controls are mutually exclusive, the order of precedence is CPUCount first, then CPUShares, and CPUPercent last.
+
+**--cpu-percent**=*0*
+    Limit the percentage of CPU available for execution by a container running on a Windows daemon.
+
+    On Windows Server containers, the processor resource controls are mutually exclusive, the order of precedence is CPUCount first, then CPUShares, and CPUPercent last.
+
 **--cpu-period**=*0*
    Limit the CPU CFS (Completely Fair Scheduler) period
 
@@ -190,6 +210,22 @@ two memory nodes.
    Limit the container's CPU usage. By default, containers run with the full
 CPU resource. This flag tell the kernel to restrict the container's CPU usage
 to the quota you specify.
+
+**--cpu-rt-period**=0
+   Limit the CPU real-time period in microseconds
+
+   Limit the container's Real Time CPU usage. This flag tell the kernel to restrict the container's Real Time CPU usage to the period you specify.
+
+**--cpu-rt-runtime**=0
+   Limit the CPU real-time runtime in microseconds
+
+   Limit the containers Real Time CPU usage. This flag tells the kernel to limit the amount of time in a given CPU period Real Time tasks may consume. Ex:
+   Period of 1,000,000us and Runtime of 950,000us means that this container could consume 95% of available CPU and leave the remaining 5% to normal priority tasks.
+
+   The sum of all runtimes across containers cannot exceed the amount allotted to the parent cgroup.
+
+**--cpus**=0.0
+   Number of CPUs. The default is *0.0* which means no limit.
 
 **-d**, **--detach**=*true*|*false*
    Detached mode: run the container in the background and print the new container ID. The default is *false*.
@@ -225,7 +261,7 @@ See **config-json(5)** for documentation on using a configuration file.
 **--dns-search**=[]
    Set custom DNS search domains (Use --dns-search=. if you don't wish to set the search domain)
 
-**--dns-opt**=[]
+**--dns-option**=[]
    Set custom DNS options
 
 **--dns**=[]
@@ -275,7 +311,13 @@ redirection on the host system.
    Sets the container host name that is available inside the container.
 
 **--help**
-  Print usage statement
+   Print usage statement
+
+**--init**
+   Run an init inside the container that forwards signals and reaps processes
+
+**--init-path**=""
+   Path to the docker-init binary
 
 **-i**, **--interactive**=*true*|*false*
    Keep STDIN open even if not attached. The default is *false*.
@@ -285,12 +327,12 @@ redirection on the host system.
 **--ip**=""
    Sets the container's interface IPv4 address (e.g. 172.23.0.9)
 
-   It can only be used in conjunction with **--net** for user-defined networks
+   It can only be used in conjunction with **--network** for user-defined networks
 
 **--ip6**=""
    Sets the container's interface IPv6 address (e.g. 2001:db8::1b99)
 
-   It can only be used in conjunction with **--net** for user-defined networks
+   It can only be used in conjunction with **--network** for user-defined networks
 
 **--ipc**=""
    Default is to create a private IPC namespace (POSIX SysV IPC) for the container
@@ -387,7 +429,7 @@ string name. The name is useful when defining links (see **--link**) (or any
 other place you need to identify a container). This works for both background
 and foreground Docker containers.
 
-**--net**="*bridge*"
+**--network**="*bridge*"
    Set the Network mode for the container
                                'bridge': create a network stack on the default Docker bridge
                                'none': no networking
@@ -468,7 +510,9 @@ its root filesystem mounted as read only prohibiting any writes.
    Restart policy to apply when a container exits (no, on-failure[:max-retry], always, unless-stopped).
 
 **--rm**=*true*|*false*
-   Automatically remove the container when it exits (incompatible with -d). The default is *false*.
+   Automatically remove the container when it exits. The default is *false*.
+   `--rm` flag can work together with `-d`, and auto-removal will be done on daemon side. Note that it's
+incompatible with any restart policy other than `none`.
 
 **--security-opt**=[]
    Security Options
@@ -491,11 +535,17 @@ its root filesystem mounted as read only prohibiting any writes.
 
    $ docker run -it --storage-opt size=120G fedora /bin/bash
 
-   This (size) will allow to set the container rootfs size to 120G at creation time. User cannot pass a size less than the Default BaseFS Size.
-   This option is only available for the `devicemapper`, `btrfs`, and `zfs` graph drivers.
+   This (size) will allow to set the container rootfs size to 120G at creation time.
+   This option is only available for the `devicemapper`, `btrfs`, `overlay2`  and `zfs` graph drivers.
+   For the `devicemapper`, `btrfs` and `zfs` storage drivers, user cannot pass a size less than the Default BaseFS Size.
+   For the `overlay2` storage driver, the size option is only available if the backing fs is `xfs` and mounted with the `pquota` mount option.
+   Under these conditions, user can pass any size less then the backing fs size.
 
 **--stop-signal**=*SIGTERM*
   Signal to stop a container. Default is SIGTERM.
+
+**--stop-timeout**=*10*
+  Timeout (in seconds) to stop a container. Default is 10.
 
 **--shm-size**=""
    Size of `/dev/shm`. The format is `<number><unit>`.
@@ -515,7 +565,7 @@ its root filesystem mounted as read only prohibiting any writes.
   Network Namespace - current sysctls allowed:
       Sysctls beginning with net.*
 
-  If you use the `--net=host` option these sysctls will not be allowed.
+  If you use the `--network=host` option these sysctls will not be allowed.
 
 **--sig-proxy**=*true*|*false*
    Proxy received signals to the process (non-TTY mode only). SIGCHLD, SIGSTOP, and SIGKILL are not proxied. The default is *true*.
@@ -864,7 +914,7 @@ should fix the problem.
 ## Mapping Ports for External Usage
 
 The exposed port of an application can be mapped to a host port using the **-p**
-flag. For example, a httpd port 80 can be mapped to the host port 8080 using the
+flag. For example, an httpd port 80 can be mapped to the host port 8080 using the
 following:
 
     # docker run -p 8080:80 -d -i -t fedora/httpd
@@ -990,7 +1040,7 @@ network namespace, run this command:
 
 Note:
 
-Not all sysctls are namespaced. docker does not support changing sysctls
+Not all sysctls are namespaced. Docker does not support changing sysctls
 inside of a container that also modify the host system. As the kernel 
 evolves we expect to see more sysctls become namespaced.
 

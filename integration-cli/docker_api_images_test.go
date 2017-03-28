@@ -6,19 +6,19 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/integration/checker"
-	"github.com/docker/engine-api/types"
 	"github.com/go-check/check"
 )
 
-func (s *DockerSuite) TestApiImagesFilter(c *check.C) {
+func (s *DockerSuite) TestAPIImagesFilter(c *check.C) {
 	name := "utest:tag1"
 	name2 := "utest/docker:tag2"
 	name3 := "utest:5000/docker:tag3"
 	for _, n := range []string{name, name2, name3} {
 		dockerCmd(c, "tag", "busybox", n)
 	}
-	type image types.Image
+	type image types.ImageSummary
 	getImages := func(filter string) []image {
 		v := url.Values{}
 		v.Set("filter", filter)
@@ -47,7 +47,7 @@ func (s *DockerSuite) TestApiImagesFilter(c *check.C) {
 	c.Assert(images[0].RepoTags, checker.HasLen, 1)
 }
 
-func (s *DockerSuite) TestApiImagesSaveAndLoad(c *check.C) {
+func (s *DockerSuite) TestAPIImagesSaveAndLoad(c *check.C) {
 	// TODO Windows to Windows CI: Investigate further why this test fails.
 	testRequires(c, Network)
 	testRequires(c, DaemonIsLinux)
@@ -71,7 +71,7 @@ func (s *DockerSuite) TestApiImagesSaveAndLoad(c *check.C) {
 	c.Assert(strings.TrimSpace(string(inspectOut)), checker.Equals, id, check.Commentf("load did not work properly"))
 }
 
-func (s *DockerSuite) TestApiImagesDelete(c *check.C) {
+func (s *DockerSuite) TestAPIImagesDelete(c *check.C) {
 	if daemonPlatform != "windows" {
 		testRequires(c, Network)
 	}
@@ -95,7 +95,7 @@ func (s *DockerSuite) TestApiImagesDelete(c *check.C) {
 	c.Assert(status, checker.Equals, http.StatusOK)
 }
 
-func (s *DockerSuite) TestApiImagesHistory(c *check.C) {
+func (s *DockerSuite) TestAPIImagesHistory(c *check.C) {
 	if daemonPlatform != "windows" {
 		testRequires(c, Network)
 	}
@@ -118,7 +118,7 @@ func (s *DockerSuite) TestApiImagesHistory(c *check.C) {
 }
 
 // #14846
-func (s *DockerSuite) TestApiImagesSearchJSONContentType(c *check.C) {
+func (s *DockerSuite) TestAPIImagesSearchJSONContentType(c *check.C) {
 	testRequires(c, Network)
 
 	res, b, err := sockRequestRaw("GET", "/images/search?term=test", nil, "application/json")
@@ -126,4 +126,40 @@ func (s *DockerSuite) TestApiImagesSearchJSONContentType(c *check.C) {
 	b.Close()
 	c.Assert(res.StatusCode, checker.Equals, http.StatusOK)
 	c.Assert(res.Header.Get("Content-Type"), checker.Equals, "application/json")
+}
+
+// Test case for 30027: image size reported as -1 in v1.12 client against v1.13 daemon.
+// This test checks to make sure both v1.12 and v1.13 client against v1.13 daemon get correct `Size` after the fix.
+func (s *DockerSuite) TestAPIImagesSizeCompatibility(c *check.C) {
+	status, b, err := sockRequest("GET", "/images/json", nil)
+	c.Assert(err, checker.IsNil)
+	c.Assert(status, checker.Equals, http.StatusOK)
+	var images []types.ImageSummary
+	err = json.Unmarshal(b, &images)
+	c.Assert(err, checker.IsNil)
+	c.Assert(len(images), checker.Not(checker.Equals), 0)
+	for _, image := range images {
+		c.Assert(image.Size, checker.Not(checker.Equals), int64(-1))
+	}
+
+	type v124Image struct {
+		ID          string `json:"Id"`
+		ParentID    string `json:"ParentId"`
+		RepoTags    []string
+		RepoDigests []string
+		Created     int64
+		Size        int64
+		VirtualSize int64
+		Labels      map[string]string
+	}
+	status, b, err = sockRequest("GET", "/v1.24/images/json", nil)
+	c.Assert(err, checker.IsNil)
+	c.Assert(status, checker.Equals, http.StatusOK)
+	var v124Images []v124Image
+	err = json.Unmarshal(b, &v124Images)
+	c.Assert(err, checker.IsNil)
+	c.Assert(len(v124Images), checker.Not(checker.Equals), 0)
+	for _, image := range v124Images {
+		c.Assert(image.Size, checker.Not(checker.Equals), int64(-1))
+	}
 }

@@ -22,14 +22,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	volumetypes "github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/httputils"
-	"github.com/docker/docker/pkg/integration"
+	icmd "github.com/docker/docker/pkg/integration/cmd"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/stringutils"
-	"github.com/docker/engine-api/types"
 	"github.com/docker/go-connections/tlsconfig"
-	"github.com/docker/go-units"
+	units "github.com/docker/go-units"
 	"github.com/go-check/check"
 )
 
@@ -84,6 +85,7 @@ func init() {
 		volumesConfigPath = strings.Replace(volumesConfigPath, `\`, `/`, -1)
 		containerStoragePath = strings.Replace(containerStoragePath, `\`, `/`, -1)
 	}
+	isolation = info.Isolation
 }
 
 func convertBasesize(basesizeBytes int64) (int64, error) {
@@ -228,16 +230,9 @@ func readBody(b io.ReadCloser) ([]byte, error) {
 	return ioutil.ReadAll(b)
 }
 
-func deleteContainer(container string) error {
-	container = strings.TrimSpace(strings.Replace(container, "\n", " ", -1))
-	rmArgs := strings.Split(fmt.Sprintf("rm -fv %v", container), " ")
-	exitCode, err := runCommand(exec.Command(dockerBinary, rmArgs...))
-	// set error manually if not set
-	if exitCode != 0 && err == nil {
-		err = fmt.Errorf("failed to remove container: `docker rm` exit is non-zero")
-	}
-
-	return err
+func deleteContainer(container ...string) error {
+	result := icmd.RunCommand(dockerBinary, append([]string{"rm", "-fv"}, container...)...)
+	return result.Compare(icmd.Success)
 }
 
 func getAllContainers() (string, error) {
@@ -256,13 +251,15 @@ func deleteAllContainers() error {
 		fmt.Println(containers)
 		return err
 	}
-
-	if containers != "" {
-		if err = deleteContainer(containers); err != nil {
-			return err
-		}
+	if containers == "" {
+		return nil
 	}
-	return nil
+
+	err = deleteContainer(strings.Split(strings.TrimSpace(containers), "\n")...)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	return err
 }
 
 func deleteAllNetworks() error {
@@ -306,6 +303,40 @@ func getAllNetworks() ([]types.NetworkResource, error) {
 	return networks, nil
 }
 
+func deleteAllPlugins() error {
+	plugins, err := getAllPlugins()
+	if err != nil {
+		return err
+	}
+	var errors []string
+	for _, p := range plugins {
+		status, b, err := sockRequest("DELETE", "/plugins/"+p.Name+"?force=1", nil)
+		if err != nil {
+			errors = append(errors, err.Error())
+			continue
+		}
+		if status != http.StatusNoContent {
+			errors = append(errors, fmt.Sprintf("error deleting plugin %s: %s", p.Name, string(b)))
+		}
+	}
+	if len(errors) > 0 {
+		return fmt.Errorf(strings.Join(errors, "\n"))
+	}
+	return nil
+}
+
+func getAllPlugins() (types.PluginsListResponse, error) {
+	var plugins types.PluginsListResponse
+	_, b, err := sockRequest("GET", "/plugins", nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(b, &plugins); err != nil {
+		return nil, err
+	}
+	return plugins, nil
+}
+
 func deleteAllVolumes() error {
 	volumes, err := getAllVolumes()
 	if err != nil {
@@ -329,7 +360,7 @@ func deleteAllVolumes() error {
 }
 
 func getAllVolumes() ([]*types.Volume, error) {
-	var volumes types.VolumesListResponse
+	var volumes volumetypes.VolumesListOKBody
 	_, b, err := sockRequest("GET", "/volumes", nil)
 	if err != nil {
 		return nil, err
@@ -398,13 +429,7 @@ func getSliceOfPausedContainers() ([]string, error) {
 }
 
 func unpauseContainer(container string) error {
-	unpauseCmd := exec.Command(dockerBinary, "unpause", container)
-	exitCode, err := runCommand(unpauseCmd)
-	if exitCode != 0 && err == nil {
-		err = fmt.Errorf("failed to unpause container")
-	}
-
-	return err
+	return icmd.RunCommand(dockerBinary, "unpause", container).Error
 }
 
 func unpauseAllContainers() error {
@@ -428,24 +453,12 @@ func unpauseAllContainers() error {
 }
 
 func deleteImages(images ...string) error {
-	args := []string{"rmi", "-f"}
-	args = append(args, images...)
-	rmiCmd := exec.Command(dockerBinary, args...)
-	exitCode, err := runCommand(rmiCmd)
-	// set error manually if not set
-	if exitCode != 0 && err == nil {
-		err = fmt.Errorf("failed to remove image: `docker rmi` exit is non-zero")
-	}
-	return err
+	args := []string{dockerBinary, "rmi", "-f"}
+	return icmd.RunCmd(icmd.Cmd{Command: append(args, images...)}).Error
 }
 
 func imageExists(image string) error {
-	inspectCmd := exec.Command(dockerBinary, "inspect", image)
-	exitCode, err := runCommand(inspectCmd)
-	if exitCode != 0 && err == nil {
-		err = fmt.Errorf("couldn't find image %q", image)
-	}
-	return err
+	return icmd.RunCommand(dockerBinary, "inspect", image).Error
 }
 
 func pullImageIfNotExist(image string) error {
@@ -464,33 +477,49 @@ func dockerCmdWithError(args ...string) (string, int, error) {
 	if err := validateArgs(args...); err != nil {
 		return "", 0, err
 	}
-	out, code, err := integration.DockerCmdWithError(dockerBinary, args...)
-	if err != nil {
-		err = fmt.Errorf("%v: %s", err, out)
+	result := icmd.RunCommand(dockerBinary, args...)
+	if result.Error != nil {
+		return result.Combined(), result.ExitCode, result.Compare(icmd.Success)
 	}
-	return out, code, err
+	return result.Combined(), result.ExitCode, result.Error
 }
 
 func dockerCmdWithStdoutStderr(c *check.C, args ...string) (string, string, int) {
 	if err := validateArgs(args...); err != nil {
 		c.Fatalf(err.Error())
 	}
-	return integration.DockerCmdWithStdoutStderr(dockerBinary, c, args...)
+
+	result := icmd.RunCommand(dockerBinary, args...)
+	// TODO: why is c ever nil?
+	if c != nil {
+		c.Assert(result, icmd.Matches, icmd.Success)
+	}
+	return result.Stdout(), result.Stderr(), result.ExitCode
 }
 
 func dockerCmd(c *check.C, args ...string) (string, int) {
 	if err := validateArgs(args...); err != nil {
 		c.Fatalf(err.Error())
 	}
-	return integration.DockerCmd(dockerBinary, c, args...)
+	result := icmd.RunCommand(dockerBinary, args...)
+	c.Assert(result, icmd.Matches, icmd.Success)
+	return result.Combined(), result.ExitCode
+}
+
+func dockerCmdWithResult(args ...string) *icmd.Result {
+	return icmd.RunCommand(dockerBinary, args...)
+}
+
+func binaryWithArgs(args ...string) []string {
+	return append([]string{dockerBinary}, args...)
 }
 
 // execute a docker command with a timeout
-func dockerCmdWithTimeout(timeout time.Duration, args ...string) (string, int, error) {
+func dockerCmdWithTimeout(timeout time.Duration, args ...string) *icmd.Result {
 	if err := validateArgs(args...); err != nil {
-		return "", 0, err
+		return &icmd.Result{Error: err}
 	}
-	return integration.DockerCmdWithTimeout(dockerBinary, timeout, args...)
+	return icmd.RunCmd(icmd.Cmd{Command: binaryWithArgs(args...), Timeout: timeout})
 }
 
 // execute a docker command in a directory
@@ -498,15 +527,20 @@ func dockerCmdInDir(c *check.C, path string, args ...string) (string, int, error
 	if err := validateArgs(args...); err != nil {
 		c.Fatalf(err.Error())
 	}
-	return integration.DockerCmdInDir(dockerBinary, path, args...)
+	result := icmd.RunCmd(icmd.Cmd{Command: binaryWithArgs(args...), Dir: path})
+	return result.Combined(), result.ExitCode, result.Error
 }
 
 // execute a docker command in a directory with a timeout
-func dockerCmdInDirWithTimeout(timeout time.Duration, path string, args ...string) (string, int, error) {
+func dockerCmdInDirWithTimeout(timeout time.Duration, path string, args ...string) *icmd.Result {
 	if err := validateArgs(args...); err != nil {
-		return "", 0, err
+		return &icmd.Result{Error: err}
 	}
-	return integration.DockerCmdInDirWithTimeout(dockerBinary, timeout, path, args...)
+	return icmd.RunCmd(icmd.Cmd{
+		Command: binaryWithArgs(args...),
+		Timeout: timeout,
+		Dir:     path,
+	})
 }
 
 // validateArgs is a checker to ensure tests are not running commands which are
@@ -521,7 +555,7 @@ func validateArgs(args ...string) error {
 			foundBusybox = key
 		}
 		if (foundBusybox != -1) && (key == foundBusybox+1) && (strings.ToLower(value) == "top") {
-			return errors.New("Cannot use 'busybox top' in tests on Windows. Use runSleepingContainer()")
+			return errors.New("cannot use 'busybox top' in tests on Windows. Use runSleepingContainer()")
 		}
 	}
 	return nil
@@ -579,21 +613,21 @@ func (f *FakeContext) Add(file, content string) error {
 }
 
 func (f *FakeContext) addFile(file string, content []byte) error {
-	filepath := path.Join(f.Dir, file)
-	dirpath := path.Dir(filepath)
+	fp := filepath.Join(f.Dir, filepath.FromSlash(file))
+	dirpath := filepath.Dir(fp)
 	if dirpath != "." {
 		if err := os.MkdirAll(dirpath, 0755); err != nil {
 			return err
 		}
 	}
-	return ioutil.WriteFile(filepath, content, 0644)
+	return ioutil.WriteFile(fp, content, 0644)
 
 }
 
 // Delete a file at a path
 func (f *FakeContext) Delete(file string) error {
-	filepath := path.Join(f.Dir, file)
-	return os.RemoveAll(filepath)
+	fp := filepath.Join(f.Dir, filepath.FromSlash(file))
+	return os.RemoveAll(fp)
 }
 
 // Close deletes the context
@@ -756,6 +790,10 @@ func newRemoteFileServer(ctx *FakeContext) (*remoteFileServer, error) {
 		container = fmt.Sprintf("fileserver-cnt-%s", strings.ToLower(stringutils.GenerateRandomAlphaOnlyString(10)))
 	)
 
+	if err := ensureHTTPServerImage(); err != nil {
+		return nil, err
+	}
+
 	// Build the image
 	if err := fakeContextAddDockerfile(ctx, `FROM httpserver
 COPY . /static`); err != nil {
@@ -867,7 +905,7 @@ var errMountNotFound = errors.New("mount point not found")
 
 func inspectMountPointJSON(j, destination string) (types.MountPoint, error) {
 	var mp []types.MountPoint
-	if err := unmarshalJSON([]byte(j), &mp); err != nil {
+	if err := json.Unmarshal([]byte(j), &mp); err != nil {
 		return types.MountPoint{}, err
 	}
 
@@ -1355,17 +1393,17 @@ func buildImageCmdArgs(args []string, name, dockerfile string, useCache bool) *e
 }
 
 func waitForContainer(contID string, args ...string) error {
-	args = append([]string{"run", "--name", contID}, args...)
-	cmd := exec.Command(dockerBinary, args...)
-	if _, err := runCommand(cmd); err != nil {
-		return err
+	args = append([]string{dockerBinary, "run", "--name", contID}, args...)
+	result := icmd.RunCmd(icmd.Cmd{Command: args})
+	if result.Error != nil {
+		return result.Error
 	}
+	return waitRun(contID)
+}
 
-	if err := waitRun(contID); err != nil {
-		return err
-	}
-
-	return nil
+// waitRestart will wait for the specified container to restart once
+func waitRestart(contID string, duration time.Duration) error {
+	return waitInspect(contID, "{{.RestartCount}}", "1", duration)
 }
 
 // waitRun will wait for the specified container to be running, maximum 5 seconds.
@@ -1391,22 +1429,22 @@ func waitInspectWithArgs(name, expr, expected string, timeout time.Duration, arg
 
 	args := append(arg, "inspect", "-f", expr, name)
 	for {
-		cmd := exec.Command(dockerBinary, args...)
-		out, _, err := runCommandWithOutput(cmd)
-		if err != nil {
-			if !strings.Contains(out, "No such") {
-				return fmt.Errorf("error executing docker inspect: %v\n%s", err, out)
+		result := icmd.RunCommand(dockerBinary, args...)
+		if result.Error != nil {
+			if !strings.Contains(result.Stderr(), "No such") {
+				return fmt.Errorf("error executing docker inspect: %v\n%s",
+					result.Stderr(), result.Stdout())
 			}
 			select {
 			case <-after:
-				return err
+				return result.Error
 			default:
 				time.Sleep(10 * time.Millisecond)
 				continue
 			}
 		}
 
-		out = strings.TrimSpace(out)
+		out := strings.TrimSpace(result.Stdout())
 		if out == expected {
 			break
 		}
@@ -1442,7 +1480,7 @@ func runSleepingContainerInImage(c *check.C, image string, extraArgs ...string) 
 	args := []string{"run", "-d"}
 	args = append(args, extraArgs...)
 	args = append(args, image)
-	args = append(args, defaultSleepCommand...)
+	args = append(args, sleepCommandForDaemonPlatform()...)
 	return dockerCmd(c, args...)
 }
 

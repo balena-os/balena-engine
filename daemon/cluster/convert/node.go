@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	types "github.com/docker/engine-api/types/swarm"
+	types "github.com/docker/docker/api/types/swarm"
 	swarmapi "github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/protobuf/ptypes"
 )
@@ -20,6 +20,7 @@ func NodeFromGRPC(n swarmapi.Node) types.Node {
 		Status: types.NodeStatus{
 			State:   types.NodeState(strings.ToLower(n.Status.State.String())),
 			Message: n.Status.Message,
+			Addr:    n.Status.Addr,
 		},
 	}
 
