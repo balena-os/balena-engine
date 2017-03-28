@@ -1,20 +1,22 @@
 package daemon
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/container"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
-	"github.com/docker/engine-api/types"
+	"github.com/pkg/errors"
 )
 
 // ErrExtractPointNotDirectory is used to convey that the operation to extract
@@ -34,6 +36,11 @@ func (daemon *Daemon) ContainerCopy(name string, res string) (io.ReadCloser, err
 		res = res[1:]
 	}
 
+	// Make sure an online file-system operation is permitted.
+	if err := daemon.isOnlineFSOperationPermitted(container); err != nil {
+		return nil, err
+	}
+
 	return daemon.containerCopy(container, res)
 }
 
@@ -42,6 +49,11 @@ func (daemon *Daemon) ContainerCopy(name string, res string) (io.ReadCloser, err
 func (daemon *Daemon) ContainerStatPath(name string, path string) (stat *types.ContainerPathStat, err error) {
 	container, err := daemon.GetContainer(name)
 	if err != nil {
+		return nil, err
+	}
+
+	// Make sure an online file-system operation is permitted.
+	if err := daemon.isOnlineFSOperationPermitted(container); err != nil {
 		return nil, err
 	}
 
@@ -54,6 +66,11 @@ func (daemon *Daemon) ContainerStatPath(name string, path string) (stat *types.C
 func (daemon *Daemon) ContainerArchivePath(name string, path string) (content io.ReadCloser, stat *types.ContainerPathStat, err error) {
 	container, err := daemon.GetContainer(name)
 	if err != nil {
+		return nil, nil, err
+	}
+
+	// Make sure an online file-system operation is permitted.
+	if err := daemon.isOnlineFSOperationPermitted(container); err != nil {
 		return nil, nil, err
 	}
 
@@ -72,6 +89,11 @@ func (daemon *Daemon) ContainerExtractToDir(name, path string, noOverwriteDirNon
 		return err
 	}
 
+	// Make sure an online file-system operation is permitted.
+	if err := daemon.isOnlineFSOperationPermitted(container); err != nil {
+		return err
+	}
+
 	return daemon.containerExtractToDir(container, path, noOverwriteDirNonDir, content)
 }
 
@@ -87,7 +109,7 @@ func (daemon *Daemon) containerStatPath(container *container.Container, path str
 	defer daemon.Unmount(container)
 
 	err = daemon.mountVolumes(container)
-	defer container.UnmountVolumes(true, daemon.LogVolumeEvent)
+	defer container.DetachAndUnmount(daemon.LogVolumeEvent)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +144,7 @@ func (daemon *Daemon) containerArchivePath(container *container.Container, path 
 	defer func() {
 		if err != nil {
 			// unmount any volumes
-			container.UnmountVolumes(true, daemon.LogVolumeEvent)
+			container.DetachAndUnmount(daemon.LogVolumeEvent)
 			// unmount the container's rootfs
 			daemon.Unmount(container)
 		}
@@ -157,7 +179,7 @@ func (daemon *Daemon) containerArchivePath(container *container.Container, path 
 
 	content = ioutils.NewReadCloserWrapper(data, func() error {
 		err := data.Close()
-		container.UnmountVolumes(true, daemon.LogVolumeEvent)
+		container.DetachAndUnmount(daemon.LogVolumeEvent)
 		daemon.Unmount(container)
 		container.Unlock()
 		return err
@@ -184,7 +206,7 @@ func (daemon *Daemon) containerExtractToDir(container *container.Container, path
 	defer daemon.Unmount(container)
 
 	err = daemon.mountVolumes(container)
-	defer container.UnmountVolumes(true, daemon.LogVolumeEvent)
+	defer container.DetachAndUnmount(daemon.LogVolumeEvent)
 	if err != nil {
 		return err
 	}
@@ -292,7 +314,7 @@ func (daemon *Daemon) containerCopy(container *container.Container, resource str
 	defer func() {
 		if err != nil {
 			// unmount any volumes
-			container.UnmountVolumes(true, daemon.LogVolumeEvent)
+			container.DetachAndUnmount(daemon.LogVolumeEvent)
 			// unmount the container's rootfs
 			daemon.Unmount(container)
 		}
@@ -329,7 +351,7 @@ func (daemon *Daemon) containerCopy(container *container.Container, resource str
 
 	reader := ioutils.NewReadCloserWrapper(archive, func() error {
 		err := archive.Close()
-		container.UnmountVolumes(true, daemon.LogVolumeEvent)
+		container.DetachAndUnmount(daemon.LogVolumeEvent)
 		daemon.Unmount(container)
 		container.Unlock()
 		return err
@@ -433,4 +455,35 @@ func (daemon *Daemon) CopyOnBuild(cID string, destPath string, src builder.FileI
 	}
 
 	return fixPermissions(srcPath, destPath, rootUID, rootGID, destExists)
+}
+
+// MountImage returns mounted path with rootfs of an image.
+func (daemon *Daemon) MountImage(name string) (string, func() error, error) {
+	img, err := daemon.GetImage(name)
+	if err != nil {
+		return "", nil, errors.Wrapf(err, "no such image: %s", name)
+	}
+
+	mountID := stringid.GenerateRandomID()
+	rwLayer, err := daemon.layerStore.CreateRWLayer(mountID, img.RootFS.ChainID(), nil)
+	if err != nil {
+		return "", nil, errors.Wrap(err, "failed to create rwlayer")
+	}
+
+	mountPath, err := rwLayer.Mount("")
+	if err != nil {
+		metadata, releaseErr := daemon.layerStore.ReleaseRWLayer(rwLayer)
+		if releaseErr != nil {
+			err = errors.Wrapf(err, "failed to release rwlayer: %s", releaseErr.Error())
+		}
+		layer.LogReleaseMetadata(metadata)
+		return "", nil, errors.Wrap(err, "failed to mount rwlayer")
+	}
+
+	return mountPath, func() error {
+		rwLayer.Unmount()
+		metadata, err := daemon.layerStore.ReleaseRWLayer(rwLayer)
+		layer.LogReleaseMetadata(metadata)
+		return err
+	}, nil
 }

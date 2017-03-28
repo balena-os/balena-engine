@@ -6,7 +6,6 @@ package dockerfile
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -14,13 +13,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/builder/dockerfile/parser"
 	"github.com/docker/docker/pkg/archive"
@@ -34,9 +37,7 @@ import (
 	"github.com/docker/docker/pkg/tarsum"
 	"github.com/docker/docker/pkg/urlutil"
 	"github.com/docker/docker/runconfig/opts"
-	"github.com/docker/engine-api/types"
-	"github.com/docker/engine-api/types/container"
-	"github.com/docker/engine-api/types/strslice"
+	"github.com/pkg/errors"
 )
 
 func (b *Builder) commit(id string, autoCmd strslice.StrSlice, comment string) error {
@@ -44,7 +45,7 @@ func (b *Builder) commit(id string, autoCmd strslice.StrSlice, comment string) e
 		return nil
 	}
 	if b.image == "" && !b.noBaseImage {
-		return fmt.Errorf("Please provide a source image with `from` prior to commit")
+		return errors.New("Please provide a source image with `from` prior to commit")
 	}
 	b.runConfig.Image = b.image
 
@@ -84,6 +85,7 @@ func (b *Builder) commit(id string, autoCmd strslice.StrSlice, comment string) e
 	}
 
 	b.image = imageID
+	b.imageContexts.update(imageID)
 	return nil
 }
 
@@ -92,11 +94,7 @@ type copyInfo struct {
 	decompress bool
 }
 
-func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalDecompression bool, cmdName string) error {
-	if b.context == nil {
-		return fmt.Errorf("No context given. Impossible to use %s", cmdName)
-	}
-
+func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalDecompression bool, cmdName string, contextID *int) error {
 	if len(args) < 2 {
 		return fmt.Errorf("Invalid %s format - at least two arguments required", cmdName)
 	}
@@ -114,7 +112,6 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 	var err error
 	for _, orig := range args[0 : len(args)-1] {
 		var fi builder.FileInfo
-		decompress := allowLocalDecompression
 		if urlutil.IsURL(orig) {
 			if !allowRemote {
 				return fmt.Errorf("Source can't be a URL for %s", cmdName)
@@ -124,12 +121,14 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 				return err
 			}
 			defer os.RemoveAll(filepath.Dir(fi.Path()))
-			decompress = false
-			infos = append(infos, copyInfo{fi, decompress})
+			infos = append(infos, copyInfo{
+				FileInfo:   fi,
+				decompress: false,
+			})
 			continue
 		}
 		// not a URL
-		subInfos, err := b.calcCopyInfo(cmdName, orig, allowLocalDecompression, true)
+		subInfos, err := b.calcCopyInfo(cmdName, orig, allowLocalDecompression, true, contextID)
 		if err != nil {
 			return err
 		}
@@ -138,7 +137,7 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 	}
 
 	if len(infos) == 0 {
-		return fmt.Errorf("No source files were specified")
+		return errors.New("No source files were specified")
 	}
 	if len(infos) > 1 && !strings.HasSuffix(dest, string(os.PathSeparator)) {
 		return fmt.Errorf("When using %s with more than one source file, the destination must be a directory and end with a /", cmdName)
@@ -181,7 +180,11 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 		return nil
 	}
 
-	container, err := b.docker.ContainerCreate(types.ContainerCreateConfig{Config: b.runConfig}, true)
+	container, err := b.docker.ContainerCreate(types.ContainerCreateConfig{
+		Config: b.runConfig,
+		// Set a log config to override any default value set on the daemon
+		HostConfig: &container.HostConfig{LogConfig: defaultLogConfig},
+	})
 	if err != nil {
 		return err
 	}
@@ -189,7 +192,7 @@ func (b *Builder) runContextCommand(args []string, allowRemote bool, allowLocalD
 
 	comment := fmt.Sprintf("%s %s in %s", cmdName, origPaths, dest)
 
-	// Twiddle the destination when its a relative path - meaning, make it
+	// Twiddle the destination when it's a relative path - meaning, make it
 	// relative to the WORKINGDIR
 	if dest, err = normaliseDest(cmdName, b.runConfig.WorkingDir, dest); err != nil {
 		return err
@@ -255,9 +258,9 @@ func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {
 	// ignoring error because the file was already opened successfully
 	tmpFileSt, err := tmpFile.Stat()
 	if err != nil {
+		tmpFile.Close()
 		return
 	}
-	tmpFile.Close()
 
 	// Set the mtime to the Last-Modified header value if present
 	// Otherwise just remove atime and mtime
@@ -271,6 +274,8 @@ func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {
 			mTime = parsedMTime
 		}
 	}
+
+	tmpFile.Close()
 
 	if err = system.Chtimes(tmpFileName, mTime, mTime); err != nil {
 		return
@@ -293,20 +298,41 @@ func (b *Builder) download(srcURL string) (fi builder.FileInfo, err error) {
 	return &builder.HashedFileInfo{FileInfo: builder.PathFileInfo{FileInfo: tmpFileSt, FilePath: tmpFileName}, FileHash: hash}, nil
 }
 
-func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression, allowWildcards bool) ([]copyInfo, error) {
+func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression, allowWildcards bool, contextID *int) ([]copyInfo, error) {
 
 	// Work in daemon-specific OS filepath semantics
 	origPath = filepath.FromSlash(origPath)
+
+	// validate windows paths from other images
+	if contextID != nil && runtime.GOOS == "windows" {
+		forbid := regexp.MustCompile("(?i)^" + string(os.PathSeparator) + "?(windows(" + string(os.PathSeparator) + ".+)?)?$")
+		if p := filepath.Clean(origPath); p == "." || forbid.MatchString(p) {
+			return nil, errors.Errorf("copy from %s is not allowed on windows", origPath)
+		}
+	}
 
 	if origPath != "" && origPath[0] == os.PathSeparator && len(origPath) > 1 {
 		origPath = origPath[1:]
 	}
 	origPath = strings.TrimPrefix(origPath, "."+string(os.PathSeparator))
 
+	context := b.context
+	var err error
+	if contextID != nil {
+		context, err = b.imageContexts.context(*contextID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if context == nil {
+		return nil, errors.Errorf("No context given. Impossible to use %s", cmdName)
+	}
+
 	// Deal with wildcards
 	if allowWildcards && containsWildcards(origPath) {
 		var copyInfos []copyInfo
-		if err := b.context.Walk("", func(path string, info builder.FileInfo, err error) error {
+		if err := context.Walk("", func(path string, info builder.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
@@ -320,7 +346,7 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 
 			// Note we set allowWildcards to false in case the name has
 			// a * in it
-			subInfos, err := b.calcCopyInfo(cmdName, path, allowLocalDecompression, false)
+			subInfos, err := b.calcCopyInfo(cmdName, path, allowLocalDecompression, false, contextID)
 			if err != nil {
 				return err
 			}
@@ -333,8 +359,7 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 	}
 
 	// Must be a dir or a file
-
-	statPath, fi, err := b.context.Stat(origPath)
+	statPath, fi, err := context.Stat(origPath)
 	if err != nil {
 		return nil, err
 	}
@@ -345,6 +370,13 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 	if !handleHash {
 		return copyInfos, nil
 	}
+	if contextID != nil {
+		// fast-cache based on imageID
+		if h, ok := b.imageContexts.getCache(*contextID, origPath); ok {
+			hfi.SetHash(h.(string))
+			return copyInfos, nil
+		}
+	}
 
 	// Deal with the single file case
 	if !fi.IsDir() {
@@ -353,7 +385,7 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 	}
 	// Must be a dir
 	var subfiles []string
-	err = b.context.Walk(statPath, func(path string, info builder.FileInfo, err error) error {
+	err = context.Walk(statPath, func(path string, info builder.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -369,20 +401,11 @@ func (b *Builder) calcCopyInfo(cmdName, origPath string, allowLocalDecompression
 	hasher := sha256.New()
 	hasher.Write([]byte(strings.Join(subfiles, ",")))
 	hfi.SetHash("dir:" + hex.EncodeToString(hasher.Sum(nil)))
+	if contextID != nil {
+		b.imageContexts.setCache(*contextID, origPath, hfi.Hash())
+	}
 
 	return copyInfos, nil
-}
-
-func containsWildcards(name string) bool {
-	for i := 0; i < len(name); i++ {
-		ch := name[i]
-		if ch == '\\' {
-			i++
-		} else if ch == '*' || ch == '?' || ch == '[' {
-			return true
-		}
-	}
-	return false
 }
 
 func (b *Builder) processImageFrom(img builder.Image) error {
@@ -395,11 +418,11 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 	}
 
 	// Check to see if we have a default PATH, note that windows won't
-	// have one as its set by HCS
+	// have one as it's set by HCS
 	if system.DefaultPathEnv != "" {
 		// Convert the slice of strings that represent the current list
 		// of env vars into a map so we can see if PATH is already set.
-		// If its not set then go ahead and give it our default value
+		// If it's not set then go ahead and give it our default value
 		configEnv := opts.ConvertKVStringsToMap(b.runConfig.Env)
 		if _, ok := configEnv["PATH"]; !ok {
 			b.runConfig.Env = append(b.runConfig.Env,
@@ -421,9 +444,13 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 		fmt.Fprintf(b.Stderr, "# Executing %d build %s...\n", nTriggers, word)
 	}
 
-	// Copy the ONBUILD triggers, and remove them from the config, since the config will be comitted.
+	// Copy the ONBUILD triggers, and remove them from the config, since the config will be committed.
 	onBuildTriggers := b.runConfig.OnBuild
 	b.runConfig.OnBuild = []string{}
+
+	// Reset stdin settings as all build actions run without stdin
+	b.runConfig.OpenStdin = false
+	b.runConfig.StdinOnce = false
 
 	// parse the ONBUILD triggers by invoking the parser
 	for _, step := range onBuildTriggers {
@@ -432,15 +459,14 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 			return err
 		}
 
-		for i, n := range ast.Children {
-			switch strings.ToUpper(n.Value) {
-			case "ONBUILD":
-				return fmt.Errorf("Chaining ONBUILD via `ONBUILD ONBUILD` isn't allowed")
-			case "MAINTAINER", "FROM":
-				return fmt.Errorf("%s isn't allowed as an ONBUILD trigger", n.Value)
+		total := len(ast.Children)
+		for _, n := range ast.Children {
+			if err := b.checkDispatch(n, true); err != nil {
+				return err
 			}
-
-			if err := b.dispatch(i, n); err != nil {
+		}
+		for i, n := range ast.Children {
+			if err := b.dispatch(i, total, n); err != nil {
 				return err
 			}
 		}
@@ -449,18 +475,16 @@ func (b *Builder) processImageFrom(img builder.Image) error {
 	return nil
 }
 
-// probeCache checks if `b.docker` implements builder.ImageCache and image-caching
-// is enabled (`b.UseCache`).
-// If so attempts to look up the current `b.image` and `b.runConfig` pair with `b.docker`.
+// probeCache checks if cache match can be found for current build instruction.
 // If an image is found, probeCache returns `(true, nil)`.
 // If no image is found, it returns `(false, nil)`.
 // If there is any error, it returns `(false, err)`.
 func (b *Builder) probeCache() (bool, error) {
-	c, ok := b.docker.(builder.ImageCache)
-	if !ok || b.options.NoCache || b.cacheBusted {
+	c := b.imageCache
+	if c == nil || b.options.NoCache || b.cacheBusted {
 		return false, nil
 	}
-	cache, err := c.GetCachedImageOnBuild(b.image, b.runConfig)
+	cache, err := c.GetCache(b.image, b.runConfig)
 	if err != nil {
 		return false, err
 	}
@@ -470,16 +494,17 @@ func (b *Builder) probeCache() (bool, error) {
 		return false, nil
 	}
 
-	fmt.Fprintf(b.Stdout, " ---> Using cache\n")
+	fmt.Fprint(b.Stdout, " ---> Using cache\n")
 	logrus.Debugf("[BUILDER] Use cached version: %s", b.runConfig.Cmd)
 	b.image = string(cache)
+	b.imageContexts.update(b.image)
 
 	return true, nil
 }
 
 func (b *Builder) create() (string, error) {
 	if b.image == "" && !b.noBaseImage {
-		return "", fmt.Errorf("Please provide a source image with `from` prior to run")
+		return "", errors.New("Please provide a source image with `from` prior to run")
 	}
 	b.runConfig.Image = b.image
 
@@ -497,9 +522,14 @@ func (b *Builder) create() (string, error) {
 
 	// TODO: why not embed a hostconfig in builder?
 	hostConfig := &container.HostConfig{
-		Isolation: b.options.Isolation,
-		ShmSize:   b.options.ShmSize,
-		Resources: resources,
+		SecurityOpt: b.options.SecurityOpt,
+		Isolation:   b.options.Isolation,
+		ShmSize:     b.options.ShmSize,
+		Resources:   resources,
+		NetworkMode: container.NetworkMode(b.options.NetworkMode),
+		// Set a log config to override any default value set on the daemon
+		LogConfig:  defaultLogConfig,
+		ExtraHosts: b.options.ExtraHosts,
 	}
 
 	config := *b.runConfig
@@ -508,7 +538,7 @@ func (b *Builder) create() (string, error) {
 	c, err := b.docker.ContainerCreate(types.ContainerCreateConfig{
 		Config:     b.runConfig,
 		HostConfig: hostConfig,
-	}, true)
+	})
 	if err != nil {
 		return "", err
 	}
@@ -536,10 +566,7 @@ func (b *Builder) run(cID string) (err error) {
 	}()
 
 	finished := make(chan struct{})
-	var once sync.Once
-	finish := func() { close(finished) }
 	cancelErrCh := make(chan error, 1)
-	defer once.Do(finish)
 	go func() {
 		select {
 		case <-b.clientCtx.Done():
@@ -552,23 +579,38 @@ func (b *Builder) run(cID string) (err error) {
 		}
 	}()
 
-	if err := b.docker.ContainerStart(cID, nil, true); err != nil {
+	if err := b.docker.ContainerStart(cID, nil, "", ""); err != nil {
+		close(finished)
+		if cancelErr := <-cancelErrCh; cancelErr != nil {
+			logrus.Debugf("Build cancelled (%v) and got an error from ContainerStart: %v",
+				cancelErr, err)
+		}
 		return err
 	}
 
 	// Block on reading output from container, stop on err or chan closed
 	if err := <-errCh; err != nil {
+		close(finished)
+		if cancelErr := <-cancelErrCh; cancelErr != nil {
+			logrus.Debugf("Build cancelled (%v) and got an error from errCh: %v",
+				cancelErr, err)
+		}
 		return err
 	}
 
 	if ret, _ := b.docker.ContainerWait(cID, -1); ret != 0 {
+		close(finished)
+		if cancelErr := <-cancelErrCh; cancelErr != nil {
+			logrus.Debugf("Build cancelled (%v) and got a non-zero code from ContainerWait: %d",
+				cancelErr, ret)
+		}
 		// TODO: change error type, because jsonmessage.JSONError assumes HTTP
 		return &jsonmessage.JSONError{
 			Message: fmt.Sprintf("The command '%s' returned a non-zero code: %d", strings.Join(b.runConfig.Cmd, " "), ret),
 			Code:    ret,
 		}
 	}
-	once.Do(finish)
+	close(finished)
 	return <-cancelErrCh
 }
 
@@ -656,14 +698,35 @@ func (b *Builder) parseDockerfile() error {
 	return nil
 }
 
-// determine if build arg is part of built-in args or user
-// defined args in Dockerfile at any point in time.
-func (b *Builder) isBuildArgAllowed(arg string) bool {
-	if _, ok := BuiltinAllowedBuildArgs[arg]; ok {
-		return true
+func (b *Builder) getBuildArg(arg string) (string, bool) {
+	defaultValue, defined := b.allowedBuildArgs[arg]
+	_, builtin := BuiltinAllowedBuildArgs[arg]
+	if defined || builtin {
+		if v, ok := b.options.BuildArgs[arg]; ok && v != nil {
+			return *v, ok
+		}
 	}
-	if _, ok := b.allowedBuildArgs[arg]; ok {
-		return true
+	if defaultValue == nil {
+		return "", false
 	}
-	return false
+	return *defaultValue, defined
+}
+
+func (b *Builder) getBuildArgs() map[string]string {
+	m := make(map[string]string)
+	for arg := range b.options.BuildArgs {
+		v, ok := b.getBuildArg(arg)
+		if ok {
+			m[arg] = v
+		}
+	}
+	for arg := range b.allowedBuildArgs {
+		if _, ok := m[arg]; !ok {
+			v, ok := b.getBuildArg(arg)
+			if ok {
+				m[arg] = v
+			}
+		}
+	}
+	return m
 }

@@ -1,11 +1,12 @@
 // +build !windows
 
-// Package term provides provides structures and helper functions to work with
+// Package term provides structures and helper functions to work with
 // terminal (state, sizes).
 package term
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -30,7 +31,7 @@ type Winsize struct {
 	y      uint16
 }
 
-// StdStreams returns the standard streams (stdin, stdout, stedrr).
+// StdStreams returns the standard streams (stdin, stdout, stderr).
 func StdStreams() (stdIn io.ReadCloser, stdOut, stdErr io.Writer) {
 	return os.Stdin, os.Stdout, os.Stderr
 }
@@ -109,9 +110,14 @@ func SetRawTerminalOutput(fd uintptr) (*State, error) {
 func handleInterrupt(fd uintptr, state *State) {
 	sigchan := make(chan os.Signal, 1)
 	signal.Notify(sigchan, os.Interrupt)
-
 	go func() {
-		_ = <-sigchan
-		RestoreTerminal(fd, state)
+		for range sigchan {
+			// quit cleanly and the new terminal item is on a new line
+			fmt.Println()
+			signal.Stop(sigchan)
+			close(sigchan)
+			RestoreTerminal(fd, state)
+			os.Exit(1)
+		}
 	}()
 }

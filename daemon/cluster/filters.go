@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/docker/docker/api/types/filters"
 	runconfigopts "github.com/docker/docker/runconfig/opts"
-	"github.com/docker/engine-api/types/filters"
 	swarmapi "github.com/docker/swarmkit/api"
 )
 
@@ -45,22 +45,6 @@ func newListNodesFilters(filter filters.Args) (*swarmapi.ListNodesRequest_Filter
 	return f, nil
 }
 
-func newListServicesFilters(filter filters.Args) (*swarmapi.ListServicesRequest_Filters, error) {
-	accepted := map[string]bool{
-		"name":  true,
-		"id":    true,
-		"label": true,
-	}
-	if err := filter.Validate(accepted); err != nil {
-		return nil, err
-	}
-	return &swarmapi.ListServicesRequest_Filters{
-		NamePrefixes: filter.Get("name"),
-		IDPrefixes:   filter.Get("id"),
-		Labels:       runconfigopts.ConvertKVStringsToMap(filter.Get("label")),
-	}, nil
-}
-
 func newListTasksFilters(filter filters.Args, transformFunc func(filters.Args) error) (*swarmapi.ListTasksRequest_Filters, error) {
 	accepted := map[string]bool{
 		"name":          true,
@@ -95,4 +79,22 @@ func newListTasksFilters(filter filters.Args, transformFunc func(filters.Args) e
 	}
 
 	return f, nil
+}
+
+func newListSecretsFilters(filter filters.Args) (*swarmapi.ListSecretsRequest_Filters, error) {
+	accepted := map[string]bool{
+		"names": true,
+		"name":  true,
+		"id":    true,
+		"label": true,
+	}
+	if err := filter.Validate(accepted); err != nil {
+		return nil, err
+	}
+	return &swarmapi.ListSecretsRequest_Filters{
+		Names:        filter.Get("names"),
+		NamePrefixes: filter.Get("name"),
+		IDPrefixes:   filter.Get("id"),
+		Labels:       runconfigopts.ConvertKVStringsToMap(filter.Get("label")),
+	}, nil
 }

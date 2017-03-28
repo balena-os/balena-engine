@@ -8,12 +8,11 @@ import (
 
 var (
 	errNoSuchInterface         = errors.New("no such interface")
-	errMultipleIPs             = errors.New("could not choose an IP address to advertise since this system has multiple addresses")
 	errNoIP                    = errors.New("could not find the system's IP address")
-	errMustSpecifyListenAddr   = errors.New("must specify a listening address because the address to advertise is not recognized as a system address")
+	errMustSpecifyListenAddr   = errors.New("must specify a listening address because the address to advertise is not recognized as a system address, and a system's IP address to use could not be uniquely identified")
 	errBadListenAddr           = errors.New("listen address must be an IP address or network interface (with optional port number)")
-	errBadAdvertiseAddr        = errors.New("advertise address must be an IP address or network interface (with optional port number)")
-	errBadDefaultAdvertiseAddr = errors.New("default advertise address must be an IP address or network interface (without a port number)")
+	errBadAdvertiseAddr        = errors.New("advertise address must be a non-zero IP address or network interface (with optional port number)")
+	errBadDefaultAdvertiseAddr = errors.New("default advertise address must be a non-zero IP address or network interface (without a port number)")
 )
 
 func resolveListenAddr(specifiedAddr string) (string, string, error) {
@@ -70,7 +69,7 @@ func (c *Cluster) resolveAdvertiseAddr(advertiseAddr, listenAddrPort string) (st
 		}
 
 		// If it's not an interface, it must be an IP (for now)
-		if net.ParseIP(advertiseHost) == nil {
+		if ip := net.ParseIP(advertiseHost); ip == nil || ip.IsUnspecified() {
 			return "", "", errBadAdvertiseAddr
 		}
 
@@ -90,7 +89,7 @@ func (c *Cluster) resolveAdvertiseAddr(advertiseAddr, listenAddrPort string) (st
 		}
 
 		// If it's not an interface, it must be an IP (for now)
-		if net.ParseIP(c.config.DefaultAdvertiseAddr) == nil {
+		if ip := net.ParseIP(c.config.DefaultAdvertiseAddr); ip == nil || ip.IsUnspecified() {
 			return "", "", errBadDefaultAdvertiseAddr
 		}
 
@@ -125,13 +124,13 @@ func resolveInterfaceAddr(specifiedInterface string) (net.IP, error) {
 			if ipAddr.IP.To4() != nil {
 				// IPv4
 				if interfaceAddr4 != nil {
-					return nil, fmt.Errorf("interface %s has more than one IPv4 address", specifiedInterface)
+					return nil, fmt.Errorf("interface %s has more than one IPv4 address (%s and %s)", specifiedInterface, interfaceAddr4, ipAddr.IP)
 				}
 				interfaceAddr4 = ipAddr.IP
 			} else {
 				// IPv6
 				if interfaceAddr6 != nil {
-					return nil, fmt.Errorf("interface %s has more than one IPv6 address", specifiedInterface)
+					return nil, fmt.Errorf("interface %s has more than one IPv6 address (%s and %s)", specifiedInterface, interfaceAddr6, ipAddr.IP)
 				}
 				interfaceAddr6 = ipAddr.IP
 			}
@@ -150,19 +149,20 @@ func resolveInterfaceAddr(specifiedInterface string) (net.IP, error) {
 	return interfaceAddr6, nil
 }
 
-func (c *Cluster) resolveSystemAddr() (net.IP, error) {
+func (c *Cluster) resolveSystemAddrViaSubnetCheck() (net.IP, error) {
 	// Use the system's only IP address, or fail if there are
-	// multiple addresses to choose from.
+	// multiple addresses to choose from. Skip interfaces which
+	// are managed by docker via subnet check.
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
 
 	var systemAddr net.IP
+	var systemInterface string
 
 	// List Docker-managed subnets
-	v4Subnets := c.config.NetworkSubnetsProvider.V4Subnets()
-	v6Subnets := c.config.NetworkSubnetsProvider.V6Subnets()
+	v4Subnets, v6Subnets := c.config.NetworkSubnetsProvider.Subnets()
 
 ifaceLoop:
 	for _, intf := range interfaces {
@@ -197,7 +197,7 @@ ifaceLoop:
 				}
 
 				if interfaceAddr4 != nil {
-					return nil, errMultipleIPs
+					return nil, errMultipleIPs(intf.Name, intf.Name, interfaceAddr4, ipAddr.IP)
 				}
 
 				interfaceAddr4 = ipAddr.IP
@@ -212,7 +212,7 @@ ifaceLoop:
 				}
 
 				if interfaceAddr6 != nil {
-					return nil, errMultipleIPs
+					return nil, errMultipleIPs(intf.Name, intf.Name, interfaceAddr6, ipAddr.IP)
 				}
 
 				interfaceAddr6 = ipAddr.IP
@@ -223,14 +223,16 @@ ifaceLoop:
 		// and exactly one IPv6 address, favor IPv4 over IPv6.
 		if interfaceAddr4 != nil {
 			if systemAddr != nil {
-				return nil, errMultipleIPs
+				return nil, errMultipleIPs(systemInterface, intf.Name, systemAddr, interfaceAddr4)
 			}
 			systemAddr = interfaceAddr4
+			systemInterface = intf.Name
 		} else if interfaceAddr6 != nil {
 			if systemAddr != nil {
-				return nil, errMultipleIPs
+				return nil, errMultipleIPs(systemInterface, intf.Name, systemAddr, interfaceAddr6)
 			}
 			systemAddr = interfaceAddr6
+			systemInterface = intf.Name
 		}
 	}
 
@@ -265,4 +267,11 @@ func listSystemIPs() []net.IP {
 	}
 
 	return systemAddrs
+}
+
+func errMultipleIPs(interfaceA, interfaceB string, addrA, addrB net.IP) error {
+	if interfaceA == interfaceB {
+		return fmt.Errorf("could not choose an IP address to advertise since this system has multiple addresses on interface %s (%s and %s)", interfaceA, addrA, addrB)
+	}
+	return fmt.Errorf("could not choose an IP address to advertise since this system has multiple addresses on different interfaces (%s on %s and %s on %s)", addrA, interfaceA, addrB, interfaceB)
 }
