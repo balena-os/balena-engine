@@ -1,4 +1,4 @@
-package main
+package dockerd
 
 // preNotifyReady sends a message to the host when the API is active, but before the daemon is
 func preNotifyReady() {
