@@ -1,4 +1,4 @@
-package main
+package dockerd
 
 import systemdDaemon "github.com/coreos/go-systemd/v22/daemon"
 
