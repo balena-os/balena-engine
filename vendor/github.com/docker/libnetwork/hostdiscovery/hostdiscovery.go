@@ -10,9 +10,6 @@ import (
 	"github.com/docker/docker/pkg/discovery"
 	// Including KV
 	_ "github.com/docker/docker/pkg/discovery/kv"
-	"github.com/docker/libkv/store/consul"
-	"github.com/docker/libkv/store/etcd"
-	"github.com/docker/libkv/store/zookeeper"
 	"github.com/docker/libnetwork/types"
 )
 
@@ -24,9 +21,7 @@ type hostDiscovery struct {
 }
 
 func init() {
-	consul.Register()
-	etcd.Register()
-	zookeeper.Register()
+	// We don't use zookeeper, consul, nor etcd
 }
 
 // NewHostDiscovery function creates a host discovery object
