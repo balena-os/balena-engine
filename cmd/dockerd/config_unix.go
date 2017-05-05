@@ -1,6 +1,6 @@
 // +build linux,!solaris freebsd,!solaris
 
-package main
+package dockerd
 
 import (
 	"github.com/docker/docker/daemon/config"
