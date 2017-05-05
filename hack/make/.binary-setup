@@ -7,3 +7,5 @@ DOCKER_CONTAINERD_CTR_BINARY_NAME='docker-containerd-ctr'
 DOCKER_CONTAINERD_SHIM_BINARY_NAME='docker-containerd-shim'
 DOCKER_PROXY_BINARY_NAME='docker-proxy'
 DOCKER_INIT_BINARY_NAME='docker-init'
+
+DOCKER_RCE_BINARY_NAME='rce'

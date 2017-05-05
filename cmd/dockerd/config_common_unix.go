@@ -1,6 +1,6 @@
 // +build linux freebsd
 
-package main
+package dockerd
 
 import (
 	"github.com/docker/docker/api/types"

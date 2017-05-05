@@ -1,6 +1,6 @@
 // +build linux
 
-package main
+package dockerd
 
 import systemdDaemon "github.com/coreos/go-systemd/daemon"
 
