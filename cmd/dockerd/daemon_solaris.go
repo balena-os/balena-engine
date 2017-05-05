@@ -1,6 +1,6 @@
 // +build solaris
 
-package main
+package dockerd
 
 import (
 	"fmt"

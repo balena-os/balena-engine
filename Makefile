@@ -80,6 +80,9 @@ all: build ## validate all checks, build linux binaries, run all tests\ncross bu
 binary: build ## build the linux binaries
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
+rce: build ## build the linux consalidate binary
+	$(DOCKER_RUN_DOCKER) hack/make.sh binary-rce
+
 build: bundles init-go-pkg-cache
 	docker build ${BUILD_APT_MIRROR} ${DOCKER_BUILD_ARGS} -t "$(DOCKER_IMAGE)" -f "$(DOCKERFILE)" .
 
