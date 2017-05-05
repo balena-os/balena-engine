@@ -280,13 +280,6 @@ func (daemon *Daemon) restore() error {
 		return fmt.Errorf("Error initializing network controller: %v", err)
 	}
 
-	// Perform migration of legacy sqlite links (no-op on Windows)
-	if migrateLegacyLinks {
-		if err := daemon.sqliteMigration(containers); err != nil {
-			return err
-		}
-	}
-
 	// Now that all the containers are registered, register the links
 	for _, c := range containers {
 		if err := daemon.registerLinks(c, c.HostConfig); err != nil {

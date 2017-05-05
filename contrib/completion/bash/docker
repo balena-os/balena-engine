@@ -685,7 +685,6 @@ __docker_complete_isolation() {
 
 __docker_complete_log_drivers() {
 	COMPREPLY=( $( compgen -W "
-		awslogs
 		etwlogs
 		fluentd
 		gcplogs
@@ -701,7 +700,6 @@ __docker_complete_log_drivers() {
 
 __docker_complete_log_options() {
 	# see docs/reference/logging/index.md
-	local awslogs_options="awslogs-region awslogs-group awslogs-stream"
 	local fluentd_options="env fluentd-address fluentd-async-connect fluentd-buffer-limit fluentd-retry-wait fluentd-max-retries labels tag"
 	local gcplogs_options="env gcp-log-cmd gcp-project labels"
 	local gelf_options="env gelf-address gelf-compression-level gelf-compression-type labels tag"
@@ -716,9 +714,6 @@ __docker_complete_log_options() {
 	case $(__docker_value_of_option --log-driver) in
 		'')
 			COMPREPLY=( $( compgen -W "$all_options" -S = -- "$cur" ) )
-			;;
-		awslogs)
-			COMPREPLY=( $( compgen -W "$awslogs_options" -S = -- "$cur" ) )
 			;;
 		fluentd)
 			COMPREPLY=( $( compgen -W "$fluentd_options" -S = -- "$cur" ) )
