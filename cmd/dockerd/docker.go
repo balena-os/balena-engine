@@ -1,4 +1,4 @@
-package main
+package dockerd
 
 import (
 	"fmt"
@@ -73,7 +73,8 @@ func init() {
 	honorXDG = rootless.RunningWithRootlessKit()
 }
 
-func main() {
+// Main of the dockerd
+func Main() {
 	if reexec.Init() {
 		return
 	}
