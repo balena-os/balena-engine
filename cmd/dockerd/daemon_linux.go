@@ -1,4 +1,4 @@
-package main
+package dockerd
 
 import (
 	cdcgroups "github.com/containerd/cgroups/v3"

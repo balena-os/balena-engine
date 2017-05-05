@@ -1,4 +1,4 @@
-package main
+package dockerd
 
 import (
 	"fmt"
@@ -75,7 +75,8 @@ func init() {
 	honorXDG = rootless.RunningWithRootlessKit()
 }
 
-func main() {
+// Main is the entry point for the dockerd daemon.
+func Main() {
 	if reexec.Init() {
 		return
 	}
