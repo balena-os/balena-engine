@@ -1,7 +1,7 @@
 //go:build !windows
 // +build !windows
 
-package main
+package dockerd
 
 import (
 	"github.com/spf13/pflag"
