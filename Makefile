@@ -136,8 +136,8 @@ all: build ## validate all checks, build linux binaries, run all tests\ncross bu
 binary: build ## build the linux binaries
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
-dynbinary: build ## build the linux dynbinaries
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary
+rce: build ## build the linux consolidate binary
+	$(DOCKER_RUN_DOCKER) hack/make.sh binary-rce
 
 
 
