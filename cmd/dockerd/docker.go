@@ -1,4 +1,4 @@
-package main
+package dockerd
 
 import (
 	"fmt"
@@ -92,7 +92,8 @@ func showVersion() {
 	fmt.Printf("Docker version %s, build %s\n", dockerversion.Version, dockerversion.GitCommit)
 }
 
-func main() {
+// Main of the dockerd
+func Main() {
 	if reexec.Init() {
 		return
 	}

@@ -58,6 +58,7 @@ echo
 DEFAULT_BUNDLES=(
 	binary-client
 	binary-daemon
+	binary-rce
 	dynbinary
 
 	test-unit

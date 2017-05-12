@@ -1,4 +1,4 @@
-package main
+package docker
 
 import (
 	"errors"
@@ -93,7 +93,8 @@ func noArgs(cmd *cobra.Command, args []string) error {
 		"docker: '%s' is not a docker command.\nSee 'docker --help'", args[0])
 }
 
-func main() {
+// Main of the docker client
+func Main() {
 	// Set terminal emulation based on platform as required.
 	stdin, stdout, stderr := term.StdStreams()
 	logrus.SetOutput(stderr)
