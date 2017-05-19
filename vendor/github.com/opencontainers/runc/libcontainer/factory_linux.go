@@ -208,6 +208,7 @@ func (l *LinuxFactory) Load(id string) (Container, error) {
 		initProcessStartTime: state.InitProcessStartTime,
 		id:                   id,
 		config:               &state.Config,
+		initPath:             l.InitPath,
 		initArgs:             l.InitArgs,
 		criuPath:             l.CriuPath,
 		cgroupManager:        l.NewCgroupsManager(state.Config.Cgroups, state.CgroupPaths),
