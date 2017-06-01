@@ -4,9 +4,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 
+	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/pkg/integration/checker"
-	"github.com/docker/engine-api/types/swarm"
 	"github.com/go-check/check"
 )
 
@@ -14,10 +15,10 @@ func (s *DockerSwarmSuite) TestServiceUpdatePort(c *check.C) {
 	d := s.AddDaemon(c, true, true)
 
 	serviceName := "TestServiceUpdatePort"
-	serviceArgs := append([]string{"create", "--name", serviceName, "-p", "8080:8081", defaultSleepImage}, defaultSleepCommand...)
+	serviceArgs := append([]string{"service", "create", "--name", serviceName, "-p", "8080:8081", defaultSleepImage}, sleepCommandForDaemonPlatform()...)
 
 	// Create a service with a port mapping of 8080:8081.
-	out, err := d.Cmd("service", serviceArgs...)
+	out, err := d.Cmd(serviceArgs...)
 	c.Assert(err, checker.IsNil)
 	waitAndAssert(c, defaultReconciliationTimeout, d.checkActiveContainerCount, checker.Equals, 1)
 
@@ -31,6 +32,7 @@ func (s *DockerSwarmSuite) TestServiceUpdatePort(c *check.C) {
 			Protocol:      "tcp",
 			PublishedPort: 8082,
 			TargetPort:    8083,
+			PublishMode:   "ingress",
 		},
 	}
 
@@ -83,4 +85,46 @@ func (s *DockerSwarmSuite) TestServiceUpdateLabel(c *check.C) {
 	service = d.getService(c, "test")
 	c.Assert(service.Spec.Labels, checker.HasLen, 1)
 	c.Assert(service.Spec.Labels["foo"], checker.Equals, "bar")
+}
+
+func (s *DockerSwarmSuite) TestServiceUpdateSecrets(c *check.C) {
+	d := s.AddDaemon(c, true, true)
+	testName := "test_secret"
+	id := d.createSecret(c, swarm.SecretSpec{
+		swarm.Annotations{
+			Name: testName,
+		},
+		[]byte("TESTINGDATA"),
+	})
+	c.Assert(id, checker.Not(checker.Equals), "", check.Commentf("secrets: %s", id))
+	testTarget := "testing"
+	serviceName := "test"
+
+	out, err := d.Cmd("service", "create", "--name", serviceName, "busybox", "top")
+	c.Assert(err, checker.IsNil, check.Commentf(out))
+
+	// add secret
+	out, err = d.cmdRetryOutOfSequence("service", "update", "test", "--secret-add", fmt.Sprintf("source=%s,target=%s", testName, testTarget))
+	c.Assert(err, checker.IsNil, check.Commentf(out))
+
+	out, err = d.Cmd("service", "inspect", "--format", "{{ json .Spec.TaskTemplate.ContainerSpec.Secrets }}", serviceName)
+	c.Assert(err, checker.IsNil)
+
+	var refs []swarm.SecretReference
+	c.Assert(json.Unmarshal([]byte(out), &refs), checker.IsNil)
+	c.Assert(refs, checker.HasLen, 1)
+
+	c.Assert(refs[0].SecretName, checker.Equals, testName)
+	c.Assert(refs[0].File, checker.Not(checker.IsNil))
+	c.Assert(refs[0].File.Name, checker.Equals, testTarget)
+
+	// remove
+	out, err = d.cmdRetryOutOfSequence("service", "update", "test", "--secret-rm", testName)
+	c.Assert(err, checker.IsNil, check.Commentf(out))
+
+	out, err = d.Cmd("service", "inspect", "--format", "{{ json .Spec.TaskTemplate.ContainerSpec.Secrets }}", serviceName)
+	c.Assert(err, checker.IsNil)
+
+	c.Assert(json.Unmarshal([]byte(out), &refs), checker.IsNil)
+	c.Assert(refs, checker.HasLen, 0)
 }

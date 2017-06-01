@@ -4,7 +4,6 @@ package aaparser
 import (
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -23,10 +22,10 @@ func GetVersion() (int, error) {
 	return parseVersion(output)
 }
 
-// LoadProfile runs `apparmor_parser -r -W` on a specified apparmor profile to
-// replace and write it to disk.
+// LoadProfile runs `apparmor_parser -r` on a specified apparmor profile to
+// replace the profile.
 func LoadProfile(profilePath string) error {
-	_, err := cmd(filepath.Dir(profilePath), "-r", "-W", filepath.Base(profilePath))
+	_, err := cmd("", "-r", profilePath)
 	if err != nil {
 		return err
 	}

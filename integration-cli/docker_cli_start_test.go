@@ -95,10 +95,10 @@ func (s *DockerSuite) TestStartRecordError(c *check.C) {
 
 func (s *DockerSuite) TestStartPausedContainer(c *check.C) {
 	// Windows does not support pausing containers
-	testRequires(c, DaemonIsLinux)
+	testRequires(c, IsPausable)
 	defer unpauseAllContainers()
 
-	dockerCmd(c, "run", "-d", "--name", "testing", "busybox", "top")
+	runSleepingContainer(c, "-d", "--name", "testing")
 
 	dockerCmd(c, "pause", "testing")
 
@@ -184,4 +184,16 @@ func (s *DockerSuite) TestStartAttachWithRename(c *check.C) {
 	}()
 	_, stderr, _, _ := runCommandWithStdoutStderr(exec.Command(dockerBinary, "start", "-a", "before"))
 	c.Assert(stderr, checker.Not(checker.Contains), "No such container")
+}
+
+func (s *DockerSuite) TestStartReturnCorrectExitCode(c *check.C) {
+	dockerCmd(c, "create", "--restart=on-failure:2", "--name", "withRestart", "busybox", "sh", "-c", "exit 11")
+	dockerCmd(c, "create", "--rm", "--name", "withRm", "busybox", "sh", "-c", "exit 12")
+
+	_, exitCode, err := dockerCmdWithError("start", "-a", "withRestart")
+	c.Assert(err, checker.NotNil)
+	c.Assert(exitCode, checker.Equals, 11)
+	_, exitCode, err = dockerCmdWithError("start", "-a", "withRm")
+	c.Assert(err, checker.NotNil)
+	c.Assert(exitCode, checker.Equals, 12)
 }

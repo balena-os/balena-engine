@@ -3,8 +3,8 @@
 package main
 
 import (
+	"github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/pkg/integration/checker"
-	"github.com/docker/engine-api/types/swarm"
 	"github.com/go-check/check"
 )
 
@@ -17,7 +17,7 @@ func setPortConfig(portConfig []swarm.PortConfig) serviceConstructor {
 	}
 }
 
-func (s *DockerSwarmSuite) TestApiServiceUpdatePort(c *check.C) {
+func (s *DockerSwarmSuite) TestAPIServiceUpdatePort(c *check.C) {
 	d := s.AddDaemon(c, true, true)
 
 	// Create a service with a port mapping of 8080:8081.

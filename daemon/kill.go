@@ -55,7 +55,7 @@ func (daemon *Daemon) ContainerKill(name string, sig uint64) error {
 // or not running, or if there is a problem returned from the
 // underlying kill command.
 func (daemon *Daemon) killWithSignal(container *container.Container, sig int) error {
-	logrus.Debugf("Sending %d to %s", sig, container.ID)
+	logrus.Debugf("Sending kill signal %d to container %s", sig, container.ID)
 	container.Lock()
 	defer container.Unlock()
 
@@ -68,7 +68,17 @@ func (daemon *Daemon) killWithSignal(container *container.Container, sig int) er
 		return errNotRunning{container.ID}
 	}
 
-	container.ExitOnNext()
+	if container.Config.StopSignal != "" {
+		containerStopSignal, err := signal.ParseSignal(container.Config.StopSignal)
+		if err != nil {
+			return err
+		}
+		if containerStopSignal == syscall.Signal(sig) {
+			container.ExitOnNext()
+		}
+	} else {
+		container.ExitOnNext()
+	}
 
 	if !daemon.IsShuttingDown() {
 		container.HasBeenManuallyStopped = true
@@ -121,11 +131,8 @@ func (daemon *Daemon) Kill(container *container.Container) error {
 			return nil
 		}
 
-		if container.IsRunning() {
-			container.WaitStop(2 * time.Second)
-			if container.IsRunning() {
-				return err
-			}
+		if _, err2 := container.WaitStop(2 * time.Second); err2 != nil {
+			return err
 		}
 	}
 

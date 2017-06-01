@@ -2,14 +2,15 @@ package daemon
 
 import (
 	"os"
+	"path/filepath"
 
-	flag "github.com/docker/docker/pkg/mflag"
-	"github.com/docker/engine-api/types"
+	"github.com/docker/docker/api/types"
+	"github.com/spf13/pflag"
 )
 
 var (
-	defaultPidFile = os.Getenv("programdata") + string(os.PathSeparator) + "docker.pid"
-	defaultGraph   = os.Getenv("programdata") + string(os.PathSeparator) + "docker"
+	defaultPidFile string
+	defaultGraph   = filepath.Join(os.Getenv("programdata"), "docker")
 )
 
 // bridgeConfig stores all the bridge driver specific
@@ -28,24 +29,26 @@ type Config struct {
 	// for the Windows daemon.)
 }
 
-// InstallFlags adds command-line options to the top-level flag parser for
-// the current process.
-// Subsequent calls to `flag.Parse` will populate config with values parsed
-// from the command-line.
-func (config *Config) InstallFlags(cmd *flag.FlagSet, usageFn func(string) string) {
+// InstallFlags adds flags to the pflag.FlagSet to configure the daemon
+func (config *Config) InstallFlags(flags *pflag.FlagSet) {
 	// First handle install flags which are consistent cross-platform
-	config.InstallCommonFlags(cmd, usageFn)
+	config.InstallCommonFlags(flags)
 
 	// Then platform-specific install flags.
-	cmd.StringVar(&config.bridgeConfig.FixedCIDR, []string{"-fixed-cidr"}, "", usageFn("IPv4 subnet for fixed IPs"))
-	cmd.StringVar(&config.bridgeConfig.Iface, []string{"b", "-bridge"}, "", "Attach containers to a virtual switch")
-	cmd.StringVar(&config.SocketGroup, []string{"G", "-group"}, "", usageFn("Users or groups that can access the named pipe"))
+	flags.StringVar(&config.bridgeConfig.FixedCIDR, "fixed-cidr", "", "IPv4 subnet for fixed IPs")
+	flags.StringVarP(&config.bridgeConfig.Iface, "bridge", "b", "", "Attach containers to a virtual switch")
+	flags.StringVarP(&config.SocketGroup, "group", "G", "", "Users or groups that can access the named pipe")
 }
 
 // GetRuntime returns the runtime path and arguments for a given
 // runtime name
 func (config *Config) GetRuntime(name string) *types.Runtime {
 	return nil
+}
+
+// GetInitPath returns the configure docker-init path
+func (config *Config) GetInitPath() string {
+	return ""
 }
 
 // GetDefaultRuntimeName returns the current default runtime

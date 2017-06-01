@@ -2,36 +2,37 @@
 % Docker Community
 % JUNE 2014
 # NAME
-docker-inspect - Return low-level information on a container or image
+docker-inspect - Return low-level information on docker objects
 
 # SYNOPSIS
 **docker inspect**
 [**--help**]
 [**-f**|**--format**[=*FORMAT*]]
 [**-s**|**--size**]
-[**--type**=*container*|*image*]
-CONTAINER|IMAGE [CONTAINER|IMAGE...]
+[**--type**=*container*|*image*|*network*|*node*|*service*|*task*|*volume*]
+NAME|ID [NAME|ID...]
 
 # DESCRIPTION
 
-This displays all the information available in Docker for a given
-container or image. By default, this will render all results in a JSON
-array. If the container and image have the same name, this will return
-container JSON for unspecified type. If a format is specified, the given
-template will be executed for each result.
+This displays the low-level information on Docker object(s) (e.g. container, 
+image, volume,network, node, service, or task) identified by name or ID. By default,
+this will render all results in a JSON array. If the container and image have
+the same name, this will return container JSON for unspecified type. If a format
+is specified, the given template will be executed for each result.
 
 # OPTIONS
 **--help**
     Print usage statement
 
 **-f**, **--format**=""
-    Format the output using the given Go template.
+    Format the output using the given Go template
 
 **-s**, **--size**
-    Display total file sizes if the type is container.
+    Display total file sizes if the type is container
 
-**--type**="*container*|*image*"
-    Return JSON for specified type, permissible values are "image" or "container"
+**--type**=*container*|*image*|*network*|*node*|*service*|*task*|*volume*
+    Return JSON for specified type, permissible values are "image", "container",
+    "network", "node", "service", "task", and "volume"
 
 # EXAMPLES
 

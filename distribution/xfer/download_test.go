@@ -3,6 +3,7 @@ package xfer
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"runtime"
@@ -29,6 +30,10 @@ type mockLayer struct {
 
 func (ml *mockLayer) TarStream() (io.ReadCloser, error) {
 	return ioutil.NopCloser(bytes.NewBuffer(ml.layerData.Bytes())), nil
+}
+
+func (ml *mockLayer) TarStreamFrom(layer.ChainID) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (ml *mockLayer) ChainID() layer.ChainID {
@@ -69,6 +74,16 @@ func createChainIDFromParent(parent layer.ChainID, dgsts ...layer.DiffID) layer.
 	// H = "H(n-1) SHA256(n)"
 	dgst := digest.FromBytes([]byte(string(parent) + " " + string(dgsts[0])))
 	return createChainIDFromParent(layer.ChainID(dgst), dgsts[1:]...)
+}
+
+func (ls *mockLayerStore) Map() map[layer.ChainID]layer.Layer {
+	layers := map[layer.ChainID]layer.Layer{}
+
+	for k, v := range ls.layers {
+		layers[k] = v
+	}
+
+	return layers
 }
 
 func (ls *mockLayerStore) Register(reader io.Reader, parentID layer.ChainID) (layer.Layer, error) {

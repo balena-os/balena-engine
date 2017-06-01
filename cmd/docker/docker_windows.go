@@ -1,8 +1,9 @@
-package main
+package docker
 
 import (
 	"sync/atomic"
 
+	// We import this as package, though it's usually a main package
 	_ "github.com/docker/docker/autogen/winresources/docker"
 )
 

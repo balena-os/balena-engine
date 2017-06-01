@@ -1,7 +1,6 @@
 package httputils
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,21 +74,6 @@ func ParseForm(r *http.Request) error {
 		return err
 	}
 	return nil
-}
-
-// ParseMultipartForm ensures the request form is parsed, even with invalid content types.
-func ParseMultipartForm(r *http.Request) error {
-	if err := r.ParseMultipartForm(4096); err != nil && !strings.HasPrefix(err.Error(), "mime:") {
-		return err
-	}
-	return nil
-}
-
-// WriteJSON writes the value v to the http response stream as json with standard json encoding.
-func WriteJSON(w http.ResponseWriter, code int, v interface{}) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	return json.NewEncoder(w).Encode(v)
 }
 
 // VersionFromContext returns an API version from the context using APIVersionKey.

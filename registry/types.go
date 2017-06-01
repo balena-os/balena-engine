@@ -1,8 +1,8 @@
 package registry
 
 import (
+	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/reference"
-	registrytypes "github.com/docker/engine-api/types/registry"
 )
 
 // RepositoryData tracks the image list, list of endpoints, and list of tokens
@@ -67,4 +67,7 @@ type RepositoryInfo struct {
 	// If the registry is official, and the normalized name does not
 	// contain a '/' (e.g. "foo"), then it is considered an official repo.
 	Official bool
+	// Class represents the class of the repository, such as "plugin"
+	// or "image".
+	Class string
 }

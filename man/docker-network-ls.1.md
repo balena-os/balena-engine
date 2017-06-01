@@ -7,6 +7,7 @@ docker-network-ls - list networks
 # SYNOPSIS
 **docker network ls**
 [**-f**|**--filter**[=*[]*]]
+[**--format**=*"TEMPLATE"*]
 [**--no-trunc**[=*true*|*false*]]
 [**-q**|**--quiet**[=*true*|*false*]]
 [**--help**]
@@ -18,11 +19,11 @@ networks that span across multiple hosts in a cluster, for example:
 
 ```bash
     $ docker network ls
-    NETWORK ID          NAME                DRIVER
-    7fca4eb8c647        bridge              bridge
-    9f904ee27bf5        none                null
-    cf03ee007fb4        host                host
-    78b03ee04fc4        multi-host          overlay
+    NETWORK ID          NAME                DRIVER          SCOPE
+    7fca4eb8c647        bridge              bridge          local
+    9f904ee27bf5        none                null            local
+    cf03ee007fb4        host                host            local
+    78b03ee04fc4        multi-host          overlay         swarm
 ```
 
 Use the `--no-trunc` option to display the full network id:
@@ -162,11 +163,23 @@ attached.
 **-f**, **--filter**=*[]*
   filter output based on conditions provided. 
 
+**--format**="*TEMPLATE*"
+  Pretty-print networks using a Go template.
+  Valid placeholders:
+     .ID - Network ID
+     .Name - Network name
+     .Driver - Network driver
+     .Scope - Network scope (local, global)
+     .IPv6 - Whether IPv6 is enabled on the network or not
+     .Internal - Whether the network is internal or not
+     .Labels - All labels assigned to the network
+     .Label - Value of a specific label for this network. For example `{{.Label "project.version"}}`
+
 **--no-trunc**=*true*|*false*
   Do not truncate the output
 
 **-q**, **--quiet**=*true*|*false*
-  Only display numeric IDs
+  Only display network IDs
 
 **--help**
   Print usage statement

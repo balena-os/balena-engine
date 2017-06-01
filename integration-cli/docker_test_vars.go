@@ -3,9 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/reexec"
 )
 
@@ -57,6 +61,10 @@ var (
 	volumesConfigPath    string
 	containerStoragePath string
 
+	// experimentalDaemon tell whether the main daemon has
+	// experimental features enabled or not
+	experimentalDaemon bool
+
 	// daemonStorageDriver is held globally so that tests can know the storage
 	// driver of the daemon. This is initialized in docker_utils by sending
 	// a version call to the daemon and examining the response header.
@@ -64,7 +72,15 @@ var (
 
 	// WindowsBaseImage is the name of the base image for Windows testing
 	// Environment variable WINDOWS_BASE_IMAGE can override this
-	WindowsBaseImage = "windowsservercore"
+	WindowsBaseImage = "microsoft/windowsservercore"
+
+	// isolation is the isolation mode of the daemon under test
+	isolation container.Isolation
+
+	// daemonPid is the pid of the main test daemon
+	daemonPid int
+
+	daemonKernelVersion string
 )
 
 const (
@@ -81,7 +97,7 @@ func init() {
 	var err error
 	dockerBinary, err = exec.LookPath(dockerBinary)
 	if err != nil {
-		fmt.Printf("ERROR: couldn't resolve full path to the Docker binary (%v)", err)
+		fmt.Printf("ERROR: couldn't resolve full path to the Docker binary (%v)\n", err)
 		os.Exit(1)
 	}
 	if registryImage := os.Getenv("REGISTRY_IMAGE"); registryImage != "" {
@@ -118,13 +134,17 @@ func init() {
 	// /info endpoint for the specific root dir
 	dockerBasePath = "/var/lib/docker"
 	type Info struct {
-		DockerRootDir string
+		DockerRootDir     string
+		ExperimentalBuild bool
+		KernelVersion     string
 	}
 	var i Info
 	status, b, err := sockRequest("GET", "/info", nil)
 	if err == nil && status == 200 {
 		if err = json.Unmarshal(b, &i); err == nil {
 			dockerBasePath = i.DockerRootDir
+			experimentalDaemon = i.ExperimentalBuild
+			daemonKernelVersion = i.KernelVersion
 		}
 	}
 	volumesConfigPath = dockerBasePath + "/volumes"
@@ -133,5 +153,13 @@ func init() {
 	if len(os.Getenv("WINDOWS_BASE_IMAGE")) > 0 {
 		WindowsBaseImage = os.Getenv("WINDOWS_BASE_IMAGE")
 		fmt.Println("INFO: Windows Base image is ", WindowsBaseImage)
+	}
+
+	dest := os.Getenv("DEST")
+	b, err = ioutil.ReadFile(filepath.Join(dest, "docker.pid"))
+	if err == nil {
+		if p, err := strconv.ParseInt(string(b), 10, 32); err == nil {
+			daemonPid = int(p)
+		}
 	}
 }

@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/docker/api/types"
+	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/utils"
-	"github.com/docker/engine-api/types"
-	registrytypes "github.com/docker/engine-api/types/registry"
 	"golang.org/x/net/context"
 )
 
@@ -70,10 +70,13 @@ func testTokenPassThru(t *testing.T, ts *httptest.Server) {
 		Official: false,
 	}
 	imagePullConfig := &ImagePullConfig{
-		MetaHeaders: http.Header{},
-		AuthConfig: &types.AuthConfig{
-			RegistryToken: secretRegistryToken,
+		Config: Config{
+			MetaHeaders: http.Header{},
+			AuthConfig: &types.AuthConfig{
+				RegistryToken: secretRegistryToken,
+			},
 		},
+		Schema2Types: ImageTypes,
 	}
 	puller, err := newPuller(endpoint, repoInfo, imagePullConfig)
 	if err != nil {
