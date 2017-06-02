@@ -106,8 +106,8 @@ all: build ## validate all checks, build linux binaries, run all tests\ncross bu
 binary: build ## build the linux binaries
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
-rce: build ## build the linux consolidate binary
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary-rce
+rce-docker: build ## build the linux consolidate binary
+	$(DOCKER_RUN_DOCKER) hack/make.sh binary-rce-docker
 
 build: bundles init-go-pkg-cache
 	$(warning The docker client CLI has moved to github.com/docker/cli. By default, it is built from the git sha specified in hack/dockerfile/binaries-commits. For a dev-test cycle involving the CLI, run:${\n} DOCKER_CLI_PATH=/host/path/to/cli/binary make shell ${\n} then change the cli and compile into a binary at the same location.${\n})
