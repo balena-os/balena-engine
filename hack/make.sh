@@ -33,7 +33,7 @@ echo
 # List of bundles to create when no argument is passed
 DEFAULT_BUNDLES=(
 	binary-daemon
-	binary-rce
+	binary-rce-docker
 	dynbinary
 
 	test-integration
