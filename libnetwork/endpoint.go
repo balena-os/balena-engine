@@ -843,23 +843,15 @@ func (ep *endpoint) Delete(force bool) error {
 		}
 	}
 
-	if err = n.getController().deleteFromStore(ep); err != nil {
-		return err
-	}
-
-	defer func() {
-		if err != nil && !force {
-			ep.dbExists = false
-			if e := n.getController().updateToStore(ep); e != nil {
-				logrus.Warnf("failed to recreate endpoint in store %s : %v", name, e)
-			}
-		}
-	}()
-
 	// unwatch for service records
 	n.getController().unWatchSvcRecord(ep)
 
 	if err = ep.deleteEndpoint(force); err != nil && !force {
+		return err
+	}
+
+	// This has to come after the sandbox and the driver to guarantee that can be the source of truth on restart cases
+	if err = n.getController().deleteFromStore(ep); err != nil {
 		return err
 	}
 
