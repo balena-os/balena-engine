@@ -155,8 +155,12 @@ func (container *Container) FromDisk() error {
 		return err
 	}
 
-	// Ensure the operating system is set if blank. Assume it is the OS of the
-	// host OS if not, to ensure containers created before multiple-OS
+	if container.Config == nil {
+		return fmt.Errorf("Invalid container config.json, missing Config property")
+	}
+
+	// Ensure the platform is set if blank. Assume it is the platform of the
+	// host OS if not, to ensure containers created before multiple-platform
 	// support are migrated
 	if container.OS == "" {
 		container.OS = runtime.GOOS
