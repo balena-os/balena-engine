@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/docker/distribution"
+	"github.com/docker/docker/pkg/ioutils"
 	digest "github.com/opencontainers/go-digest"
 )
 
@@ -34,6 +35,12 @@ func (rl *roLayer) TarStream() (io.ReadCloser, error) {
 		return nil, err
 	}
 	return vrc, nil
+}
+
+// TarSeekStream for roLayer guarantees that the data that is produced is the exact
+// data that the layer was registered with.
+func (rl *roLayer) TarSeekStream() (ioutils.ReadSeekCloser, error) {
+	return rl.layerStore.getTarSeekStream(rl)
 }
 
 // TarStreamFrom does not make any guarantees to the correctness of the produced
