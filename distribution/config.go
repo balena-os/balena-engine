@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/system"
 	refstore "github.com/docker/docker/reference"
@@ -88,6 +89,7 @@ type ImageConfigStore interface {
 	Get(context.Context, digest.Digest) ([]byte, error)
 	RootFSFromConfig([]byte) (*image.RootFS, error)
 	PlatformFromConfig([]byte) (*specs.Platform, error)
+	GetTarSeekStream(digest.Digest) (ioutils.ReadSeekCloser, error)
 }
 
 // PushLayerProvider provides layers to be pushed by ChainID.
@@ -139,6 +141,10 @@ func (s *imageConfigStore) Get(_ context.Context, d digest.Digest) ([]byte, erro
 		return nil, err
 	}
 	return img.RawJSON(), nil
+}
+
+func (s *imageConfigStore) GetTarSeekStream(d digest.Digest) (ioutils.ReadSeekCloser, error) {
+	return s.Store.GetTarSeekStream(image.IDFromDigest(d))
 }
 
 func (s *imageConfigStore) RootFSFromConfig(c []byte) (*image.RootFS, error) {
