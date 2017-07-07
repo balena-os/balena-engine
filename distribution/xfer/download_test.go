@@ -14,6 +14,7 @@ import (
 	"github.com/docker/distribution"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/opencontainers/go-digest"
 	"gotest.tools/v3/assert"
@@ -33,6 +34,10 @@ func (ml *mockLayer) TarStream() (io.ReadCloser, error) {
 }
 
 func (ml *mockLayer) TarStreamFrom(layer.ChainID) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (ml *mockLayer) TarSeekStream() (ioutils.ReadSeekCloser, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
