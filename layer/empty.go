@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+
+	"github.com/docker/docker/pkg/ioutils"
 )
 
 // DigestSHA256EmptyTar is the canonical sha256 digest of empty tar file -
@@ -22,6 +24,13 @@ func (el *emptyLayer) TarStream() (io.ReadCloser, error) {
 	tarWriter := tar.NewWriter(buf)
 	tarWriter.Close()
 	return ioutil.NopCloser(buf), nil
+}
+
+func (el *emptyLayer) TarSeekStream() (ioutils.ReadSeekCloser, error) {
+	buf := new(bytes.Buffer)
+	tarWriter := tar.NewWriter(buf)
+	tarWriter.Close()
+	return ioutils.NewReadSeekCloserWrapper(bytes.NewReader(buf.Bytes()), func() error {return nil}), nil
 }
 
 func (el *emptyLayer) TarStreamFrom(p ChainID) (io.ReadCloser, error) {

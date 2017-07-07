@@ -16,6 +16,7 @@ import (
 	"github.com/docker/distribution"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/containerfs"
+	"github.com/docker/docker/pkg/ioutils"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
 )
@@ -84,6 +85,10 @@ type TarStreamer interface {
 // Layer represents a read-only layer
 type Layer interface {
 	TarStreamer
+
+	// TarSeekStream returns a seekable tar archive stream for the contents of
+	// a layer
+	TarSeekStream() (ioutils.ReadSeekCloser, error)
 
 	// TarStreamFrom returns a tar archive stream for all the layer chain with
 	// arbitrary depth.
