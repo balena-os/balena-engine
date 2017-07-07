@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/authorization"
 	"github.com/docker/docker/pkg/chrootarchive"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/progress"
@@ -144,6 +145,10 @@ func (s *tempConfigStore) Get(d digest.Digest) ([]byte, error) {
 		return nil, errNotFound("digest not found")
 	}
 	return s.config, nil
+}
+
+func (s *tempConfigStore) GetTarSeekStream(d digest.Digest) (ioutils.ReadSeekCloser, error) {
+	return nil, fmt.Errorf("unimplemented")
 }
 
 func (s *tempConfigStore) RootFSAndOSFromConfig(c []byte) (*image.RootFS, layer.OS, error) {
@@ -531,6 +536,10 @@ func (s *pluginConfigStore) Get(d digest.Digest) ([]byte, error) {
 	}
 	defer rwc.Close()
 	return ioutil.ReadAll(rwc)
+}
+
+func (s *pluginConfigStore) GetTarSeekStream(d digest.Digest) (ioutils.ReadSeekCloser, error) {
+	return nil, fmt.Errorf("unimplemented")
 }
 
 func (s *pluginConfigStore) RootFSAndOSFromConfig(c []byte) (*image.RootFS, layer.OS, error) {
