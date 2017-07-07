@@ -28,6 +28,29 @@ func NewReadCloserWrapper(r io.Reader, closer func() error) io.ReadCloser {
 	}
 }
 
+// ReadSeekCloser combines io.ReadSeeker with io.Closer.
+type ReadSeekCloser interface {
+    io.ReadSeeker
+    io.Closer
+}
+
+type readSeekCloserWrapper struct {
+	io.ReadSeeker
+	closer func() error
+}
+
+func (r *readSeekCloserWrapper) Close() error {
+	return r.closer()
+}
+
+// NewReadCloserWrapper returns a new io.ReadCloser.
+func NewReadSeekCloserWrapper(r io.ReadSeeker, closer func() error) ReadSeekCloser {
+	return &readSeekCloserWrapper{
+		ReadSeeker: r,
+		closer: closer,
+	}
+}
+
 type readerErrWrapper struct {
 	reader io.Reader
 	closer func()
