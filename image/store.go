@@ -7,6 +7,7 @@ import (
 
 	"github.com/docker/distribution/digestset"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/system"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
@@ -17,6 +18,7 @@ import (
 type Store interface {
 	Create(config []byte) (ID, error)
 	Get(id ID) (*Image, error)
+	GetTarSeekStream(id ID) (ioutils.ReadSeekCloser, error)
 	Delete(id ID) ([]layer.Metadata, error)
 	Search(partialID string) (ID, error)
 	SetParent(id ID, parent ID) error
@@ -219,6 +221,47 @@ func (is *store) Get(id ID) (*Image, error) {
 	}
 
 	return img, nil
+}
+
+// GetTarSeekStream returns a concatenation of Tar streams
+func (is *store) GetTarSeekStream(id ID) (ioutils.ReadSeekCloser, error) {
+	img, err := is.Get(id)
+	if err != nil {
+		return nil, err
+	}
+
+	var result ioutils.ReadSeekCloser
+
+	for i := range img.RootFS.DiffIDs {
+		rootFS := *img.RootFS
+		rootFS.DiffIDs = rootFS.DiffIDs[:i+1]
+
+		l, err := is.ls.Get(rootFS.ChainID())
+		if err != nil {
+			return nil, err
+		}
+
+		arch, err := l.TarSeekStream()
+		if err != nil {
+			return nil, err
+		}
+
+		stream := ioutils.NewReadSeekCloserWrapper(arch, func() error {
+			_, err := is.ls.Release(l)
+			return err
+		})
+
+		if result == nil {
+			result = stream
+		} else {
+			result, err = ioutils.ConcatReadSeekClosers(result, stream)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func (is *store) Delete(id ID) ([]layer.Metadata, error) {
