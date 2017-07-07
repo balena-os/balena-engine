@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/opencontainers/go-digest"
@@ -181,6 +182,11 @@ func (dm *downloadManager) Put(dt []byte) (digest.Digest, error) {
 func (dm *downloadManager) Get(d digest.Digest) ([]byte, error) {
 	return nil, fmt.Errorf("digest not found")
 }
+
+func (dm *downloadManager) GetTarSeekStream(d digest.Digest) (ioutils.ReadSeekCloser, error) {
+	return nil, fmt.Errorf("unimplemented")
+}
+
 func (dm *downloadManager) RootFSFromConfig(c []byte) (*image.RootFS, error) {
 	return configToRootFS(c)
 }
