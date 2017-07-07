@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/system"
 	refstore "github.com/docker/docker/reference"
@@ -86,6 +87,7 @@ type ImagePushConfig struct {
 type ImageConfigStore interface {
 	Put([]byte) (digest.Digest, error)
 	Get(digest.Digest) ([]byte, error)
+	GetTarSeekStream(digest.Digest) (ioutils.ReadSeekCloser, error)
 	RootFSAndPlatformFromConfig([]byte) (*image.RootFS, layer.Platform, error)
 }
 
@@ -138,6 +140,10 @@ func (s *imageConfigStore) Get(d digest.Digest) ([]byte, error) {
 		return nil, err
 	}
 	return img.RawJSON(), nil
+}
+
+func (s *imageConfigStore) GetTarSeekStream(d digest.Digest) (ioutils.ReadSeekCloser, error) {
+	return s.Store.GetTarSeekStream(image.IDFromDigest(d))
 }
 
 func (s *imageConfigStore) RootFSAndPlatformFromConfig(c []byte) (*image.RootFS, layer.Platform, error) {
