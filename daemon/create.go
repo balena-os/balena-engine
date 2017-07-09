@@ -329,3 +329,9 @@ func (daemon *Daemon) verifyNetworkingConfig(nwConfig *networktypes.NetworkingCo
 	err := fmt.Errorf("Container cannot be connected to network endpoints: %s", strings.Join(l, ", "))
 	return apierrors.NewBadRequestError(err)
 }
+
+// DeltaCreate creates a delta of the specified src and dest images
+// This is called directly from the Engine API
+func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
+	return "", fmt.Errorf("unimplemented")
+}
