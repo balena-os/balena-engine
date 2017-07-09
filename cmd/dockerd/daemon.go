@@ -1,6 +1,7 @@
 package dockerd
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/docker/docker/api/server/router"
 	"github.com/docker/docker/api/server/router/build"
 	"github.com/docker/docker/api/server/router/container"
+	deltarouter "github.com/docker/docker/api/server/router/delta"
 	distributionrouter "github.com/docker/docker/api/server/router/distribution"
 	grpcrouter "github.com/docker/docker/api/server/router/grpc"
 	"github.com/docker/docker/api/server/router/image"
@@ -475,6 +477,7 @@ func initRouter(opts routerOptions) {
 		container.NewRouter(opts.daemon, decoder),
 		image.NewRouter(opts.daemon.ImageService()),
 		systemrouter.NewRouter(opts.daemon, opts.buildCache, opts.buildkit, opts.features),
+		deltarouter.NewRouter(opts.daemon),
 		volume.NewRouter(opts.daemon.VolumesService()),
 		build.NewRouter(opts.buildBackend, opts.daemon, opts.features),
 		sessionrouter.NewRouter(opts.sessionManager),
