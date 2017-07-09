@@ -326,6 +326,12 @@ func verifyNetworkingConfig(nwConfig *networktypes.NetworkingConfig) error {
 	return nil
 }
 
+// DeltaCreate creates a delta of the specified src and dest images
+// This is called directly from the Engine API
+func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
+	return "", fmt.Errorf("unimplemented")
+}
+
 // maximumSpec returns the distribution platform with maximum compatibility for the current node.
 func maximumSpec() v1.Platform {
 	p := platforms.DefaultSpec()
