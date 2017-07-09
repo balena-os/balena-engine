@@ -334,3 +334,9 @@ func maximumSpec() v1.Platform {
 	}
 	return p
 }
+
+// DeltaCreate creates a delta of the specified src and dest images
+// This is called directly from the Engine API
+func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
+	return "", fmt.Errorf("unimplemented")
+}
