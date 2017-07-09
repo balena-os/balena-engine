@@ -7932,6 +7932,37 @@ paths:
           schema:
             $ref: "#/definitions/ErrorResponse"
       tags: ["Image"]
+  /deltas/create:
+    post:
+      summary: "Create a delta"
+      description: "Create a binary delta between two images."
+      operationId: "DeltaCreate"
+      produces: [ "application/json" ]
+      responses:
+        201:
+          description: "The delta was created successfully"
+          schema:
+            $ref: "#/definitions/ImageSummary"
+        404:
+          description: "repository does not exist or no read access"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        500:
+          description: "server error"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+      parameters:
+        - name: "src"
+          in: "query"
+          required: true
+          description: "Name of the image to use as a base for the delta. The name may include a tag or digest."
+          type: "string"
+        - name: "dest"
+          in: "query"
+          required: true
+          description: "Name of the image to use as a target for the delta. The name may include a tag or digest."
+          type: "string"
+      tags: ["Image"]
   /auth:
     post:
       summary: "Check auth configuration"
