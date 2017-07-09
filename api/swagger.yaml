@@ -6699,6 +6699,189 @@ paths:
           schema:
             $ref: "#/definitions/ErrorResponse"
       tags: ["Image"]
+  /deltas/create:
+    post:
+      summary: "Create a delta"
+      description: "Create a binary delta between two images."
+      operationId: "DeltaCreate"
+      produces: [ "application/json" ]
+      responses:
+        201:
+          description: "The delta was created successfully"
+          schema:
+            $ref: "#/definitions/ImageSummary"
+        404:
+          description: "repository does not exist or no read access"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+        500:
+          description: "server error"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+      parameters:
+        - name: "src"
+          in: "query"
+          required: true
+          description: "Name of the image to use as a base for the delta. The name may include a tag or digest."
+          type: "string"
+        - name: "dest"
+          in: "query"
+          required: true
+          description: "Name of the image to use as a target for the delta. The name may include a tag or digest."
+          type: "string"
+      tags: ["Image"]
+  /auth:
+    post:
+      summary: "Check auth configuration"
+      description: "Validate credentials for a registry and, if available, get an identity token for accessing the registry without password."
+      operationId: "SystemAuth"
+      consumes: ["application/json"]
+      produces: ["application/json"]
+      responses:
+        200:
+          description: "An identity token was generated successfully."
+          schema:
+            type: "object"
+            required: [Status]
+            properties:
+              Status:
+                description: "The status of the authentication"
+                type: "string"
+                x-nullable: false
+              IdentityToken:
+                description: "An opaque token used to authenticate a user after a successful login"
+                type: "string"
+                x-nullable: false
+          examples:
+            application/json:
+              Status: "Login Succeeded"
+              IdentityToken: "9cbaf023786cd7..."
+        204:
+          description: "No error"
+        500:
+          description: "Server error"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+      parameters:
+        - name: "authConfig"
+          in: "body"
+          description: "Authentication to check"
+          schema:
+            $ref: "#/definitions/AuthConfig"
+      tags: ["System"]
+  /info:
+    get:
+      summary: "Get system information"
+      operationId: "SystemInfo"
+      produces:
+        - "application/json"
+      responses:
+        200:
+          description: "No error"
+          schema:
+            type: "object"
+            properties:
+              Architecture:
+                type: "string"
+              Containers:
+                type: "integer"
+              ContainersRunning:
+                type: "integer"
+              ContainersStopped:
+                type: "integer"
+              ContainersPaused:
+                type: "integer"
+              CpuCfsPeriod:
+                type: "boolean"
+              CpuCfsQuota:
+                type: "boolean"
+              Debug:
+                type: "boolean"
+              DiscoveryBackend:
+                type: "string"
+              DockerRootDir:
+                type: "string"
+              Driver:
+                type: "string"
+              DriverStatus:
+                type: "array"
+                items:
+                  type: "array"
+                  items:
+                    type: "string"
+              SystemStatus:
+                type: "array"
+                items:
+                  type: "array"
+                  items:
+                    type: "string"
+              Plugins:
+                type: "object"
+                properties:
+                  Volume:
+                    type: "array"
+                    items:
+                      type: "string"
+                  Network:
+                    type: "array"
+                    items:
+                      type: "string"
+                  Log:
+                    type: "array"
+                    items:
+                      type: "string"
+              ExperimentalBuild:
+                type: "boolean"
+              HttpProxy:
+                type: "string"
+              HttpsProxy:
+                type: "string"
+              ID:
+                type: "string"
+              IPv4Forwarding:
+                type: "boolean"
+              Images:
+                type: "integer"
+              IndexServerAddress:
+                type: "string"
+              InitPath:
+                type: "string"
+              InitSha1:
+                type: "string"
+              KernelVersion:
+                type: "string"
+              Labels:
+                type: "array"
+                items:
+                  type: "string"
+              MemTotal:
+                type: "integer"
+              MemoryLimit:
+                type: "boolean"
+              NCPU:
+                type: "integer"
+              NEventsListener:
+                type: "integer"
+              NFd:
+                type: "integer"
+              NGoroutines:
+                type: "integer"
+              Name:
+                type: "string"
+              NoProxy:
+                type: "string"
+              OomKillDisable:
+                type: "boolean"
+              OSType:
+                type: "string"
+              OomScoreAdj:
+                type: "integer"
+                format: "int64"
+        500:
+          description: "Server error"
+          schema:
+            $ref: "#/definitions/ErrorResponse"
+      tags: ["Image"]
   /auth:
     post:
       summary: "Check auth configuration"
