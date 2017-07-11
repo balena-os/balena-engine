@@ -1,8 +1,14 @@
 package daemon // import "github.com/docker/docker/daemon"
 
 import (
+	"archive/tar"
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -18,9 +24,11 @@ import (
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
+	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/pkg/errors"
+	"github.com/balena-os/librsync-go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -369,5 +377,159 @@ func verifyNetworkingConfig(nwConfig *networktypes.NetworkingConfig) error {
 // DeltaCreate creates a delta of the specified src and dest images
 // This is called directly from the Engine API
 func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
-	return "", fmt.Errorf("unimplemented")
+	srcImg, err := daemon.GetImage(deltaSrc)
+	if err != nil {
+		return "", errors.Wrapf(err, "no such image: %s", deltaSrc)
+	}
+
+	dstImg, err := daemon.GetImage(deltaDest)
+	if err != nil {
+		return "", errors.Wrapf(err, "no such image: %s", deltaDest)
+	}
+
+	is := daemon.stores[dstImg.OperatingSystem()].imageStore
+	ls := daemon.stores[dstImg.OperatingSystem()].layerStore
+
+	srcData, err := is.GetTarSeekStream(srcImg.ID())
+	if err != nil {
+		return "", err
+	}
+	defer srcData.Close()
+
+	srcSig, err := librsync.Signature(bufio.NewReaderSize(srcData, 65536), ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
+	if err != nil {
+		return "", err
+	}
+
+	deltaRootFS := image.NewRootFS()
+
+	for i, diffID := range dstImg.RootFS.DiffIDs {
+		var (
+			layerData io.Reader
+			platform layer.OS
+		)
+
+		// We're only interested in layers that are different. Push empty
+		// layers for common layers
+		if srcImg.RootFS.DiffIDs[i] == diffID {
+			layerData, _ = layer.EmptyLayer.TarStream()
+			platform = layer.EmptyLayer.OS()
+		} else {
+			dstRootFS := *dstImg.RootFS
+			dstRootFS.DiffIDs = dstRootFS.DiffIDs[:i+1]
+
+			l, err := ls.Get(dstRootFS.ChainID())
+			if err != nil {
+				return "", err
+			}
+			defer layer.ReleaseAndLog(ls, l)
+
+			platform = l.OS()
+
+			input, err := l.TarStream()
+			if err != nil {
+				return "", err
+			}
+			defer input.Close()
+
+			pR, pW := io.Pipe()
+
+			layerData = pR
+
+			tmpDelta, err := ioutil.TempFile("", "docker-delta-")
+			if err != nil {
+				return "", err
+			}
+			defer os.Remove(tmpDelta.Name())
+
+			go func() {
+				w := bufio.NewWriter(tmpDelta)
+				err := librsync.Delta(srcSig, bufio.NewReader(input), w)
+				if err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+				w.Flush()
+
+				info, err := tmpDelta.Stat()
+				if err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				tw := tar.NewWriter(pW)
+
+				hdr := &tar.Header{
+					Name: "delta",
+					Mode: 0600,
+					Size: info.Size(),
+				}
+
+				if err := tw.WriteHeader(hdr); err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				if _, err := tmpDelta.Seek(0, io.SeekStart); err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				if _, err := io.Copy(tw, tmpDelta); err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				if err := tw.Close(); err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				pW.Close()
+			}()
+		}
+
+		newLayer, err := ls.Register(layerData, deltaRootFS.ChainID(), platform)
+		if err != nil {
+			return "", err
+		}
+		defer layer.ReleaseAndLog(ls, newLayer)
+
+		deltaRootFS.Append(newLayer.DiffID())
+	}
+
+	config := image.Image{
+		RootFS: deltaRootFS,
+		V1Image: image.V1Image{
+			Created: time.Now().UTC(),
+			Config: &containertypes.Config{
+				Labels: map[string]string{
+					"io.resin.delta.base": srcImg.ID().String(),
+					"io.resin.delta.config": string(dstImg.RawJSON()),
+				},
+			},
+		},
+	}
+
+	rawConfig, err := json.Marshal(config)
+	if err != nil {
+		return "", err
+	}
+
+	id, err := is.Create(rawConfig)
+	if err != nil {
+		return "", err
+	}
+
+	ref, _ := reference.WithName("delta")
+
+	deltaTag := "delta-" + digest.FromString(srcImg.ID().String() + "-" + dstImg.ImageID()).Hex()[:8]
+
+	ref2, _ := reference.WithTag(ref, deltaTag)
+
+	if err := daemon.TagImageWithReference(id, "linux", ref2); err != nil {
+		return "", err
+	}
+
+	return id.String(), nil
 }
