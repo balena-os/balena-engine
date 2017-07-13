@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"runtime"
 
 	"github.com/distribution/reference"
 	"github.com/docker/distribution"
@@ -21,7 +20,6 @@ import (
 	registrypkg "github.com/docker/docker/registry"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 )
 
 // Config stores configuration for communicating
@@ -147,27 +145,6 @@ func rootFSFromConfig(c []byte) (*image.RootFS, error) {
 		return nil, err
 	}
 	return unmarshalledConfig.RootFS, nil
-}
-
-func platformFromConfig(c []byte) (*ocispec.Platform, error) {
-	var unmarshalledConfig image.Image
-	if err := json.Unmarshal(c, &unmarshalledConfig); err != nil {
-		return nil, err
-	}
-
-	os := unmarshalledConfig.OS
-	if os == "" {
-		os = runtime.GOOS
-	}
-	if err := image.CheckOS(os); err != nil {
-		return nil, errors.Wrapf(err, "image operating system %q cannot be used on this platform", os)
-	}
-	return &ocispec.Platform{
-		OS:           os,
-		Architecture: unmarshalledConfig.Architecture,
-		Variant:      unmarshalledConfig.Variant,
-		OSVersion:    unmarshalledConfig.OSVersion,
-	}, nil
 }
 
 type storeLayerProvider struct {
