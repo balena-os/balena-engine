@@ -166,6 +166,7 @@ type layerDescriptor struct {
 	layerDownload    io.ReadCloser
 	downloadAttempts uint8
 	downloadOffset   int64
+	deltaBase        io.ReadSeeker
 }
 
 func (ld *layerDescriptor) Key() string {
@@ -228,6 +229,10 @@ func (ld *layerDescriptor) Read(p []byte) (int, error) {
 	}
 
 	return n, err
+}
+
+func (ld *layerDescriptor) DeltaBase() io.ReadSeeker {
+	return ld.deltaBase
 }
 
 func (ld *layerDescriptor) Close() {
@@ -535,6 +540,43 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 		return "", imageConfigPullError{Err: err}
 	}
 
+	var deltaBase io.ReadSeeker
+
+	// check for delta config
+	img, err := image.NewFromJSON(configJSON)
+	if err != nil {
+		return "", err
+	}
+
+	if img.Config != nil {
+		if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
+			baseDigest, err := digest.Parse(base)
+			if err != nil {
+				return "", err
+			}
+
+			stream, err := p.config.ImageStore.GetTarSeekStream(baseDigest)
+			if err != nil {
+				return "", err
+			}
+			defer stream.Close()
+
+			deltaBase = stream
+		}
+
+		if config, ok := img.Config.Labels["io.resin.delta.config"]; ok {
+			configDigest := digest.FromString(config)
+
+			if _, err := p.config.ImageStore.Get(ctx, configDigest); err == nil {
+				// If the image already exists locally, no need to pull
+				// anything.
+				return configDigest, nil
+			}
+
+			configJSON = []byte(config)
+		}
+	}
+
 	configRootFS, err := rootFSFromConfig(configJSON)
 	if err == nil && configRootFS == nil {
 		return "", errRootFSInvalid
@@ -560,6 +602,7 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 			repoInfo:        p.repoInfo,
 			metadataService: p.metadataService,
 			src:             d,
+			deltaBase:       deltaBase,
 		}
 
 		descriptors = append(descriptors, layerDescriptor)
