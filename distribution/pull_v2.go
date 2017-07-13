@@ -530,7 +530,17 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 		return target.Digest, nil
 	}
 
-	if err := checkSupportedMediaType(target.MediaType); err != nil {
+	// Pull the image config
+	configJSON, err := p.pullSchema2Config(ctx, target.Digest)
+	if err != nil {
+		return "", imageConfigPullError{Err: err}
+	}
+
+	configRootFS, err := rootFSFromConfig(configJSON)
+	if err == nil && configRootFS == nil {
+		return "", errRootFSInvalid
+	}
+	if err != nil {
 		return "", err
 	}
 
@@ -556,31 +566,15 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 		descriptors = append(descriptors, layerDescriptor)
 	}
 
-	configChan := make(chan []byte, 1)
-	configErrChan := make(chan error, 1)
 	layerErrChan := make(chan error, 1)
 	downloadsDone := make(chan struct{})
 	var cancel func()
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
 
-	// Pull the image config
-	go func() {
-		configJSON, err := p.pullSchema2Config(ctx, target.Digest)
-		if err != nil {
-			configErrChan <- imageConfigPullError{Err: err}
-			cancel()
-			return
-		}
-		configChan <- configJSON
-	}()
-
 	var (
-		configJSON       []byte          // raw serialized image config
-		downloadedRootFS *image.RootFS   // rootFS from registered layers
-		configRootFS     *image.RootFS   // rootFS from configuration
-		release          func()          // release resources from rootFS download
-		configPlatform   *specs.Platform // for LCOW when registering downloaded layers
+		downloadedRootFS *image.RootFS // rootFS from registered layers
+		release          func()        // release resources from rootFS download
 	)
 
 	layerStoreOS := runtime.GOOS
@@ -588,43 +582,14 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 		layerStoreOS = platform.OS
 	}
 
-	// https://github.com/docker/docker/issues/24766 - Err on the side of caution,
-	// explicitly blocking images intended for linux from the Windows daemon. On
-	// Windows, we do this before the attempt to download, effectively serialising
-	// the download slightly slowing it down. We have to do it this way, as
-	// chances are the download of layers itself would fail due to file names
-	// which aren't suitable for NTFS. At some point in the future, if a similar
-	// check to block Windows images being pulled on Linux is implemented, it
-	// may be necessary to perform the same type of serialisation.
-	if runtime.GOOS == "windows" {
-		configJSON, configRootFS, configPlatform, err = receiveConfig(configChan, configErrChan)
-		if err != nil {
-			return "", err
-		}
-		if configRootFS == nil {
-			return "", errRootFSInvalid
-		}
-		if err := checkImageCompatibility(configPlatform.OS, configPlatform.OSVersion); err != nil {
-			return "", err
-		}
+	if len(descriptors) != len(configRootFS.DiffIDs) {
+		return "", errRootFSMismatch
+	}
 
-		if len(descriptors) != len(configRootFS.DiffIDs) {
-			return "", errRootFSMismatch
-		}
-		if platform == nil {
-			// Early bath if the requested OS doesn't match that of the configuration.
-			// This avoids doing the download, only to potentially fail later.
-			if !system.IsOSSupported(configPlatform.OS) {
-				return "", fmt.Errorf("cannot download image with operating system %q when requesting %q", configPlatform.OS, layerStoreOS)
-			}
-			layerStoreOS = configPlatform.OS
-		}
-
-		// Populate diff ids in descriptors to avoid downloading foreign layers
-		// which have been side loaded
-		for i := range descriptors {
-			descriptors[i].(*layerDescriptor).diffID = configRootFS.DiffIDs[i]
-		}
+	// Populate diff ids in descriptors to avoid downloading foreign layers
+	// which have been side loaded
+	for i := range descriptors {
+		descriptors[i].(*layerDescriptor).diffID = configRootFS.DiffIDs[i]
 	}
 
 	// Assume that the operating system is the host OS if blank, and validate it
@@ -655,21 +620,6 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 	} else {
 		// We have nothing to download
 		close(downloadsDone)
-	}
-
-	if configJSON == nil {
-		configJSON, configRootFS, _, err = receiveConfig(configChan, configErrChan)
-		if err == nil && configRootFS == nil {
-			err = errRootFSInvalid
-		}
-		if err != nil {
-			cancel()
-			select {
-			case <-downloadsDone:
-			case <-layerErrChan:
-			}
-			return "", err
-		}
 	}
 
 	select {
@@ -721,25 +671,6 @@ func (p *puller) pullOCI(ctx context.Context, ref reference.Named, mfst *ocische
 	}
 	id, err = p.pullSchema2Layers(ctx, mfst.Target(), mfst.Layers, platform)
 	return id, manifestDigest, err
-}
-
-func receiveConfig(configChan <-chan []byte, errChan <-chan error) ([]byte, *image.RootFS, *specs.Platform, error) {
-	select {
-	case configJSON := <-configChan:
-		rootfs, err := rootFSFromConfig(configJSON)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		platform, err := platformFromConfig(configJSON)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		return configJSON, rootfs, platform, nil
-	case err := <-errChan:
-		return nil, nil, nil, err
-		// Don't need a case for ctx.Done in the select because cancellation
-		// will trigger an error in p.pullSchema2ImageConfig.
-	}
 }
 
 // pullManifestList handles "manifest lists" which point to various
