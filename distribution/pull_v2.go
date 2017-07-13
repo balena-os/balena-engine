@@ -155,6 +155,7 @@ type v2LayerDescriptor struct {
 	layerDownload     io.ReadCloser
 	downloadAttempts  uint8
 	downloadOffset    int64
+	deltaBase         io.ReadSeeker
 }
 
 func (ld *v2LayerDescriptor) Key() string {
@@ -217,6 +218,10 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 	}
 
 	return n, err
+}
+
+func (ld *v2LayerDescriptor) DeltaBase() io.ReadSeeker {
+	return ld.deltaBase
 }
 
 func (ld *v2LayerDescriptor) Close() {
@@ -534,15 +539,52 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 	// Pull the image config
 	configJSON, err := p.pullSchema2Config(ctx, target.Digest)
 	if err != nil {
-		return "", "", ImageConfigPullError{Err: err}
+		return "", ImageConfigPullError{Err: err}
+	}
+
+	var deltaBase io.ReadSeeker
+
+	// check for delta config
+	img, err := image.NewFromJSON(configJSON)
+	if err != nil {
+		return "", err
+	}
+
+	if img.Config != nil {
+		if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
+			digest, err := digest.Parse(base)
+			if err != nil {
+				return "", err
+			}
+
+			stream, err := p.config.ImageStore.GetTarSeekStream(digest)
+			if err != nil {
+				return "", err
+			}
+			defer stream.Close()
+
+			deltaBase = stream
+		}
+
+		if config, ok := img.Config.Labels["io.resin.delta.config"]; ok {
+			digest := digest.FromString(config)
+
+			if _, err := p.config.ImageStore.Get(digest); err == nil {
+				// If the image already exists locally, no need to pull
+				// anything.
+				return digest, nil
+			}
+
+			configJSON = []byte(config)
+		}
 	}
 
 	configRootFS, _, err := p.config.ImageStore.RootFSAndOSFromConfig(configJSON)
 	if err == nil && configRootFS == nil {
-		return "", "", errRootFSInvalid
+		return "", errRootFSInvalid
 	}
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 
 	var descriptors []xfer.DownloadDescriptor
@@ -559,6 +601,7 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 			repoInfo:          p.repoInfo,
 			V2MetadataService: p.V2MetadataService,
 			src:               d,
+			deltaBase:         deltaBase,
 		}
 
 		descriptors = append(descriptors, layerDescriptor)
@@ -582,7 +625,7 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 
 
 	if len(descriptors) != len(configRootFS.DiffIDs) {
-		return "", "", errRootFSMismatch
+		return "", errRootFSMismatch
 	}
 
 	// Populate diff ids in descriptors to avoid downloading foreign layers
