@@ -1,6 +1,7 @@
 package xfer
 
 import (
+	"archive/tar"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
+	"github.com/resin-os/librsync-go"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 )
@@ -72,6 +74,8 @@ type DownloadDescriptor interface {
 	DiffID() (layer.DiffID, error)
 	// Download is called to perform the download.
 	Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error)
+	// Return the DeltaBase if any
+	DeltaBase() io.ReadSeeker
 	// Close is called when the download manager is finished with this
 	// descriptor and will not call Download again or read from the reader
 	// that Download returned.
@@ -336,14 +340,41 @@ func (ldm *LayerDownloadManager) makeDownloadFunc(descriptor DownloadDescriptor,
 				return
 			}
 
+			layerData := inflatedLayerData
+
+			deltaBase := descriptor.DeltaBase()
+
+			if deltaBase != nil {
+				pR, pW := io.Pipe()
+				go func() {
+					tr := tar.NewReader(inflatedLayerData)
+
+					_, err := tr.Next()
+					if err == io.EOF {
+						d.err = fmt.Errorf("unexpected EOF. Invalid delta tar archive")
+						pW.CloseWithError(err)
+						return
+					}
+
+					err = librsync.Patch(deltaBase, tr, pW)
+					if err != nil {
+						pW.CloseWithError(err)
+					}
+
+					pW.Close()
+				}()
+
+				layerData = pR
+			}
+
 			var src distribution.Descriptor
 			if fs, ok := descriptor.(distribution.Describable); ok {
 				src = fs.Descriptor()
 			}
 			if ds, ok := d.layerStore.(layer.DescribableStore); ok {
-				d.layer, err = ds.RegisterWithDescriptor(inflatedLayerData, parentLayer, os, src)
+				d.layer, err = ds.RegisterWithDescriptor(layerData, parentLayer, os, src)
 			} else {
-				d.layer, err = d.layerStore.Register(inflatedLayerData, parentLayer, os)
+				d.layer, err = d.layerStore.Register(layerData, parentLayer, os)
 			}
 			if err != nil {
 				select {

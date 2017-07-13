@@ -139,7 +139,10 @@ type v2LayerDescriptor struct {
 	verifier          digest.Verifier
 	src               distribution.Descriptor
 	ctx               context.Context
-	layerDownload     io.Reader
+	layerDownload     io.ReadCloser
+	downloadAttempts  uint8
+	downloadOffset    int64
+	deltaBase         io.ReadSeeker
 }
 
 func (ld *v2LayerDescriptor) Key() string {
@@ -176,6 +179,10 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 		}
 	}
 	return n, err
+}
+
+func (ld *v2LayerDescriptor) DeltaBase() io.ReadSeeker {
+	return ld.deltaBase
 }
 
 func (ld *v2LayerDescriptor) Close() {
@@ -428,6 +435,43 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 		return "", "", ImageConfigPullError{Err: err}
 	}
 
+	var deltaBase io.ReadSeeker
+
+	// check for delta config
+	img, err := image.NewFromJSON(configJSON)
+	if err != nil {
+		return "", "", err
+	}
+
+	if img.Config != nil {
+		if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
+			digest, err := digest.Parse(base)
+			if err != nil {
+				return "", "", err
+			}
+
+			stream, err := p.config.ImageStore.GetTarSeekStream(digest)
+			if err != nil {
+				return "", "", err
+			}
+			defer stream.Close()
+
+			deltaBase = stream
+		}
+
+		if config, ok := img.Config.Labels["io.resin.delta.config"]; ok {
+			digest := digest.FromString(config)
+
+			if _, err := p.config.ImageStore.Get(digest); err == nil {
+				// If the image already exists locally, no need to pull
+				// anything.
+				return digest, manifestDigest, nil
+			}
+
+			configJSON = []byte(config)
+		}
+	}
+
 	configRootFS, platform, err := p.config.ImageStore.RootFSAndPlatformFromConfig(configJSON)
 	if err == nil && configRootFS == nil {
 		return "", "", errRootFSInvalid
@@ -447,6 +491,7 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 			repoInfo:          p.repoInfo,
 			V2MetadataService: p.V2MetadataService,
 			src:               d,
+			deltaBase:         deltaBase,
 		}
 
 		descriptors = append(descriptors, layerDescriptor)
