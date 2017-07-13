@@ -351,6 +351,10 @@ func (ld *v1LayerDescriptor) Download(ctx context.Context, progressOutput progre
 	}), ld.layerSize, nil
 }
 
+func (ld *v1LayerDescriptor) DeltaBase() io.ReadSeeker {
+	return nil
+}
+
 func (ld *v1LayerDescriptor) Close() {
 	if ld.tmpFile != nil {
 		ld.tmpFile.Close()
