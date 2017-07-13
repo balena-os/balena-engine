@@ -254,6 +254,10 @@ func (ld *layerDescriptor) Close() {
 	}
 }
 
+func (ld *layerDescriptor) DeltaBase() io.ReadSeeker {
+	return ld.deltaBase
+}
+
 func (ld *layerDescriptor) Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error) {
 	log.G(ctx).Debugf("pulling blob %q", ld.digest)
 
@@ -555,6 +559,32 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 		return "", imageConfigPullError{Err: err}
 	}
 
+	var deltaBase io.ReadSeeker
+
+	img, err := image.NewFromJSON(configJSON)
+	if err != nil {
+		return "", err
+	}
+
+	if img.Config != nil {
+		if digest, found := FindTargetImageLocally(ctx, img.Config, p.config.ImageStore); found {
+			return digest, nil
+		}
+
+		stream, err := DeltaBaseImageFromConfig(img.Config, p.config.ImageStore)
+		if stream != nil {
+			defer stream.Close()
+		}
+		deltaBase = stream
+		if err != nil {
+			return "", err
+		}
+
+		if config, found := TargetImageConfig(img.Config); found {
+			configJSON = config
+		}
+	}
+
 	configRootFS, err := rootFSFromConfig(configJSON)
 	if err == nil && configRootFS == nil {
 		return "", errRootFSInvalid
@@ -580,6 +610,7 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 			repoInfo:        p.repoInfo,
 			metadataService: p.metadataService,
 			src:             d,
+			deltaBase:       deltaBase,
 		}
 
 		descriptors = append(descriptors, layerDescriptor)
