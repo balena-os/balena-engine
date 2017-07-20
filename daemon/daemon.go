@@ -108,6 +108,7 @@ type Daemon struct {
 	graphDrivers map[string]string // By operating system
 
 	PluginStore           *plugin.Store // todo: remove
+	deltaStore            *daemonStore
 	pluginManager         *plugin.Manager
 	linkIndex             *linkIndex
 	containerdCli         *containerd.Client
@@ -1014,6 +1015,42 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 
 		// As layerstore initialization may set the driver
 		d.graphDrivers[operatingSystem] = layerStores[operatingSystem].DriverName()
+	}
+
+	if config.DeltaRoot != "" && config.DeltaGraphDriver != "" {
+		ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
+			StorePath:                 config.DeltaRoot,
+			MetadataStorePathTemplate: filepath.Join(config.DeltaRoot, "image", "%s", "layerdb"),
+			GraphDriver:               config.DeltaGraphDriver,
+			GraphDriverOptions:        config.DeltaGraphOptions,
+			IDMappings:                idMappings,
+			PluginGetter:              nil,
+			ExperimentalEnabled:       false,
+			OS:                        runtime.GOOS,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		imageRoot := filepath.Join(config.DeltaRoot, "image", ls.DriverName())
+		ifs, err := image.NewFSStoreBackend(filepath.Join(imageRoot, "imagedb"))
+		if err != nil {
+			return nil, err
+		}
+
+		var is image.Store
+		is, err = image.NewImageStore(ifs, runtime.GOOS, ls)
+		if err != nil {
+			return nil, err
+		}
+
+		d.deltaStore = &daemonStore{
+			graphDriver: ls.DriverName(),
+			imageRoot:   imageRoot,
+			imageStore:  is,
+			layerStore:  ls,
+		}
+		graphDrivers = append(graphDrivers, ls.DriverName())
 	}
 
 	// Configure and validate the kernels security support. Note this is a Linux/FreeBSD

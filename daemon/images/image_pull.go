@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/distribution"
 	progressutils "github.com/docker/docker/distribution/utils"
 	"github.com/docker/docker/errdefs"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/registry"
@@ -92,6 +93,11 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 		close(writesDone)
 	}()
 
+	var deltaImageStore image.Store
+	if daemon.deltaStore != nil {
+		deltaImageStore = daemon.deltaStore.imageStore
+	}
+
 	ctx = namespaces.WithNamespace(ctx, i.contentNamespace)
 	// Take out a temporary lease for everything that gets persisted to the content store.
 	// Before the lease is cancelled, any content we want to keep should have it's own lease applied.
@@ -120,6 +126,7 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 			ImageEventLogger: i.LogImageEvent,
 			MetadataStore:    i.distributionMetadataStore,
 			ImageStore:       imageStore,
+			ImageStore:       distribution.NewImageConfigStoreFromStore(i.imageStore, nil),
 			ReferenceStore:   i.referenceStore,
 		},
 		DownloadManager: i.downloadManager,
