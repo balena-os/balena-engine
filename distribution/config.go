@@ -104,13 +104,15 @@ type PushLayer interface {
 
 type imageConfigStore struct {
 	image.Store
+	deltaStore image.Store
 }
 
 // NewImageConfigStoreFromStore returns an ImageConfigStore backed
 // by an image.Store for container images.
-func NewImageConfigStoreFromStore(is image.Store) ImageConfigStore {
+func NewImageConfigStoreFromStore(is, deltaImageStore image.Store) ImageConfigStore {
 	return &imageConfigStore{
 		Store: is,
+		deltaStore: deltaImageStore,
 	}
 }
 
@@ -128,7 +130,11 @@ func (s *imageConfigStore) Get(_ context.Context, d digest.Digest) ([]byte, erro
 }
 
 func (s *imageConfigStore) GetTarSeekStream(d digest.Digest) (ioutils.ReadSeekCloser, error) {
-	return s.Store.GetTarSeekStream(image.IDFromDigest(d))
+	stream, err := s.Store.GetTarSeekStream(image.IDFromDigest(d))
+	if err != nil && s.deltaStore != nil {
+		return s.deltaStore.GetTarSeekStream(image.IDFromDigest(d))
+	}
+	return stream, err
 }
 
 func rootFSFromConfig(c []byte) (*image.RootFS, error) {
