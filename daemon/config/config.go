@@ -96,6 +96,8 @@ type CommonConfig struct {
 	ExecOptions          []string                  `json:"exec-opts,omitempty"`
 	GraphDriver          string                    `json:"storage-driver,omitempty"`
 	GraphOptions         []string                  `json:"storage-opts,omitempty"`
+	DeltaGraphDriver     string                    `json:"delta-storage-driver,omitempty"`
+	DeltaGraphOptions    []string                  `json:"delta-storage-opts,omitempty"`
 	Labels               []string                  `json:"labels,omitempty"`
 	Mtu                  int                       `json:"mtu,omitempty"`
 	Pidfile              string                    `json:"pidfile,omitempty"`
@@ -103,6 +105,7 @@ type CommonConfig struct {
 	RootDeprecated       string                    `json:"graph,omitempty"`
 	Root                 string                    `json:"data-root,omitempty"`
 	ExecRoot             string                    `json:"exec-root,omitempty"`
+	DeltaRoot            string                    `json:"delta-data-root,omitempty"`
 	SocketGroup          string                    `json:"group,omitempty"`
 	CorsHeaders          string                    `json:"api-cors-header,omitempty"`
 

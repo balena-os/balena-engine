@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/distribution"
 	progressutils "github.com/docker/docker/distribution/utils"
+	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/registry"
 	"github.com/opencontainers/go-digest"
@@ -65,6 +66,11 @@ func (daemon *Daemon) pullImageWithReference(ctx context.Context, ref reference.
 		platform = runtime.GOOS
 	}
 
+	var deltaImageStore image.Store
+	if daemon.deltaStore != nil {
+		deltaImageStore = daemon.deltaStore.imageStore
+	}
+
 	imagePullConfig := &distribution.ImagePullConfig{
 		Config: distribution.Config{
 			MetaHeaders:      metaHeaders,
@@ -73,8 +79,8 @@ func (daemon *Daemon) pullImageWithReference(ctx context.Context, ref reference.
 			RegistryService:  daemon.RegistryService,
 			ImageEventLogger: daemon.LogImageEvent,
 			MetadataStore:    daemon.stores[platform].distributionMetadataStore,
-			ImageStore:       distribution.NewImageConfigStoreFromStore(daemon.stores[platform].imageStore),
-			ReferenceStore:   daemon.referenceStore,
+			ImageStore:       distribution.NewImageConfigStoreFromStore(daemon.stores[platform].imageStore, deltaImageStore),
+			ReferenceStore:   daemon.stores[platform].referenceStore,
 		},
 		DownloadManager: daemon.downloadManager,
 		Schema2Types:    distribution.ImageTypes,
