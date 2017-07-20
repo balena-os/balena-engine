@@ -1220,6 +1220,12 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 			ReferenceStore:            rs,
 			RegistryService:           registryService,
 			ContentNamespace:          config.ContainerdNamespace,
+			DeltaImageStore: func() image.Store {
+				if d.deltaStore != nil {
+					return d.deltaStore.imageStore
+				}
+				return nil
+			}(),
 		}
 
 		// containerd is not currently supported with Windows.

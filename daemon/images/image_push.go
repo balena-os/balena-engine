@@ -37,7 +37,7 @@ func (i *ImageService) PushImage(ctx context.Context, ref reference.Named, metaH
 			RegistryService:  i.registryService,
 			ImageEventLogger: i.LogImageEvent,
 			MetadataStore:    i.distributionMetadataStore,
-			ImageStore:       distribution.NewImageConfigStoreFromStore(i.imageStore, nil),
+			ImageStore:       distribution.NewImageConfigStoreFromStore(i.imageStore, i.deltaImageStore),
 			ReferenceStore:   i.referenceStore,
 		},
 		ConfigMediaType: schema2.MediaTypeImageConfig,

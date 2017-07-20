@@ -44,6 +44,7 @@ type ImageServiceConfig struct {
 	ContentStore              content.Store
 	Leases                    leases.Manager
 	ContentNamespace          string
+	DeltaImageStore           image.Store
 }
 
 // NewImageService returns a new ImageService from a configuration
@@ -61,6 +62,7 @@ func NewImageService(config ImageServiceConfig) *ImageService {
 		leases:                    config.Leases,
 		content:                   config.ContentStore,
 		contentNamespace:          config.ContentNamespace,
+		deltaImageStore:           config.DeltaImageStore,
 	}
 }
 
@@ -79,6 +81,7 @@ type ImageService struct {
 	leases                    leases.Manager
 	content                   content.Store
 	contentNamespace          string
+	deltaImageStore           image.Store
 }
 
 // DistributionServices provides daemon image storage services
