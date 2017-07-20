@@ -37,6 +37,7 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	installRegistryServiceFlags(&conf.ServiceOptions, flags)
 
 	flags.Var(opts.NewNamedListOptsRef("storage-opts", &conf.GraphOptions, nil), "storage-opt", "Storage driver options")
+	flags.Var(opts.NewNamedListOptsRef("delta-storage-opts", &conf.DeltaGraphOptions, nil), "delta-storage-opt", "Delta torage driver options")
 	flags.Var(opts.NewNamedListOptsRef("authorization-plugins", &conf.AuthorizationPlugins, nil), "authorization-plugin", "Authorization plugins to load")
 	flags.Var(opts.NewNamedListOptsRef("exec-opts", &conf.ExecOptions, nil), "exec-opt", "Runtime execution options")
 	flags.StringVarP(&conf.Pidfile, "pidfile", "p", defaultPidFile, "Path to use for daemon PID file")
@@ -50,6 +51,7 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	_ = flags.MarkHidden("graph")
 
 	flags.StringVar(&conf.Root, "data-root", defaultDataRoot, "Root directory of persistent Docker state")
+	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only Docker state used for deltas")
 
 	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on docker run")
 	_ = flags.MarkDeprecated("restart", "Please use a restart policy on docker run")
@@ -57,6 +59,7 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	// Windows doesn't support setting the storage driver - there is no choice as to which ones to use.
 	if runtime.GOOS != "windows" {
 		flags.StringVarP(&conf.GraphDriver, "storage-driver", "s", "", "Storage driver to use")
+		flags.StringVar(&conf.DeltaGraphDriver, "delta-storage-driver", "", "Storage driver to use")
 	}
 
 	flags.IntVar(&conf.Mtu, "mtu", 0, "Set the containers network MTU")
