@@ -91,6 +91,13 @@ type configStore struct {
 }
 
 // Daemon holds information about the Docker daemon.
+type daemonStore struct {
+	graphDriver string
+	imageRoot   string
+	imageStore  image.Store
+	layerStore  layer.Store
+}
+
 type Daemon struct {
 	id                    string
 	repository            string
@@ -112,6 +119,7 @@ type Daemon struct {
 	shutdown              bool
 	idMapping             idtools.IdentityMapping
 	PluginStore           *plugin.Store // TODO: remove
+	deltaStore            *daemonStore
 	pluginManager         *plugin.Manager
 	linkIndex             *linkIndex
 	containerdClient      *containerd.Client
@@ -1036,6 +1044,37 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 		return nil, errors.Wrap(err, "failed to set log opts")
 	}
 	log.G(ctx).Debugf("Using default logging driver %s", d.defaultLogConfig.Type)
+
+	if cfgStore.DeltaRoot != "" && cfgStore.DeltaGraphDriver != "" {
+		ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
+			Root:                      cfgStore.DeltaRoot,
+			MetadataStorePathTemplate: filepath.Join(cfgStore.DeltaRoot, "image", "%s", "layerdb"),
+			GraphDriver:               cfgStore.DeltaGraphDriver,
+			GraphDriverOptions:        cfgStore.DeltaGraphOptions,
+			IDMapping:                 idMapping,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		deltaImageRoot := filepath.Join(cfgStore.DeltaRoot, "image", ls.DriverName())
+		deltaIFS, err := image.NewFSStoreBackend(filepath.Join(deltaImageRoot, "imagedb"))
+		if err != nil {
+			return nil, err
+		}
+
+		deltaImageStore, err := image.NewImageStore(deltaIFS, ls)
+		if err != nil {
+			return nil, err
+		}
+
+		d.deltaStore = &daemonStore{
+			graphDriver: ls.DriverName(),
+			imageRoot:   deltaImageRoot,
+			imageStore:  deltaImageStore,
+			layerStore:  ls,
+		}
+	}
 
 	d.volumes, err = volumesservice.NewVolumeService(cfgStore.Root, d.PluginStore, rootIDs, d)
 	if err != nil {

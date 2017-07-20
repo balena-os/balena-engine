@@ -110,13 +110,15 @@ type PushLayer interface {
 
 type imageConfigStore struct {
 	image.Store
+	deltaStore image.Store
 }
 
 // NewImageConfigStoreFromStore returns an ImageConfigStore backed
 // by an image.Store for container images.
-func NewImageConfigStoreFromStore(is image.Store) ImageConfigStore {
+func NewImageConfigStoreFromStore(is, deltaImageStore image.Store) ImageConfigStore {
 	return &imageConfigStore{
-		Store: is,
+		Store:      is,
+		deltaStore: deltaImageStore,
 	}
 }
 

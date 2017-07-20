@@ -25,6 +25,7 @@ func installConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	flags.Var(opts.NewNamedRuntimeOpt("runtimes", &conf.Runtimes, config.StockRuntimeName), "add-runtime", "Register an additional OCI compatible runtime")
 	flags.StringVarP(&conf.SocketGroup, "group", "G", "docker", "Group for the unix socket")
 	flags.StringVarP(&conf.GraphDriver, "storage-driver", "s", "", "Storage driver to use")
+	flags.StringVarP(&conf.DeltaGraphDriver, "delta-storage-driver", "", "", "Storage driver to use for delta layers")
 	flags.BoolVar(&conf.EnableSelinuxSupport, "selinux-enabled", false, "Enable selinux support")
 	flags.Var(opts.NewNamedUlimitOpt("default-ulimits", &conf.Ulimits), "default-ulimit", "Default ulimits for containers")
 	flags.BoolVar(&conf.BridgeConfig.EnableIPTables, "iptables", true, "Enable addition of iptables rules")
