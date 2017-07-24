@@ -18,7 +18,6 @@ import (
 	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/docker/distribution/reference"
-	"github.com/docker/distribution/registry/client/transport"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
@@ -144,7 +143,6 @@ func (p *puller) pullRepository(ctx context.Context, ref reference.Named) (err e
 // writeStatus writes a status message to out. If layersDownloaded is true, the
 // status message indicates that a newer image was downloaded. Otherwise, it
 // indicates that the image is up to date. requestedTag is the tag the message
-// will refer to.
 func (p *puller) writeStatus(requestedTag string, layersDownloaded bool) {
 	if layersDownloaded {
 		progress.Message(p.config.ProgressOutput, "", "Status: Downloaded newer image for "+requestedTag)
@@ -162,6 +160,8 @@ type layerDescriptor struct {
 	tmpFile         *os.File
 	verifier        digest.Verifier
 	src             distribution.Descriptor
+	ctx             context.Context
+	layerDownload   io.ReadCloser
 }
 
 func (ld *layerDescriptor) Key() string {
@@ -179,168 +179,39 @@ func (ld *layerDescriptor) DiffID() (layer.DiffID, error) {
 	return ld.metadataService.GetDiffID(ld.digest)
 }
 
-func (ld *layerDescriptor) Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error) {
-	logrus.Debugf("pulling blob %q", ld.digest)
-
-	var (
-		err    error
-		offset int64
-	)
-
-	if ld.tmpFile == nil {
-		ld.tmpFile, err = createDownloadFile()
+func (ld *layerDescriptor) Read(p []byte) (int, error) {
+	if ld.layerDownload == nil {
+		layer, err := ld.open(ld.ctx)
 		if err != nil {
-			return nil, 0, xfer.DoNotRetry{Err: err}
-		}
-	} else {
-		offset, err = ld.tmpFile.Seek(0, io.SeekEnd)
-		if err != nil {
-			logrus.Debugf("error seeking to end of download file: %v", err)
-			offset = 0
-
-			ld.tmpFile.Close()
-			if err := os.Remove(ld.tmpFile.Name()); err != nil {
-				logrus.Errorf("Failed to remove temp file: %s", ld.tmpFile.Name())
-			}
-			ld.tmpFile, err = createDownloadFile()
-			if err != nil {
-				return nil, 0, xfer.DoNotRetry{Err: err}
-			}
-		} else if offset != 0 {
-			logrus.Debugf("attempting to resume download of %q from %d bytes", ld.digest, offset)
-		}
-	}
-
-	tmpFile := ld.tmpFile
-
-	layerDownload, err := ld.open(ctx)
-	if err != nil {
-		logrus.Errorf("Error initiating layer download: %v", err)
-		return nil, 0, retryOnError(err)
-	}
-
-	if offset != 0 {
-		_, err := layerDownload.Seek(offset, io.SeekStart)
-		if err != nil {
-			if err := ld.truncateDownloadFile(); err != nil {
-				return nil, 0, xfer.DoNotRetry{Err: err}
-			}
-			return nil, 0, err
-		}
-	}
-	size, err := layerDownload.Seek(0, io.SeekEnd)
-	if err != nil {
-		// Seek failed, perhaps because there was no Content-Length
-		// header. This shouldn't fail the download, because we can
-		// still continue without a progress bar.
-		size = 0
-	} else {
-		if size != 0 && offset > size {
-			logrus.Debug("Partial download is larger than full blob. Starting over")
-			offset = 0
-			if err := ld.truncateDownloadFile(); err != nil {
-				return nil, 0, xfer.DoNotRetry{Err: err}
-			}
+			return 0, err
 		}
 
-		// Restore the seek offset either at the beginning of the
-		// stream, or just after the last byte we have from previous
-		// attempts.
-		_, err = layerDownload.Seek(offset, io.SeekStart)
-		if err != nil {
-			return nil, 0, err
-		}
-	}
-
-	reader := progress.NewProgressReader(ioutils.NewCancelReadCloser(ctx, layerDownload), progressOutput, size-offset, ld.ID(), "Downloading")
-	defer reader.Close()
-
-	if ld.verifier == nil {
 		ld.verifier = ld.digest.Verifier()
+		ld.layerDownload = ioutils.NewCancelReadCloser(ld.ctx, io.NopCloser(io.TeeReader(layer, ld.verifier)))
 	}
 
-	_, err = io.Copy(tmpFile, io.TeeReader(reader, ld.verifier))
-	if err != nil {
-		if err == transport.ErrWrongCodeForByteRange {
-			if err := ld.truncateDownloadFile(); err != nil {
-				return nil, 0, xfer.DoNotRetry{Err: err}
-			}
-			return nil, 0, err
+	n, err := ld.layerDownload.Read(p)
+	// XXX: handle case where connection is dropped and reconnect
+	if err == io.EOF {
+		if !ld.verifier.Verified() {
+			return 0, fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
 		}
-		return nil, 0, retryOnError(err)
 	}
-
-	progress.Update(progressOutput, ld.ID(), "Verifying Checksum")
-
-	if !ld.verifier.Verified() {
-		err = fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
-		logrus.Error(err)
-
-		// Allow a retry if this digest verification error happened
-		// after a resumed download.
-		if offset != 0 {
-			if err := ld.truncateDownloadFile(); err != nil {
-				return nil, 0, xfer.DoNotRetry{Err: err}
-			}
-
-			return nil, 0, err
-		}
-		return nil, 0, xfer.DoNotRetry{Err: err}
-	}
-
-	progress.Update(progressOutput, ld.ID(), "Download complete")
-
-	logrus.Debugf("Downloaded %s to tempfile %s", ld.ID(), tmpFile.Name())
-
-	_, err = tmpFile.Seek(0, io.SeekStart)
-	if err != nil {
-		tmpFile.Close()
-		if err := os.Remove(tmpFile.Name()); err != nil {
-			logrus.Errorf("Failed to remove temp file: %s", tmpFile.Name())
-		}
-		ld.tmpFile = nil
-		ld.verifier = nil
-		return nil, 0, xfer.DoNotRetry{Err: err}
-	}
-
-	// hand off the temporary file to the download manager, so it will only
-	// be closed once
-	ld.tmpFile = nil
-
-	return ioutils.NewReadCloserWrapper(tmpFile, func() error {
-		tmpFile.Close()
-		err := os.RemoveAll(tmpFile.Name())
-		if err != nil {
-			logrus.Errorf("Failed to remove temp file: %s", tmpFile.Name())
-		}
-		return err
-	}), size, nil
+	return n, err
 }
 
 func (ld *layerDescriptor) Close() {
-	if ld.tmpFile != nil {
-		ld.tmpFile.Close()
-		if err := os.RemoveAll(ld.tmpFile.Name()); err != nil {
-			logrus.Errorf("Failed to remove temp file: %s", ld.tmpFile.Name())
-		}
-	}
 }
 
-func (ld *layerDescriptor) truncateDownloadFile() error {
-	// Need a new hash context since we will be redoing the download
-	ld.verifier = nil
+func (ld *layerDescriptor) Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error) {
+	logrus.Debugf("pulling blob %q", ld.digest)
 
-	if _, err := ld.tmpFile.Seek(0, io.SeekStart); err != nil {
-		logrus.Errorf("error seeking to beginning of download file: %v", err)
-		return err
-	}
+	ld.ctx = ctx
+	ld.layerDownload = nil
 
-	if err := ld.tmpFile.Truncate(0); err != nil {
-		logrus.Errorf("error truncating download file: %v", err)
-		return err
-	}
+	progress.Update(progressOutput, ld.ID(), "Ready to download")
 
-	return nil
+	return ioutils.NewReadCloserWrapper(ld, func() error { return nil }), ld.src.Size, nil
 }
 
 func (ld *layerDescriptor) Registered(diffID layer.DiffID) {
@@ -1075,10 +946,6 @@ func fixManifestLayers(m *schema1.Manifest) error {
 	}
 
 	return nil
-}
-
-func createDownloadFile() (*os.File, error) {
-	return os.CreateTemp("", "GetImageBlob")
 }
 
 func toOCIPlatform(p manifestlist.PlatformSpec) *specs.Platform {
