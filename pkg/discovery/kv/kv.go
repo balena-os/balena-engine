@@ -10,9 +10,6 @@ import (
 	"github.com/docker/go-connections/tlsconfig"
 	"github.com/docker/libkv"
 	"github.com/docker/libkv/store"
-	"github.com/docker/libkv/store/consul"
-	"github.com/docker/libkv/store/etcd"
-	"github.com/docker/libkv/store/zookeeper"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,15 +33,6 @@ func init() {
 
 // Init is exported
 func Init() {
-	// Register to libkv
-	zookeeper.Register()
-	consul.Register()
-	etcd.Register()
-
-	// Register to internal discovery service
-	discovery.Register("zk", &Discovery{backend: store.ZK})
-	discovery.Register("consul", &Discovery{backend: store.CONSUL})
-	discovery.Register("etcd", &Discovery{backend: store.ETCD})
 }
 
 // Initialize is exported
