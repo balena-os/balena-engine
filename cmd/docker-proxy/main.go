@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"flag"
@@ -13,7 +13,7 @@ import (
 	"github.com/ishidawataru/sctp"
 )
 
-func main() {
+func Main() {
 	f := os.NewFile(3, "signal-parent")
 	host, container := parseFlags()
 
