@@ -237,6 +237,7 @@ func TestInspectCfgdMAC(t *testing.T) {
 // where NetworkMode uses network id, and the key in endpoint settings is the
 // network name.
 func TestWatchtowerCreate(t *testing.T) {
+	t.Skip("macvlan driver is not registered in balena-engine")
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows", "no macvlan")
 
 	ctx := setupTest(t)
