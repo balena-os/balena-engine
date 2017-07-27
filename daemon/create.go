@@ -165,8 +165,13 @@ func (daemon *Daemon) create(opts createOpts) (retC *container.Container, retErr
 
 	ctr.HostConfig.StorageOpt = opts.params.HostConfig.StorageOpt
 
+	initFunc := setupInitLayer(daemon.idMapping)
+	if opts.params.HostConfig.Runtime == "bare" {
+		initFunc = nil
+	}
+
 	// Set RWLayer for container after mount labels have been set
-	rwLayer, err := daemon.imageService.CreateLayer(ctr, setupInitLayer(daemon.idMapping))
+	rwLayer, err := daemon.imageService.CreateLayer(ctr, initFunc)
 	if err != nil {
 		return nil, errdefs.System(err)
 	}
