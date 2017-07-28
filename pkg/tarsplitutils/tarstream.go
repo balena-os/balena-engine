@@ -1,9 +1,10 @@
 package tarsplitutils
 
 import (
-	"io"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"sort"
 
 	"github.com/vbatts/tar-split/tar/storage"
 )
@@ -23,38 +24,18 @@ func max(x, y int) int {
 }
 
 type randomAccessTarStream struct {
-	entries storage.Entries
-	fg storage.FileGetter
+	entries      storage.Entries
+	entryOffsets []int64
+	fg           storage.FileGetter
 }
 
 func (self randomAccessTarStream) ReadAt(p []byte, off int64) (int, error) {
 	// Find the first entry that we're interested in
-	firstEntry := 0
-
-	cur_off := int64(0)
-	for i, entry := range self.entries {
-		var size int64
-
-		switch entry.Type {
-		case storage.SegmentType:
-			size = int64(len(entry.Payload))
-		case storage.FileType:
-			size = entry.Size
-		default:
-			return 0, fmt.Errorf("Unknown tar-split entry type: %v", entry.Type)
-		}
-
-		if cur_off <= off && off < cur_off + size {
-			firstEntry = i
-			break
-		}
-
-		cur_off += size
-	}
+	firstEntry := sort.Search(len(self.entryOffsets), func(i int) bool { return self.entryOffsets[i] > off }) - 1
 
 	// The cursor will most likely be negative the first time. This signifies
 	// that we need to read some data first before starting to fill the buffer
-	n := cur_off - off
+	n := self.entryOffsets[firstEntry] - off
 
 	for _, entry := range self.entries[firstEntry:] {
 		if n >= int64(len(p)) {
@@ -80,7 +61,7 @@ func (self randomAccessTarStream) ReadAt(p []byte, off int64) (int, error) {
 				return 0, err
 			}
 
-			end := min(n + entry.Size, int64(len(p)))
+			end := min(n+entry.Size, int64(len(p)))
 
 			if n < 0 {
 				if seeker, ok := fh.(io.Seeker); ok {
@@ -112,7 +93,9 @@ func (self randomAccessTarStream) ReadAt(p []byte, off int64) (int, error) {
 }
 
 func NewRandomAccessTarStream(fg storage.FileGetter, up storage.Unpacker) (io.ReadSeeker, error) {
-	entries := storage.Entries{}
+	stream := randomAccessTarStream{
+		fg: fg,
+	}
 
 	size := int64(0)
 	for {
@@ -124,15 +107,21 @@ func NewRandomAccessTarStream(fg storage.FileGetter, up storage.Unpacker) (io.Re
 			return nil, err
 		}
 
+		stream.entryOffsets = append(stream.entryOffsets, size)
+		stream.entries = append(stream.entries, *entry)
+
 		switch entry.Type {
 		case storage.SegmentType:
 			size += int64(len(entry.Payload))
 		case storage.FileType:
 			size += entry.Size
 		}
-
-		entries = append(entries, *entry)
 	}
 
-	return io.NewSectionReader(randomAccessTarStream{entries, fg}, 0, size), nil
+	// Push ending offset. This is because when we binary search we search for
+	// the offset that is above the target and then we move one step back.
+	// See implementation of ReadAt()
+	stream.entryOffsets = append(stream.entryOffsets, size)
+
+	return io.NewSectionReader(stream, 0, size), nil
 }
