@@ -16,7 +16,6 @@ var (
 	systemBusLck  sync.Mutex
 	sessionBus    *Conn
 	sessionBusLck sync.Mutex
-	sessionEnvLck sync.Mutex
 )
 
 // ErrClosed is the error returned by calls on a closed connection.
@@ -47,7 +46,7 @@ type Conn struct {
 	calls    map[uint32]*Call
 	callsLck sync.RWMutex
 
-	handlers    map[ObjectPath]map[string]exportedObj
+	handlers    map[ObjectPath]map[string]exportWithMapping
 	handlersLck sync.RWMutex
 
 	out    chan *Message
@@ -92,8 +91,6 @@ func SessionBus() (conn *Conn, err error) {
 
 // SessionBusPrivate returns a new private connection to the session bus.
 func SessionBusPrivate() (*Conn, error) {
-	sessionEnvLck.Lock()
-	defer sessionEnvLck.Unlock()
 	address := os.Getenv("DBUS_SESSION_BUS_ADDRESS")
 	if address != "" && address != "autolaunch:" {
 		return Dial(address)
@@ -160,7 +157,7 @@ func newConn(tr transport) (*Conn, error) {
 	conn.transport = tr
 	conn.calls = make(map[uint32]*Call)
 	conn.out = make(chan *Message, 10)
-	conn.handlers = make(map[ObjectPath]map[string]exportedObj)
+	conn.handlers = make(map[ObjectPath]map[string]exportWithMapping)
 	conn.nextSerial = 1
 	conn.serialUsed = map[uint32]bool{0: true}
 	conn.busObj = conn.Object("org.freedesktop.DBus", "/org/freedesktop/DBus")
@@ -502,7 +499,9 @@ func (conn *Conn) sendReply(dest string, serial uint32, values ...interface{}) {
 // The caller has to make sure that ch is sufficiently buffered; if a message
 // arrives when a write to c is not possible, it is discarded.
 //
-// Multiple of these channels can be registered at the same time.
+// Multiple of these channels can be registered at the same time. Passing a
+// channel that already is registered will remove it from the list of the
+// registered channels.
 //
 // These channels are "overwritten" by Eavesdrop; i.e., if there currently is a
 // channel for eavesdropped messages, this channel receives all signals, and
@@ -510,19 +509,6 @@ func (conn *Conn) sendReply(dest string, serial uint32, values ...interface{}) {
 func (conn *Conn) Signal(ch chan<- *Signal) {
 	conn.signalsLck.Lock()
 	conn.signals = append(conn.signals, ch)
-	conn.signalsLck.Unlock()
-}
-
-// RemoveSignal removes the given channel from the list of the registered channels.
-func (conn *Conn) RemoveSignal(ch chan<- *Signal) {
-	conn.signalsLck.Lock()
-	for i := len(conn.signals) - 1; i >= 0; i-- {
-		if ch == conn.signals[i] {
-			copy(conn.signals[i:], conn.signals[i+1:])
-			conn.signals[len(conn.signals)-1] = nil
-			conn.signals = conn.signals[:len(conn.signals)-1]
-		}
-	}
 	conn.signalsLck.Unlock()
 }
 
@@ -624,11 +610,16 @@ func dereferenceAll(vs []interface{}) []interface{} {
 
 // getKey gets a key from a the list of keys. Returns "" on error / not found...
 func getKey(s, key string) string {
-	for _, keyEqualsValue := range strings.Split(s, ",") {
-		keyValue := strings.SplitN(keyEqualsValue, "=", 2)
-		if len(keyValue) == 2 && keyValue[0] == key {
-			return keyValue[1]
-		}
+	i := strings.Index(s, key)
+	if i == -1 {
+		return ""
 	}
-	return ""
+	if i+len(key)+1 >= len(s) || s[i+len(key)] != '=' {
+		return ""
+	}
+	j := strings.Index(s, ",")
+	if j == -1 {
+		j = len(s)
+	}
+	return s[i+len(key)+1 : j]
 }
