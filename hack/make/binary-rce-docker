@@ -14,4 +14,8 @@ set -e
 	export BUILDFLAGS=( "${BUILDFLAGS[@]/static_build /}" ) # we're not building a "static" binary
 	source "${MAKEDIR}/.binary"
 	copy_binaries "$DEST" 'hash'
+
+	for file in docker dockerd docker-containerd docker-containerd-shim docker-containerd-ctr docker-runc docker-proxy; do
+		ln -sf $DOCKER_RCE_BINARY_NAME "$DEST/$file"
+	done
 )
