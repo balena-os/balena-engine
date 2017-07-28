@@ -11,7 +11,7 @@ set -e
 	export BUILDFLAGS=( "${BUILDFLAGS[@]/netgo /}" ) # disable netgo, since we don't need it for a dynamic binary
 	source "${MAKEDIR}/.binary"
 
-	for file in dockerd docker-containerd docker-containerd-shim docker-containerd-ctr docker-runc docker-proxy; do
+	for file in docker dockerd docker-containerd docker-containerd-shim docker-containerd-ctr docker-runc docker-proxy; do
 		ln -sf $DOCKER_RCE_BINARY_NAME "$DEST/$file"
 	done
 )
