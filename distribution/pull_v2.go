@@ -43,6 +43,8 @@ var (
 	errRootFSInvalid  = errors.New("invalid rootfs in image configuration")
 )
 
+const maxDownloadAttempts = 5
+
 // ImageConfigPullError is an error pulling the image config blob
 // (only applies to schema2).
 type ImageConfigPullError struct {
@@ -150,7 +152,9 @@ type v2LayerDescriptor struct {
 	verifier          digest.Verifier
 	src               distribution.Descriptor
 	ctx               context.Context
-	layerDownload     io.Reader
+	layerDownload     io.ReadCloser
+	downloadAttempts  uint8
+	downloadOffset    int64
 }
 
 func (ld *v2LayerDescriptor) Key() string {
@@ -168,28 +172,55 @@ func (ld *v2LayerDescriptor) DiffID() (layer.DiffID, error) {
 	return ld.V2MetadataService.GetDiffID(ld.digest)
 }
 
+func (ld *v2LayerDescriptor) reset() error {
+	if ld.layerDownload != nil {
+		ld.layerDownload.Close()
+		ld.layerDownload = nil
+	}
+
+	layer, err := ld.open(ld.ctx)
+	if err != nil {
+		return err
+	}
+
+	if _, err := layer.Seek(ld.downloadOffset, os.SEEK_SET); err != nil {
+		return err
+	}
+
+	ld.layerDownload = ioutils.TeeReadCloser(ioutils.NewCancelReadCloser(ld.ctx, layer), ld.verifier)
+
+	return nil
+}
+
 func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
+	if ld.downloadAttempts <= 0 {
+		return 0, fmt.Errorf("no request retries left")
+	}
+
 	if ld.layerDownload == nil {
-		layer, err := ld.open(ld.ctx)
-		if err != nil {
+		if err := ld.reset(); err != nil {
+			ld.downloadAttempts -= 1
 			return 0, err
 		}
-
-		ld.verifier = ld.digest.Verifier()
-		ld.layerDownload = io.TeeReader(ioutils.NewCancelReadCloser(ld.ctx, layer), ld.verifier)
 	}
 
 	n, err := ld.layerDownload.Read(p)
-	// XXX: handle case where connection is dropped and reconnect
+	ld.downloadOffset += int64(n)
 	if err == io.EOF {
 		if !ld.verifier.Verified() {
-			return 0, fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
+			return n, fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
 		}
+	} else if err != nil {
+		ld.downloadAttempts -= 1
+		ld.layerDownload = nil
+		err = nil
 	}
+
 	return n, err
 }
 
 func (ld *v2LayerDescriptor) Close() {
+	ld.layerDownload.Close()
 }
 
 func (ld *v2LayerDescriptor) Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error) {
@@ -197,6 +228,8 @@ func (ld *v2LayerDescriptor) Download(ctx context.Context, progressOutput progre
 
 	ld.ctx = ctx
 	ld.layerDownload = nil
+	ld.downloadAttempts = maxDownloadAttempts
+	ld.verifier = ld.digest.Verifier()
 
 	progress.Update(progressOutput, ld.ID(), "Ready to download")
 
