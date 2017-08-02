@@ -641,6 +641,7 @@ func verifyDaemonSettings(conf *config.Config) error {
 		conf.Runtimes = make(map[string]types.Runtime)
 	}
 	conf.Runtimes[config.StockRuntimeName] = types.Runtime{Path: DefaultRuntimeBinary}
+	conf.Runtimes["bare"] = types.Runtime{}
 
 	return nil
 }
