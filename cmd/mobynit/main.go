@@ -1,10 +1,11 @@
 package main
 
 import (
-	"flag"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	_ "github.com/docker/docker/daemon/graphdriver/aufs"
@@ -19,7 +20,7 @@ const (
 	PIVOT_PATH = "/mnt/sysroot/active"
 )
 
-func mountContainer(containerID string) string {
+func mountContainer(containerID, graphDriver string) string {
 	if err := os.MkdirAll("/dev/shm", os.ModePerm); err != nil {
 		log.Fatal("creating /dev/shm failed:", err)
 	}
@@ -64,7 +65,14 @@ func mountContainer(containerID string) string {
 }
 
 func main() {
-	flag.Parse()
+	// Any mounts done by initrd will be transfered in the new root
+	mounts, err := mount.GetMounts(nil)
+
+	rawGraphDriver, err := ioutil.ReadFile("/current/boot/storage-driver")
+	if err != nil {
+		log.Fatal("could not get storage driver:", err)
+	}
+	graphDriver := strings.TrimSpace(string(rawGraphDriver))
 
 	current, err := os.Readlink("/current")
 	if err != nil {
@@ -76,7 +84,7 @@ func main() {
 		log.Fatal("error remounting root as read/write:", err)
 	}
 
-	newRoot := mountContainer(containerID)
+	newRoot := mountContainer(containerID, graphDriver)
 
 	if err := syscall.PivotRoot(newRoot, filepath.Join(newRoot, PIVOT_PATH)); err != nil {
 		log.Fatal("error while pivoting root:", err)
