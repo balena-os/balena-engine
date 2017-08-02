@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"io/ioutil"
 	"log"
 	"os"
@@ -19,6 +20,13 @@ const (
 	LAYER_ROOT = "/docker"
 	PIVOT_PATH = "/mnt/sysroot"
 )
+
+var graphDriver string
+
+func init() {
+	flag.StringVar(&graphDriver, "storage-driver", "aufs", "Storage driver to use")
+	flag.StringVar(&graphDriver, "s", "aufs", "Storage driver to use")
+}
 
 func mountContainer(containerID string) string {
 	if err := unix.Mount("", "/", "", unix.MS_REMOUNT, ""); err != nil {
@@ -39,7 +47,7 @@ func mountContainer(containerID string) string {
 		Root:                      LAYER_ROOT,
 		MetadataStorePathTemplate: filepath.Join(LAYER_ROOT, "image", "%s", "layerdb"),
 		IDMapping:                 &idtools.IdentityMapping{},
-		GraphDriver:               "aufs",
+		GraphDriver:               graphDriver,
 		Platform:                  "linux",
 	})
 	if err != nil {
@@ -69,6 +77,8 @@ func mountContainer(containerID string) string {
 }
 
 func main() {
+	flag.Parse()
+
 	rawID, err := ioutil.ReadFile("/current/container_id")
 	if err != nil {
 		log.Fatal("could not get container ID:", err)
