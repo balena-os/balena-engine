@@ -11,6 +11,7 @@ import (
 	_ "github.com/docker/docker/daemon/graphdriver/overlay2"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/mount"
 	"golang.org/x/sys/unix"
 )
 
@@ -77,13 +78,23 @@ func mountContainer(containerID string) string {
 func main() {
 	flag.Parse()
 
-	current, err := os.Readlink("/current")
+	// Any mounts done by initrd will be transfered in the new root
+	mounts, err := mount.GetMounts(nil)
 	if err != nil {
 		log.Fatal("could not get container ID:", err)
 	}
 	containerID := filepath.Base(current)
 
 	newRoot := mountContainer(containerID)
+
+	for _, mount := range mounts {
+		if mount.Mountpoint == "/" {
+			continue
+		}
+		if err := unix.Mount(mount.Mountpoint, filepath.Join(newRoot, mount.Mountpoint), "", unix.MS_MOVE, ""); err != nil {
+			log.Println("could not move mountpoint:", mount.Mountpoint, err)
+		}
+	}
 
 	if err := syscall.PivotRoot(newRoot, filepath.Join(newRoot, PIVOT_PATH)); err != nil {
 		log.Fatal("error while pivoting root:", err)
