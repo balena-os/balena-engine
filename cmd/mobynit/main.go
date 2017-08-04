@@ -11,6 +11,7 @@ import (
 	_ "github.com/docker/docker/daemon/graphdriver/overlay2"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/moby/sys/mountinfo"
 	"golang.org/x/sys/unix"
 )
 
@@ -62,9 +63,6 @@ func mountContainer(containerID, graphDriver string) string {
 }
 
 func main() {
-	// Any mounts done by initrd will be transfered in the new root
-	mounts, err := mount.GetMounts(nil)
-
 	rawGraphDriver, err := ioutil.ReadFile("/current/boot/storage-driver")
 	if err != nil {
 		log.Fatal("could not get storage driver:", err)
@@ -77,11 +75,26 @@ func main() {
 	}
 	containerID := filepath.Base(current)
 
+	// Any mounts done by initrd will be transfered in the new root
+	mounts, err := mountinfo.GetMounts(nil)
+	if err != nil {
+		log.Fatal("could not get mounts:", err)
+	}
+
 	if err := unix.Mount("", "/", "", unix.MS_REMOUNT, ""); err != nil {
 		log.Fatal("error remounting root as read/write:", err)
 	}
 
 	newRoot := mountContainer(containerID, graphDriver)
+
+	for _, mount := range mounts {
+		if mount.Mountpoint == "/" {
+			continue
+		}
+		if err := unix.Mount(mount.Mountpoint, filepath.Join(newRoot, mount.Mountpoint), "", unix.MS_MOVE, ""); err != nil {
+			log.Println("could not move mountpoint:", mount.Mountpoint, err)
+		}
+	}
 
 	if err := syscall.PivotRoot(newRoot, filepath.Join(newRoot, PIVOT_PATH)); err != nil {
 		log.Fatal("error while pivoting root:", err)
