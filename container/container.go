@@ -144,6 +144,10 @@ func (container *Container) FromDisk() error {
 		return err
 	}
 
+	if container.Config == nil {
+		return fmt.Errorf("Invalid container config.json, missing Config property")
+	}
+
 	// Ensure the platform is set if blank. Assume it is the platform of the
 	// host OS if not, to ensure containers created before multiple-platform
 	// support are migrated
