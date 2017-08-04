@@ -2,11 +2,9 @@ package main
 
 import (
 	"flag"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	_ "github.com/docker/docker/daemon/graphdriver/aufs"
@@ -79,11 +77,11 @@ func mountContainer(containerID string) string {
 func main() {
 	flag.Parse()
 
-	rawID, err := ioutil.ReadFile("/current/container_id")
+	current, err := os.Readlink("/current")
 	if err != nil {
 		log.Fatal("could not get container ID:", err)
 	}
-	containerID := strings.TrimSpace(string(rawID))
+	containerID := filepath.Base(current)
 
 	newRoot := mountContainer(containerID)
 
