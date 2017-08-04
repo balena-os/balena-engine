@@ -25,6 +25,7 @@ import (
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/system"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 var unpigzPath string
@@ -710,6 +711,20 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, L
 			return err
 		}
 	}
+
+	if hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA {
+		file, err := os.Open(path)
+		if err != nil {
+			file.Close()
+			return err
+		}
+		if err := unix.Fadvise(int(file.Fd()), 0, 0, unix.FADV_DONTNEED); err != nil {
+			file.Close()
+			return err
+		}
+		file.Close()
+	}
+
 	return nil
 }
 
