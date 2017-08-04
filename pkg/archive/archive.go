@@ -718,11 +718,15 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, L
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(file, reader); err != nil {
+
+		efw := ioutils.NewEagerFileWriter(file)
+
+		if _, err := io.Copy(efw, reader); err != nil {
 			file.Close()
 			return err
 		}
-		file.Close()
+
+		efw.Close()
 
 	case tar.TypeBlock, tar.TypeChar:
 		if inUserns { // cannot create devices in a userns
@@ -838,6 +842,7 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, L
 			return err
 		}
 	}
+
 	return nil
 }
 
