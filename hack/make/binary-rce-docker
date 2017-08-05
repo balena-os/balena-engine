@@ -5,7 +5,7 @@ set -e
 	source "${MAKEDIR}/.binary-setup"
 	export BINARY_SHORT_NAME="$DOCKER_RCE_BINARY_NAME"
 	export GO_PACKAGE='github.com/docker/docker/cmd/rce'
-	export LDFLAGS="$LDFLAGS -s"
+	export LDFLAGS="$LDFLAGS"
 	export BUILDFLAGS=( "${BUILDFLAGS[@]/netgo /}" ) # disable netgo, since we don't need it for a dynamic binary
 	source "${MAKEDIR}/.binary"
 
