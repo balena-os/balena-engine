@@ -17,7 +17,7 @@ import (
 
 const (
 	LAYER_ROOT = "/docker"
-	PIVOT_PATH = "/mnt/sysroot"
+	PIVOT_PATH = "/mnt/sysroot/active"
 )
 
 var graphDriver string
