@@ -28,11 +28,6 @@ func init() {
 }
 
 func mountContainer(containerID string) string {
-	if err := unix.Mount("", "/", "", unix.MS_REMOUNT, ""); err != nil {
-		log.Fatal("error remounting root as read/write:", err)
-	}
-	defer unix.Mount("", "/", "", unix.MS_REMOUNT | unix.MS_RDONLY, "")
-
 	if err := os.MkdirAll("/dev/shm", os.ModePerm); err != nil {
 		log.Fatal("creating /dev/shm failed:", err)
 	}
@@ -84,6 +79,10 @@ func main() {
 		log.Fatal("could not get container ID:", err)
 	}
 	containerID := filepath.Base(current)
+
+	if err := unix.Mount("", "/", "", unix.MS_REMOUNT, ""); err != nil {
+		log.Fatal("error remounting root as read/write:", err)
+	}
 
 	newRoot := mountContainer(containerID)
 
