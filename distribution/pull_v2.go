@@ -179,6 +179,9 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 }
 
 func (ld *v2LayerDescriptor) Close() {
+	if ld.layerDownload != nil {
+		ld.layerDownload.Close()
+	}
 }
 
 func (ld *v2LayerDescriptor) Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error) {
