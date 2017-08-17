@@ -232,7 +232,9 @@ func (ld *layerDescriptor) Read(p []byte) (int, error) {
 }
 
 func (ld *layerDescriptor) Close() {
-	ld.layerDownload.Close()
+	if ld.layerDownload != nil {
+		ld.layerDownload.Close()
+	}
 }
 
 func (ld *layerDescriptor) Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error) {
