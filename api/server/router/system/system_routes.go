@@ -59,11 +59,6 @@ func (s *systemRouter) swarmStatus() string {
 func (s *systemRouter) getInfo(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	info := s.backend.SystemInfo()
 
-	if s.cluster != nil {
-		info.Swarm = s.cluster.Info()
-		info.Warnings = append(info.Warnings, info.Swarm.Warnings...)
-	}
-
 	version := httputils.VersionFromContext(ctx)
 	if versions.LessThan(version, "1.25") {
 		// TODO: handle this conversion in engine-api
