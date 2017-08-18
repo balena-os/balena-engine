@@ -14,7 +14,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/libnetwork"
-	netconst "github.com/docker/libnetwork/datastore"
 	"github.com/docker/libnetwork/networkdb"
 	"github.com/pkg/errors"
 )
@@ -48,20 +47,7 @@ func (n *networkRouter) getNetworksList(ctx context.Context, w http.ResponseWrit
 
 	list := []types.NetworkResource{}
 
-	if nr, err := n.cluster.GetNetworks(); err == nil {
-		list = append(list, nr...)
-	}
-
-	// Combine the network list returned by Docker daemon if it is not already
-	// returned by the cluster manager
-SKIP:
 	for _, nw := range n.backend.GetNetworks() {
-		for _, nl := range list {
-			if nl.ID == nw.ID() {
-				continue SKIP
-			}
-		}
-
 		var nr *types.NetworkResource
 		// Versions < 1.28 fetches all the containers attached to a network
 		// in a network list api call. It is a heavy weight operation when
@@ -170,40 +156,6 @@ func (n *networkRouter) getNetwork(ctx context.Context, w http.ResponseWriter, r
 		}
 	}
 
-	nwk, err := n.cluster.GetNetwork(term)
-	if err == nil {
-		// If the get network is passed with a specific network ID / partial network ID
-		// or if the get network was passed with a network name and scope as swarm
-		// return the network. Skipped using isMatchingScope because it is true if the scope
-		// is not set which would be case if the client API v1.30
-		if strings.HasPrefix(nwk.ID, term) || (netconst.SwarmScope == scope) {
-			return httputils.WriteJSON(w, http.StatusOK, nwk)
-		}
-	}
-
-	nr, _ := n.cluster.GetNetworks()
-	for _, network := range nr {
-		if network.ID == term && isMatchingScope(network.Scope, scope) {
-			return httputils.WriteJSON(w, http.StatusOK, network)
-		}
-		if network.Name == term && isMatchingScope(network.Scope, scope) {
-			// Check the ID collision as we are in swarm scope here, and
-			// the map (of the listByFullName) may have already had a
-			// network with the same ID (from local scope previously)
-			if _, ok := listByFullName[network.ID]; !ok {
-				listByFullName[network.ID] = network
-			}
-		}
-		if strings.HasPrefix(network.ID, term) && isMatchingScope(network.Scope, scope) {
-			// Check the ID collision as we are in swarm scope here, and
-			// the map (of the listByPartialID) may have already had a
-			// network with the same ID (from local scope previously)
-			if _, ok := listByPartialID[network.ID]; !ok {
-				listByPartialID[network.ID] = network
-			}
-		}
-	}
-
 	// Find based on full name, returns true only if no duplicates
 	if len(listByFullName) == 1 {
 		for _, v := range listByFullName {
@@ -242,33 +194,9 @@ func (n *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWr
 		return err
 	}
 
-	if nws, err := n.cluster.GetNetworksByName(create.Name); err == nil && len(nws) > 0 {
-		return nameConflict(create.Name)
-	}
-
 	nw, err := n.backend.CreateNetwork(create)
 	if err != nil {
-		var warning string
-		if _, ok := err.(libnetwork.NetworkNameError); ok {
-			// check if user defined CheckDuplicate, if set true, return err
-			// otherwise prepare a warning message
-			if create.CheckDuplicate {
-				return nameConflict(create.Name)
-			}
-			warning = libnetwork.NetworkNameError(create.Name).Error()
-		}
-
-		if _, ok := err.(libnetwork.ManagerRedirectError); !ok {
-			return err
-		}
-		id, err := n.cluster.CreateNetwork(create)
-		if err != nil {
-			return err
-		}
-		nw = &types.NetworkCreateResponse{
-			ID:      id,
-			Warning: warning,
-		}
+		return err
 	}
 
 	return httputils.WriteJSON(w, http.StatusCreated, nw)
@@ -311,13 +239,6 @@ func (n *networkRouter) postNetworkDisconnect(ctx context.Context, w http.Respon
 func (n *networkRouter) deleteNetwork(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	if err := httputils.ParseForm(r); err != nil {
 		return err
-	}
-	if _, err := n.cluster.GetNetwork(vars["id"]); err == nil {
-		if err = n.cluster.RemoveNetwork(vars["id"]); err != nil {
-			return err
-		}
-		w.WriteHeader(http.StatusNoContent)
-		return nil
 	}
 	if err := n.backend.DeleteNetwork(vars["id"]); err != nil {
 		return err
