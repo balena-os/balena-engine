@@ -5,9 +5,7 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
@@ -190,58 +188,7 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 		return errors.Wrap(err, "unable to setup secret mount")
 	}
 
-	if c.DependencyStore == nil {
-		return fmt.Errorf("secret store is not initialized")
-	}
-
-	for _, s := range c.SecretReferences {
-		// TODO (ehazlett): use type switch when more are supported
-		if s.File == nil {
-			logrus.Error("secret target type is not a file target")
-			continue
-		}
-
-		// secrets are created in the SecretMountPath on the host, at a
-		// single level
-		fPath := c.SecretFilePath(*s)
-		if err := idtools.MkdirAllAndChown(filepath.Dir(fPath), 0700, rootIDs); err != nil {
-			return errors.Wrap(err, "error creating secret mount path")
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"name": s.File.Name,
-			"path": fPath,
-		}).Debug("injecting secret")
-		secret, err := c.DependencyStore.Secrets().Get(s.SecretID)
-		if err != nil {
-			return errors.Wrap(err, "unable to get secret from secret store")
-		}
-		if err := ioutil.WriteFile(fPath, secret.Spec.Data, s.File.Mode); err != nil {
-			return errors.Wrap(err, "error injecting secret")
-		}
-
-		uid, err := strconv.Atoi(s.File.UID)
-		if err != nil {
-			return err
-		}
-		gid, err := strconv.Atoi(s.File.GID)
-		if err != nil {
-			return err
-		}
-
-		if err := os.Chown(fPath, rootIDs.UID+uid, rootIDs.GID+gid); err != nil {
-			return errors.Wrap(err, "error setting ownership for secret")
-		}
-	}
-
-	label.Relabel(localMountPath, c.MountLabel, false)
-
-	// remount secrets ro
-	if err := mount.Mount("tmpfs", localMountPath, "tmpfs", "remount,ro,"+tmpfsOwnership); err != nil {
-		return errors.Wrap(err, "unable to remount secret dir as readonly")
-	}
-
-	return nil
+	return fmt.Errorf("secret store is not initialized")
 }
 
 func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
@@ -267,51 +214,7 @@ func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
 		}
 	}()
 
-	if c.DependencyStore == nil {
-		return fmt.Errorf("config store is not initialized")
-	}
-
-	for _, configRef := range c.ConfigReferences {
-		// TODO (ehazlett): use type switch when more are supported
-		if configRef.File == nil {
-			logrus.Error("config target type is not a file target")
-			continue
-		}
-
-		fPath := c.ConfigFilePath(*configRef)
-
-		log := logrus.WithFields(logrus.Fields{"name": configRef.File.Name, "path": fPath})
-
-		if err := idtools.MkdirAllAndChown(filepath.Dir(fPath), 0700, rootIDs); err != nil {
-			return errors.Wrap(err, "error creating config path")
-		}
-
-		log.Debug("injecting config")
-		config, err := c.DependencyStore.Configs().Get(configRef.ConfigID)
-		if err != nil {
-			return errors.Wrap(err, "unable to get config from config store")
-		}
-		if err := ioutil.WriteFile(fPath, config.Spec.Data, configRef.File.Mode); err != nil {
-			return errors.Wrap(err, "error injecting config")
-		}
-
-		uid, err := strconv.Atoi(configRef.File.UID)
-		if err != nil {
-			return err
-		}
-		gid, err := strconv.Atoi(configRef.File.GID)
-		if err != nil {
-			return err
-		}
-
-		if err := os.Chown(fPath, rootIDs.UID+uid, rootIDs.GID+gid); err != nil {
-			return errors.Wrap(err, "error setting ownership for config")
-		}
-
-		label.Relabel(fPath, c.MountLabel, false)
-	}
-
-	return nil
+	return fmt.Errorf("config store is not initialized")
 }
 
 func killProcessDirectly(cntr *container.Container) error {

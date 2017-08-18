@@ -44,7 +44,6 @@ import (
 	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/options"
 	"github.com/docker/libnetwork/types"
-	agentexec "github.com/docker/swarmkit/agent/exec"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -98,7 +97,7 @@ type Container struct {
 	MountPoints            map[string]*volume.MountPoint
 	HostConfig             *containertypes.HostConfig `json:"-"` // do not serialize the host config in the json, otherwise we'll make the container unportable
 	ExecCommands           *exec.Store                `json:"-"`
-	DependencyStore        agentexec.DependencyGetter `json:"-"`
+	DependencyStore        interface{}                `json:"-"`
 	SecretReferences       []*swarmtypes.SecretReference
 	ConfigReferences       []*swarmtypes.ConfigReference
 	// logDriver for closing
