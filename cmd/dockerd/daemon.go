@@ -19,7 +19,6 @@ import (
 	distributionrouter "github.com/docker/docker/api/server/router/distribution"
 	"github.com/docker/docker/api/server/router/image"
 	"github.com/docker/docker/api/server/router/network"
-	pluginrouter "github.com/docker/docker/api/server/router/plugin"
 	sessionrouter "github.com/docker/docker/api/server/router/session"
 	systemrouter "github.com/docker/docker/api/server/router/system"
 	"github.com/docker/docker/api/server/router/volume"
@@ -466,7 +465,6 @@ func initRouter(opts routerOptions) {
 		volume.NewRouter(opts.daemon),
 		build.NewRouter(opts.buildBackend, opts.daemon),
 		sessionrouter.NewRouter(opts.sessionManager),
-		pluginrouter.NewRouter(opts.daemon.PluginManager()),
 		distributionrouter.NewRouter(opts.daemon),
 	}
 
