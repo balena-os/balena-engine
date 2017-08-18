@@ -14,7 +14,6 @@ import (
 // It gathers information about host, daemon and container events.
 type systemRouter struct {
 	backend  Backend
-	cluster  ClusterBackend
 	routes   []router.Route
 	builder  *buildkit.Builder
 	features func() map[string]bool
@@ -26,10 +25,9 @@ type systemRouter struct {
 }
 
 // NewRouter initializes a new system router
-func NewRouter(b Backend, c ClusterBackend, builder *buildkit.Builder, features func() map[string]bool) router.Router {
+func NewRouter(b Backend, builder *buildkit.Builder, features func() map[string]bool) router.Router {
 	r := &systemRouter{
 		backend:  b,
-		cluster:  c,
 		builder:  builder,
 		features: features,
 	}

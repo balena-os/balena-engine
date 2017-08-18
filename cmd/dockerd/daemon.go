@@ -666,7 +666,7 @@ func (opts routerOptions) Build() []router.Router {
 			opts.daemon.ImageService().DistributionServices().LayerStore,
 		),
 		deltarouter.NewRouter(opts.daemon.ImageService()),
-		systemrouter.NewRouter(opts.daemon, nil, opts.buildkit, opts.daemon.Features),
+		systemrouter.NewRouter(opts.daemon, opts.buildkit, opts.daemon.Features),
 		volume.NewRouter(opts.daemon.VolumesService(), nil),
 		build.NewRouter(opts.buildBackend, opts.daemon),
 		sessionrouter.NewRouter(opts.sessionManager),
