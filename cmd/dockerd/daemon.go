@@ -678,7 +678,7 @@ func (opts routerOptions) Build() []router.Router {
 	}
 
 	if opts.daemon.NetworkControllerEnabled() {
-		routers = append(routers, network.NewRouter(opts.daemon, nil))
+		routers = append(routers, network.NewRouter(opts.daemon))
 	}
 
 	if opts.daemon.HasExperimental() {
