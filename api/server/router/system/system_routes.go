@@ -48,21 +48,12 @@ func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r
 }
 
 func (s *systemRouter) swarmStatus() string {
-	if s.cluster != nil {
-		if p, ok := s.cluster.(StatusProvider); ok {
-			return p.Status()
-		}
-	}
+	// Swarm is not supported in balenaEngine
 	return string(swarm.LocalNodeStateInactive)
 }
 
 func (s *systemRouter) getInfo(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	info := s.backend.SystemInfo()
-
-	if s.cluster != nil {
-		info.Swarm = s.cluster.Info()
-		info.Warnings = append(info.Warnings, info.Swarm.Warnings...)
-	}
 
 	version := httputils.VersionFromContext(ctx)
 	if versions.LessThan(version, "1.25") {
