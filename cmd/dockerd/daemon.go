@@ -1,7 +1,6 @@
 package dockerd
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"os"
@@ -16,21 +15,18 @@ import (
 	"github.com/docker/docker/api/server/middleware"
 	"github.com/docker/docker/api/server/router"
 	"github.com/docker/docker/api/server/router/build"
-	checkpointrouter "github.com/docker/docker/api/server/router/checkpoint"
 	"github.com/docker/docker/api/server/router/container"
 	distributionrouter "github.com/docker/docker/api/server/router/distribution"
 	"github.com/docker/docker/api/server/router/image"
 	"github.com/docker/docker/api/server/router/network"
 	pluginrouter "github.com/docker/docker/api/server/router/plugin"
 	sessionrouter "github.com/docker/docker/api/server/router/session"
-	swarmrouter "github.com/docker/docker/api/server/router/swarm"
 	systemrouter "github.com/docker/docker/api/server/router/system"
 	"github.com/docker/docker/api/server/router/volume"
 	"github.com/docker/docker/builder/dockerfile"
 	"github.com/docker/docker/builder/fscache"
 	"github.com/docker/docker/cli/debug"
 	"github.com/docker/docker/daemon"
-	"github.com/docker/docker/daemon/cluster"
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/daemon/listeners"
 	"github.com/docker/docker/daemon/logger"
@@ -47,7 +43,6 @@ import (
 	"github.com/docker/docker/registry"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/go-connections/tlsconfig"
-	swarmapi "github.com/docker/swarmkit/api"
 	"github.com/moby/buildkit/session"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -248,37 +243,6 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 		}
 	}
 
-	// TODO: createAndStartCluster()
-	name, _ := os.Hostname()
-
-	// Use a buffered channel to pass changes from store watch API to daemon
-	// A buffer allows store watch API and daemon processing to not wait for each other
-	watchStream := make(chan *swarmapi.WatchMessage, 32)
-
-	c, err := cluster.New(cluster.Config{
-		Root:                   cli.Config.Root,
-		Name:                   name,
-		Backend:                d,
-		PluginBackend:          d.PluginManager(),
-		NetworkSubnetsProvider: d,
-		DefaultAdvertiseAddr:   cli.Config.SwarmDefaultAdvertiseAddr,
-		RuntimeRoot:            cli.getSwarmRunRoot(),
-		WatchStream:            watchStream,
-	})
-	if err != nil {
-		logrus.Fatalf("Error creating cluster component: %v", err)
-	}
-	d.SetCluster(c)
-	err = c.Start()
-	if err != nil {
-		logrus.Fatalf("Error starting cluster component: %v", err)
-	}
-
-	// Restart all autostart containers which has a swarm endpoint
-	// and is not yet running now that we have successfully
-	// initialized the cluster.
-	d.RestartSwarmContainers()
-
 	logrus.Info("Daemon has completed initialization")
 
 	cli.d = d
@@ -288,14 +252,8 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 		return err
 	}
 	routerOptions.api = cli.api
-	routerOptions.cluster = c
 
 	initRouter(routerOptions)
-
-	// process cluster change notifications
-	watchCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go d.ProcessClusterNotifications(watchCtx, watchStream)
 
 	cli.setupConfigReloadTrap()
 
@@ -311,7 +269,6 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	// Daemon is fully initialized and handling API traffic
 	// Wait for serve API to complete
 	errAPI := <-serveAPIWait
-	c.Cleanup()
 	shutdownDaemon(d)
 	containerdRemote.Cleanup()
 	if errAPI != nil {
@@ -327,7 +284,6 @@ type routerOptions struct {
 	buildCache     *fscache.FSCache
 	daemon         *daemon.Daemon
 	api            *apiserver.Server
-	cluster        *cluster.Cluster
 }
 
 func newRouterOptions(config *config.Config, daemon *daemon.Daemon) (routerOptions, error) {
@@ -504,14 +460,12 @@ func initRouter(opts routerOptions) {
 
 	routers := []router.Router{
 		// we need to add the checkpoint router before the container router or the DELETE gets masked
-		checkpointrouter.NewRouter(opts.daemon, decoder),
 		container.NewRouter(opts.daemon, decoder),
 		image.NewRouter(opts.daemon, decoder),
 		systemrouter.NewRouter(opts.daemon, opts.buildCache),
 		volume.NewRouter(opts.daemon),
 		build.NewRouter(opts.buildBackend, opts.daemon),
 		sessionrouter.NewRouter(opts.sessionManager),
-		swarmrouter.NewRouter(opts.cluster),
 		pluginrouter.NewRouter(opts.daemon.PluginManager()),
 		distributionrouter.NewRouter(opts.daemon),
 	}
