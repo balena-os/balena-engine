@@ -10,7 +10,6 @@ import (
 // It gathers information about host, daemon and container events.
 type systemRouter struct {
 	backend  Backend
-	cluster  ClusterBackend
 	routes   []router.Route
 	fscache  *fscache.FSCache // legacy
 	builder  *buildkit.Builder
@@ -18,10 +17,9 @@ type systemRouter struct {
 }
 
 // NewRouter initializes a new system router
-func NewRouter(b Backend, c ClusterBackend, fscache *fscache.FSCache, builder *buildkit.Builder, features *map[string]bool) router.Router {
+func NewRouter(b Backend, fscache *fscache.FSCache, builder *buildkit.Builder, features *map[string]bool) router.Router {
 	r := &systemRouter{
 		backend:  b,
-		cluster:  c,
 		fscache:  fscache,
 		builder:  builder,
 		features: features,
