@@ -24,7 +24,6 @@ import (
 	networktypes "github.com/docker/docker/libnetwork/types"
 	"github.com/docker/docker/plugin"
 	volumeopts "github.com/docker/docker/volume/service/opts"
-	"github.com/moby/swarmkit/v2/agent/exec"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -47,7 +46,6 @@ type Backend interface {
 	ContainerWait(ctx context.Context, name string, condition containerpkg.WaitCondition) (<-chan containerpkg.StateStatus, error)
 	ContainerRm(name string, config *types.ContainerRmConfig) error
 	ContainerKill(name string, sig string) error
-	SetContainerDependencyStore(name string, store exec.DependencyGetter) error
 	SetContainerSecretReferences(name string, refs []*swarmtypes.SecretReference) error
 	SetContainerConfigReferences(name string, refs []*swarmtypes.ConfigReference) error
 	SystemInfo() *types.Info
