@@ -5,9 +5,7 @@ package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/docker/docker/container"
@@ -18,7 +16,6 @@ import (
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/libnetwork"
-	"github.com/moby/sys/mount"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -165,174 +162,11 @@ func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
 		return nil
 	}
 
-	if err := daemon.createSecretsDir(c); err != nil {
-		return err
-	}
-	defer func() {
-		if setupErr != nil {
-			daemon.cleanupSecretDir(c)
-		}
-	}()
-
-	if c.DependencyStore == nil {
-		return fmt.Errorf("secret store is not initialized")
-	}
-
-	// retrieve possible remapped range start for root UID, GID
-	rootIDs := daemon.idMapping.RootPair()
-
-	for _, s := range c.SecretReferences {
-		// TODO (ehazlett): use type switch when more are supported
-		if s.File == nil {
-			logrus.Error("secret target type is not a file target")
-			continue
-		}
-
-		// secrets are created in the SecretMountPath on the host, at a
-		// single level
-		fPath, err := c.SecretFilePath(*s)
-		if err != nil {
-			return errors.Wrap(err, "error getting secret file path")
-		}
-		if err := idtools.MkdirAllAndChown(filepath.Dir(fPath), 0700, rootIDs); err != nil {
-			return errors.Wrap(err, "error creating secret mount path")
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"name": s.File.Name,
-			"path": fPath,
-		}).Debug("injecting secret")
-		secret, err := c.DependencyStore.Secrets().Get(s.SecretID)
-		if err != nil {
-			return errors.Wrap(err, "unable to get secret from secret store")
-		}
-		if err := ioutil.WriteFile(fPath, secret.Spec.Data, s.File.Mode); err != nil {
-			return errors.Wrap(err, "error injecting secret")
-		}
-
-		uid, err := strconv.Atoi(s.File.UID)
-		if err != nil {
-			return err
-		}
-		gid, err := strconv.Atoi(s.File.GID)
-		if err != nil {
-			return err
-		}
-
-		if err := os.Chown(fPath, rootIDs.UID+uid, rootIDs.GID+gid); err != nil {
-			return errors.Wrap(err, "error setting ownership for secret")
-		}
-		if err := os.Chmod(fPath, s.File.Mode); err != nil {
-			return errors.Wrap(err, "error setting file mode for secret")
-		}
-	}
-
-	for _, configRef := range c.ConfigReferences {
-		// TODO (ehazlett): use type switch when more are supported
-		if configRef.File == nil {
-			// Runtime configs are not mounted into the container, but they're
-			// a valid type of config so we should not error when we encounter
-			// one.
-			if configRef.Runtime == nil {
-				logrus.Error("config target type is not a file or runtime target")
-			}
-			// However, in any case, this isn't a file config, so we have no
-			// further work to do
-			continue
-		}
-
-		fPath, err := c.ConfigFilePath(*configRef)
-		if err != nil {
-			return errors.Wrap(err, "error getting config file path for container")
-		}
-		if err := idtools.MkdirAllAndChown(filepath.Dir(fPath), 0700, rootIDs); err != nil {
-			return errors.Wrap(err, "error creating config mount path")
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"name": configRef.File.Name,
-			"path": fPath,
-		}).Debug("injecting config")
-		config, err := c.DependencyStore.Configs().Get(configRef.ConfigID)
-		if err != nil {
-			return errors.Wrap(err, "unable to get config from config store")
-		}
-		if err := ioutil.WriteFile(fPath, config.Spec.Data, configRef.File.Mode); err != nil {
-			return errors.Wrap(err, "error injecting config")
-		}
-
-		uid, err := strconv.Atoi(configRef.File.UID)
-		if err != nil {
-			return err
-		}
-		gid, err := strconv.Atoi(configRef.File.GID)
-		if err != nil {
-			return err
-		}
-
-		if err := os.Chown(fPath, rootIDs.UID+uid, rootIDs.GID+gid); err != nil {
-			return errors.Wrap(err, "error setting ownership for config")
-		}
-		if err := os.Chmod(fPath, configRef.File.Mode); err != nil {
-			return errors.Wrap(err, "error setting file mode for config")
-		}
-	}
-
-	return daemon.remountSecretDir(c)
-}
-
-// createSecretsDir is used to create a dir suitable for storing container secrets.
-// In practice this is using a tmpfs mount and is used for both "configs" and "secrets"
-func (daemon *Daemon) createSecretsDir(c *container.Container) error {
-	// retrieve possible remapped range start for root UID, GID
-	rootIDs := daemon.idMapping.RootPair()
-	dir, err := c.SecretMountPath()
-	if err != nil {
-		return errors.Wrap(err, "error getting container secrets dir")
-	}
-
-	// create tmpfs
-	if err := idtools.MkdirAllAndChown(dir, 0700, rootIDs); err != nil {
-		return errors.Wrap(err, "error creating secret local mount path")
-	}
-
-	tmpfsOwnership := fmt.Sprintf("uid=%d,gid=%d", rootIDs.UID, rootIDs.GID)
-	if err := mount.Mount("tmpfs", dir, "tmpfs", "nodev,nosuid,noexec,"+tmpfsOwnership); err != nil {
-		return errors.Wrap(err, "unable to setup secret mount")
-	}
-	return nil
-}
-
-func (daemon *Daemon) remountSecretDir(c *container.Container) error {
-	dir, err := c.SecretMountPath()
-	if err != nil {
-		return errors.Wrap(err, "error getting container secrets path")
-	}
-	if err := label.Relabel(dir, c.MountLabel, false); err != nil {
-		logrus.WithError(err).WithField("dir", dir).Warn("Error while attempting to set selinux label")
-	}
-	rootIDs := daemon.idMapping.RootPair()
-	tmpfsOwnership := fmt.Sprintf("uid=%d,gid=%d", rootIDs.UID, rootIDs.GID)
-
-	// remount secrets ro
-	if err := mount.Mount("tmpfs", dir, "tmpfs", "remount,ro,"+tmpfsOwnership); err != nil {
-		return errors.Wrap(err, "unable to remount dir as readonly")
-	}
-
-	return nil
+	return fmt.Errorf("secret store is not initialized")
 }
 
 func (daemon *Daemon) cleanupSecretDir(c *container.Container) {
-	dir, err := c.SecretMountPath()
-	if err != nil {
-		logrus.WithError(err).WithField("container", c.ID).Warn("error getting secrets mount path for container")
-	}
-	if err := mount.RecursiveUnmount(dir); err != nil {
-		logrus.WithField("dir", dir).WithError(err).Warn("Error while attempting to unmount dir, this may prevent removal of container.")
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		logrus.WithField("dir", dir).WithError(err).Error("Error removing dir.")
-	}
+	// noop
 }
 
 func killProcessDirectly(container *container.Container) error {
