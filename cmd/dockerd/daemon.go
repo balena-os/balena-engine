@@ -507,7 +507,7 @@ func initRouter(opts routerOptions) {
 		checkpointrouter.NewRouter(opts.daemon, decoder),
 		container.NewRouter(opts.daemon, decoder),
 		image.NewRouter(opts.daemon, decoder),
-		systemrouter.NewRouter(opts.daemon, opts.cluster, opts.buildCache),
+		systemrouter.NewRouter(opts.daemon, opts.buildCache),
 		volume.NewRouter(opts.daemon),
 		build.NewRouter(opts.buildBackend, opts.daemon),
 		sessionrouter.NewRouter(opts.sessionManager),
