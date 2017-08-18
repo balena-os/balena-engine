@@ -36,7 +36,6 @@ import (
 	"github.com/docker/docker/volume"
 	volumemounts "github.com/docker/docker/volume/mounts"
 	units "github.com/docker/go-units"
-	agentexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/sys/signal"
 	"github.com/moby/sys/symlink"
 	"github.com/pkg/errors"
@@ -90,7 +89,7 @@ type Container struct {
 	MountPoints              map[string]*volumemounts.MountPoint
 	HostConfig               *containertypes.HostConfig `json:"-"` // do not serialize the host config in the json, otherwise we'll make the container unportable
 	ExecCommands             *exec.Store                `json:"-"`
-	DependencyStore          agentexec.DependencyGetter `json:"-"`
+	DependencyStore          interface{}                `json:"-"`
 	SecretReferences         []*swarmtypes.SecretReference
 	ConfigReferences         []*swarmtypes.ConfigReference
 	// logDriver for closing
