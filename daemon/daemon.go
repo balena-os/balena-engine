@@ -103,6 +103,7 @@ type Daemon struct {
 	shutdown              bool
 	idMappings            *idtools.IDMappings
 	stores                map[string]daemonStore // By container target platform
+	deltaStore            *daemonStore
 	PluginStore           *plugin.Store          // todo: remove
 	pluginManager         *plugin.Manager
 	nameIndex             *registrar.Registrar
@@ -670,6 +671,42 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 		ds.graphDriver = ls.DriverName() // As layerstore may set the driver
 		ds.layerStore = ls
 		d.stores[platform] = ds
+		graphDrivers = append(graphDrivers, ls.DriverName())
+	}
+
+	if config.DeltaRoot != "" && config.DeltaGraphDriver != "" {
+		ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
+			StorePath:                 config.DeltaRoot,
+			MetadataStorePathTemplate: filepath.Join(config.DeltaRoot, "image", "%s", "layerdb"),
+			GraphDriver:               config.DeltaGraphDriver,
+			GraphDriverOptions:        config.DeltaGraphOptions,
+			IDMappings:                idMappings,
+			PluginGetter:              nil,
+			ExperimentalEnabled:       false,
+			Platform:                  runtime.GOOS,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		imageRoot := filepath.Join(config.DeltaRoot, "image", ls.DriverName())
+		ifs, err := image.NewFSStoreBackend(filepath.Join(imageRoot, "imagedb"))
+		if err != nil {
+			return nil, err
+		}
+
+		var is image.Store
+		is, err = image.NewImageStore(ifs, runtime.GOOS, ls)
+		if err != nil {
+			return nil, err
+		}
+
+		d.deltaStore = &daemonStore{
+			graphDriver: ls.DriverName(),
+			imageRoot: imageRoot,
+			imageStore: is,
+			layerStore: ls,
+		}
 		graphDrivers = append(graphDrivers, ls.DriverName())
 	}
 

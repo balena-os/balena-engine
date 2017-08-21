@@ -143,6 +143,7 @@ type v2LayerDescriptor struct {
 	layerDownload     io.ReadCloser
 	downloadAttempts  uint8
 	downloadOffset    int64
+	deltaBase         io.ReadSeeker
 }
 
 func (ld *v2LayerDescriptor) Key() string {
@@ -205,6 +206,10 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 	}
 
 	return n, err
+}
+
+func (ld *v2LayerDescriptor) DeltaBase() io.ReadSeeker {
+	return ld.deltaBase
 }
 
 func (ld *v2LayerDescriptor) Close() {
@@ -446,6 +451,57 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 		return target.Digest, manifestDigest, nil
 	}
 
+	// Pull the image config
+	configJSON, err := p.pullSchema2Config(ctx, target.Digest)
+	if err != nil {
+		return "", "", ImageConfigPullError{Err: err}
+	}
+
+	var deltaBase io.ReadSeeker
+
+	// check for delta config
+	img, err := image.NewFromJSON(configJSON)
+	if err != nil {
+		return "", "", err
+	}
+
+	if img.Config != nil {
+		if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
+			digest, err := digest.Parse(base)
+			if err != nil {
+				return "", "", err
+			}
+
+			stream, err := p.config.ImageStore.GetTarSeekStream(digest)
+			if err != nil {
+				return "", "", err
+			}
+			defer stream.Close()
+
+			deltaBase = stream
+		}
+
+		if config, ok := img.Config.Labels["io.resin.delta.config"]; ok {
+			digest := digest.FromString(config)
+
+			if _, err := p.config.ImageStore.Get(digest); err == nil {
+				// If the image already exists locally, no need to pull
+				// anything.
+				return digest, manifestDigest, nil
+			}
+
+			configJSON = []byte(config)
+		}
+	}
+
+	configRootFS, platform, err := p.config.ImageStore.RootFSAndPlatformFromConfig(configJSON)
+	if err == nil && configRootFS == nil {
+		return "", "", errRootFSInvalid
+	}
+	if err != nil {
+		return "", "", err
+	}
+
 	var descriptors []xfer.DownloadDescriptor
 
 	// Note that the order of this loop is in the direction of bottom-most
@@ -457,65 +513,31 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 			repoInfo:          p.repoInfo,
 			V2MetadataService: p.V2MetadataService,
 			src:               d,
+			deltaBase:         deltaBase,
 		}
 
 		descriptors = append(descriptors, layerDescriptor)
 	}
 
-	configChan := make(chan []byte, 1)
-	configErrChan := make(chan error, 1)
 	layerErrChan := make(chan error, 1)
 	downloadsDone := make(chan struct{})
 	var cancel func()
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
 
-	// Pull the image config
-	go func() {
-		configJSON, err := p.pullSchema2Config(ctx, target.Digest)
-		if err != nil {
-			configErrChan <- ImageConfigPullError{Err: err}
-			cancel()
-			return
-		}
-		configChan <- configJSON
-	}()
-
 	var (
-		configJSON       []byte         // raw serialized image config
 		downloadedRootFS *image.RootFS  // rootFS from registered layers
-		configRootFS     *image.RootFS  // rootFS from configuration
 		release          func()         // release resources from rootFS download
-		platform         layer.Platform // for LCOW when registering downloaded layers
 	)
 
-	// https://github.com/docker/docker/issues/24766 - Err on the side of caution,
-	// explicitly blocking images intended for linux from the Windows daemon. On
-	// Windows, we do this before the attempt to download, effectively serialising
-	// the download slightly slowing it down. We have to do it this way, as
-	// chances are the download of layers itself would fail due to file names
-	// which aren't suitable for NTFS. At some point in the future, if a similar
-	// check to block Windows images being pulled on Linux is implemented, it
-	// may be necessary to perform the same type of serialisation.
-	if runtime.GOOS == "windows" {
-		configJSON, configRootFS, platform, err = receiveConfig(p.config.ImageStore, configChan, configErrChan)
-		if err != nil {
-			return "", "", err
-		}
+	if len(descriptors) != len(configRootFS.DiffIDs) {
+		return "", "", errRootFSMismatch
+	}
 
-		if configRootFS == nil {
-			return "", "", errRootFSInvalid
-		}
-
-		if len(descriptors) != len(configRootFS.DiffIDs) {
-			return "", "", errRootFSMismatch
-		}
-
-		// Populate diff ids in descriptors to avoid downloading foreign layers
-		// which have been side loaded
-		for i := range descriptors {
-			descriptors[i].(*v2LayerDescriptor).diffID = configRootFS.DiffIDs[i]
-		}
+	// Populate diff ids in descriptors to avoid downloading foreign layers
+	// which have been side loaded
+	for i := range descriptors {
+		descriptors[i].(*v2LayerDescriptor).diffID = configRootFS.DiffIDs[i]
 	}
 
 	if p.config.DownloadManager != nil {
@@ -540,21 +562,6 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 	} else {
 		// We have nothing to download
 		close(downloadsDone)
-	}
-
-	if configJSON == nil {
-		configJSON, configRootFS, _, err = receiveConfig(p.config.ImageStore, configChan, configErrChan)
-		if err == nil && configRootFS == nil {
-			err = errRootFSInvalid
-		}
-		if err != nil {
-			cancel()
-			select {
-			case <-downloadsDone:
-			case <-layerErrChan:
-			}
-			return "", "", err
-		}
 	}
 
 	select {
@@ -588,21 +595,6 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 	}
 
 	return imageID, manifestDigest, nil
-}
-
-func receiveConfig(s ImageConfigStore, configChan <-chan []byte, errChan <-chan error) ([]byte, *image.RootFS, layer.Platform, error) {
-	select {
-	case configJSON := <-configChan:
-		rootfs, platform, err := s.RootFSAndPlatformFromConfig(configJSON)
-		if err != nil {
-			return nil, nil, "", err
-		}
-		return configJSON, rootfs, platform, nil
-	case err := <-errChan:
-		return nil, nil, "", err
-		// Don't need a case for ctx.Done in the select because cancellation
-		// will trigger an error in p.pullSchema2ImageConfig.
-	}
 }
 
 // pullManifestList handles "manifest lists" which point to various
