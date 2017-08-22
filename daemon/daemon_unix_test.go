@@ -299,6 +299,7 @@ func TestMigratePre17Volumes(t *testing.T) {
 
 	config := []byte(`
 		{
+			"Config": {},
 			"ID": "` + cid + `",
 			"Volumes": {
 				"/foo": "` + vfsPath + `",
