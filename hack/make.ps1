@@ -330,6 +330,7 @@ Function Run-UnitTests() {
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/vendor"
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/man"
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/integration"
+    $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/daemon/cluster"
     $pkgList = $pkgList -replace "`r`n", " "
 
     $jsonFilePath = $bundlesDir + "\go-test-report-unit-flaky-tests.json"
