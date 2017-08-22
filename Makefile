@@ -132,10 +132,10 @@ clean-pkg-cache-vol:
 	)
 
 cross: build ## cross build the binaries for darwin, freebsd and\nwindows
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary binary cross
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker binary cross
 
 deb: build  ## build the deb packages
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary build-deb
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker build-deb
 
 
 help: ## this help
@@ -148,7 +148,7 @@ install: ## install the linux binaries
 	KEEPBUNDLE=1 hack/make.sh install-binary
 
 rpm: build ## build the rpm packages
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary build-rpm
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker build-rpm
 
 run: build ## run the docker daemon in a container
 	$(DOCKER_RUN_DOCKER) sh -c "KEEPBUNDLE=1 hack/make.sh install-binary run"
@@ -157,15 +157,15 @@ shell: build ## start a shell inside the build env
 	$(DOCKER_RUN_DOCKER) bash
 
 test: build ## run the unit, integration and docker-py tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary cross test-unit test-integration test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker cross test-unit test-integration test-docker-py
 
 test-docker-py: build ## run the docker-py tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker test-docker-py
 
 test-integration-cli: test-integration ## (DEPRECATED) use test-integration
 
 test-integration: build ## run the integration tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary test-integration
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker test-integration
 
 test-unit: build ## run the unit tests
 	$(DOCKER_RUN_DOCKER) hack/test/unit
@@ -192,18 +192,12 @@ swagger-docs: ## preview the API documentation
 		-p $(SWAGGER_DOCS_PORT):80 \
 		bfirsh/redoc:1.6.2
 
-build-integration-cli-on-swarm: build ## build images and binary for running integration-cli on Swarm in parallel
-	@echo "Building hack/integration-cli-on-swarm (if build fails, please refer to hack/integration-cli-on-swarm/README.md)"
-	go build -o ./hack/integration-cli-on-swarm/integration-cli-on-swarm ./hack/integration-cli-on-swarm/host
-	@echo "Building $(INTEGRATION_CLI_MASTER_IMAGE)"
-	docker build -t $(INTEGRATION_CLI_MASTER_IMAGE) hack/integration-cli-on-swarm/agent
 # For worker, we don't use `docker build` so as to enable DOCKER_INCREMENTAL_BINARY and so on
 	@echo "Building $(INTEGRATION_CLI_WORKER_IMAGE) from $(DOCKER_IMAGE)"
 	$(eval tmp := integration-cli-worker-tmp)
 # We mount pkgcache, but not bundle (bundle needs to be baked into the image)
 # For avoiding bakings DOCKER_GRAPHDRIVER and so on to image, we cannot use $(DOCKER_ENVS) here
 	docker run -t -d --name $(tmp) -e DOCKER_GITCOMMIT -e BUILDFLAGS -e DOCKER_INCREMENTAL_BINARY --privileged $(DOCKER_MOUNT_PKGCACHE) $(DOCKER_IMAGE) top
-	docker exec $(tmp) hack/make.sh build-integration-test-binary dynbinary
-	docker exec $(tmp) go build -o /worker github.com/docker/docker/hack/integration-cli-on-swarm/agent/worker
+	docker exec $(tmp) hack/make.sh build-integration-test-binary dynbinary-rce-docker
 	docker commit -c 'ENTRYPOINT ["/worker"]' $(tmp) $(INTEGRATION_CLI_WORKER_IMAGE)
 	docker rm -f $(tmp)

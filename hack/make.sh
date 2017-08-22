@@ -59,6 +59,7 @@ DEFAULT_BUNDLES=(
 	binary-daemon
 	binary-rce-docker
 	dynbinary
+	dynbinary-rce-docker
 
 	test-integration
 	test-docker-py
