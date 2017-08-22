@@ -318,6 +318,7 @@ Function Run-UnitTests() {
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/vendor"
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/man"
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/integration"
+    $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/daemon/cluster"
     $pkgList = $pkgList -replace "`r`n", " "
     $goTestCommand = "go test" + $raceParm + " -cover -ldflags -w -tags """ + "autogen daemon" + """ -a """ + "-test.timeout=10m" + """ $pkgList"
     Invoke-Expression $goTestCommand
