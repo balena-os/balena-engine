@@ -15,6 +15,7 @@ import (
 	"github.com/docker/distribution"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	digest "github.com/opencontainers/go-digest"
 	"gotest.tools/v3/assert"
@@ -31,6 +32,10 @@ type mockLayer struct {
 
 func (ml *mockLayer) TarStream() (io.ReadCloser, error) {
 	return ioutil.NopCloser(bytes.NewBuffer(ml.layerData.Bytes())), nil
+}
+
+func (ml *mockLayer) TarSeekStream() (ioutils.ReadSeekCloser, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (ml *mockLayer) TarStreamFrom(layer.ChainID) (io.ReadCloser, error) {
@@ -221,6 +226,11 @@ func (d *mockDownloadDescriptor) Download(ctx context.Context, progressOutput pr
 	}
 
 	return d.mockTarStream(), 0, nil
+}
+
+func (d *mockDownloadDescriptor) DeltaBase() io.ReadSeeker {
+	// TODO implement a test for DeltaBase 
+	return nil
 }
 
 func (d *mockDownloadDescriptor) Close() {
