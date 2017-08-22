@@ -180,10 +180,10 @@ shell: build ## start a shell inside the build env
 	$(DOCKER_RUN_DOCKER) bash
 
 test: build test-unit ## run the unit, integration and docker-py tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary cross test-integration test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker cross test-integration test-docker-py
 
 test-docker-py: build ## run the docker-py tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker test-docker-py
 
 test-integration-cli: test-integration ## (DEPRECATED) use test-integration
 
