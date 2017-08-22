@@ -319,6 +319,7 @@ Function Run-UnitTests() {
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/vendor"
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/man"
     $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/integration"
+    $pkgList = $pkgList | Select-String -NotMatch "github.com/docker/docker/daemon/cluster"
     $pkgList = $pkgList -replace "`r`n", " "
 
     $goTestArg = "--format=standard-verbose --jsonfile=bundles\go-test-report-unit-tests.json --junitfile=bundles\junit-report-unit-tests.xml -- " + $raceParm + " -cover -ldflags -w -a """ + "-test.timeout=10m" + """ $pkgList"
