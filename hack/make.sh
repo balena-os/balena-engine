@@ -59,6 +59,7 @@ DEFAULT_BUNDLES=(
 	binary-daemon
 	binary-rce-docker
 	dynbinary
+	dynbinary-rce-docker
 
 	test-unit
 	test-integration-cli
