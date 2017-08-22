@@ -17,6 +17,7 @@ import (
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -406,6 +407,11 @@ type mockLayer struct {
 func (l *mockLayer) TarStream() (io.ReadCloser, error) {
 	return nil, nil
 }
+
+func (ml *mockLayer) TarSeekStream() (ioutils.ReadSeekCloser, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
 func (l *mockLayer) TarStreamFrom(layer.ChainID) (io.ReadCloser, error) {
 	return nil, nil
 }
