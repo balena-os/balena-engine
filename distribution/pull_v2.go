@@ -212,6 +212,7 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 			return n, fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
 		}
 	} else if err != nil {
+		logrus.Warnf("failed to download layer: \"%v\", retrying to read again", err)
 		ld.downloadAttempts -= 1
 		ld.layerDownload = nil
 		err = nil
