@@ -113,11 +113,6 @@ func TestDockerDaemonSuite(t *testing.T) {
 	suite.Run(t, &DockerDaemonSuite{ds: &DockerSuite{}})
 }
 
-func TestDockerSwarmSuite(t *testing.T) {
-	ensureTestEnvSetup(t)
-	suite.Run(t, &DockerSwarmSuite{ds: &DockerSuite{}})
-}
-
 func TestDockerPluginSuite(t *testing.T) {
 	ensureTestEnvSetup(t)
 	suite.Run(t, &DockerPluginSuite{ds: &DockerSuite{}})
