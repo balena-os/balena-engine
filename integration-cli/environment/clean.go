@@ -34,7 +34,8 @@ func (e *Execution) Clean(t testingT, dockerBinary string) {
 	deleteAllVolumes(t, dockerBinary)
 	deleteAllNetworks(t, dockerBinary, e.DaemonPlatform())
 	if e.DaemonPlatform() == "linux" {
-		deleteAllPlugins(t, dockerBinary)
+		// TODO FIXME
+		//deleteAllPlugins(t, dockerBinary)
 	}
 }
 
