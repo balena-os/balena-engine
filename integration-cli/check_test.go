@@ -114,6 +114,7 @@ func TestDockerDaemonSuite(t *testing.T) {
 }
 
 func TestDockerSwarmSuite(t *testing.T) {
+	t.Skip("Skipping docker swarm test suite")
 	ensureTestEnvSetup(t)
 	suite.Run(t, &DockerSwarmSuite{ds: &DockerSuite{}})
 }
