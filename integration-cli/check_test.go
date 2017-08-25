@@ -292,9 +292,6 @@ func (s *DockerDaemonSuite) TearDownSuite(c *check.C) {
 const defaultSwarmPort = 2477
 
 func init() {
-	check.Suite(&DockerSwarmSuite{
-		ds: &DockerSuite{},
-	})
 }
 
 type DockerSwarmSuite struct {
@@ -411,15 +408,6 @@ func (s *DockerTrustSuite) TearDownTest(c *check.C) {
 }
 
 func init() {
-	ds := &DockerSuite{}
-	check.Suite(&DockerTrustedSwarmSuite{
-		trustSuite: DockerTrustSuite{
-			ds: ds,
-		},
-		swarmSuite: DockerSwarmSuite{
-			ds: ds,
-		},
-	})
 }
 
 type DockerTrustedSwarmSuite struct {
