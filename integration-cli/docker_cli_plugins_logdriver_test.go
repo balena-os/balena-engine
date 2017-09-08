@@ -24,6 +24,8 @@ func (s *DockerCLIPluginLogDriverSuite) OnTimeout(c *testing.T) {
 }
 
 func (s *DockerCLIPluginLogDriverSuite) TestPluginLogDriver(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, IsAmd64, DaemonIsLinux)
 
 	const pluginName = "cpuguy83/docker-logdriver-test:latest"
@@ -44,6 +46,8 @@ func (s *DockerCLIPluginLogDriverSuite) TestPluginLogDriver(c *testing.T) {
 
 // Make sure log drivers are listed in info, and v2 plugins are not.
 func (s *DockerCLIPluginLogDriverSuite) TestPluginLogDriverInfoList(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, IsAmd64, DaemonIsLinux)
 	const pluginName = "cpuguy83/docker-logdriver-test"
 
