@@ -31,8 +31,11 @@ var (
 )
 
 func (ps *DockerPluginSuite) TestPluginBasicOps(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	plugin := ps.getPluginRepoWithTag()
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", plugin)
+
 	c.Assert(err, checker.IsNil)
 
 	out, _, err := dockerCmdWithError("plugin", "ls")
@@ -62,6 +65,8 @@ func (ps *DockerPluginSuite) TestPluginBasicOps(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginForceRemove(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	pNameWithTag := ps.getPluginRepoWithTag()
 
 	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pNameWithTag)
@@ -76,6 +81,8 @@ func (ps *DockerPluginSuite) TestPluginForceRemove(c *check.C) {
 }
 
 func (s *DockerSuite) TestPluginActive(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pNameWithTag)
@@ -99,6 +106,8 @@ func (s *DockerSuite) TestPluginActive(c *check.C) {
 }
 
 func (s *DockerSuite) TestPluginActiveNetwork(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", npNameWithTag)
 	c.Assert(err, checker.IsNil)
@@ -126,8 +135,9 @@ func (s *DockerSuite) TestPluginActiveNetwork(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginInstallDisable(c *check.C) {
-	pName := ps.getPluginRepoWithTag()
+	c.Skip("Plugin isn't supported")
 
+	pName := ps.getPluginRepoWithTag()
 	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", "--disable", pName)
 	c.Assert(err, checker.IsNil)
 	c.Assert(strings.TrimSpace(out), checker.Contains, pName)
@@ -150,6 +160,8 @@ func (ps *DockerPluginSuite) TestPluginInstallDisable(c *check.C) {
 }
 
 func (s *DockerSuite) TestPluginInstallDisableVolumeLs(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", "--disable", pName)
 	c.Assert(err, checker.IsNil)
@@ -159,6 +171,8 @@ func (s *DockerSuite) TestPluginInstallDisableVolumeLs(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginSet(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	// Create a new plugin with extra settings
 	client, err := request.NewClient()
 	c.Assert(err, checker.IsNil, check.Commentf("failed to create test client"))
@@ -183,6 +197,8 @@ func (ps *DockerPluginSuite) TestPluginSet(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginInstallArgs(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	pName := path.Join(ps.registryHost(), "plugin", "testplugininstallwithargs")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -199,6 +215,8 @@ func (ps *DockerPluginSuite) TestPluginInstallArgs(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginInstallImage(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, IsAmd64)
 
 	repoName := fmt.Sprintf("%v/dockercli/busybox", privateRegistryURL)
@@ -213,6 +231,8 @@ func (ps *DockerPluginSuite) TestPluginInstallImage(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginEnableDisableNegative(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	pName := ps.getPluginRepoWithTag()
 
 	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pName)
@@ -235,6 +255,8 @@ func (ps *DockerPluginSuite) TestPluginEnableDisableNegative(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginCreate(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	name := "foo/bar-driver"
 	temp, err := ioutil.TempDir("", "foo")
 	c.Assert(err, checker.IsNil)
@@ -267,6 +289,8 @@ func (ps *DockerPluginSuite) TestPluginCreate(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginInspect(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	pNameWithTag := ps.getPluginRepoWithTag()
 
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pNameWithTag)
@@ -317,6 +341,8 @@ func (ps *DockerPluginSuite) TestPluginInspect(c *check.C) {
 
 // Test case for https://github.com/docker/docker/pull/29186#discussion_r91277345
 func (s *DockerSuite) TestPluginInspectOnWindows(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	// This test should work on Windows only
 	testRequires(c, DaemonIsWindows)
 
@@ -327,6 +353,8 @@ func (s *DockerSuite) TestPluginInspectOnWindows(c *check.C) {
 }
 
 func (s *DockerTrustSuite) TestPluginTrustedInstall(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 
 	trustedName := s.setupTrustedplugin(c, pNameWithTag, "trusted-plugin-install")
@@ -356,6 +384,8 @@ func (s *DockerTrustSuite) TestPluginTrustedInstall(c *check.C) {
 }
 
 func (s *DockerTrustSuite) TestPluginUntrustedInstall(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 
 	pluginName := fmt.Sprintf("%v/dockercliuntrusted/plugintest:latest", privateRegistryURL)
@@ -372,6 +402,8 @@ func (s *DockerTrustSuite) TestPluginUntrustedInstall(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginIDPrefix(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	name := "test"
 	client, err := request.NewClient()
 	c.Assert(err, checker.IsNil, check.Commentf("error creating test client"))
@@ -430,6 +462,8 @@ func (ps *DockerPluginSuite) TestPluginIDPrefix(c *check.C) {
 }
 
 func (ps *DockerPluginSuite) TestPluginListDefaultFormat(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	config, err := ioutil.TempDir("", "config-file-")
 	c.Assert(err, check.IsNil)
 	defer os.RemoveAll(config)
@@ -462,6 +496,8 @@ enabled: false`, id, name)
 }
 
 func (s *DockerSuite) TestPluginUpgrade(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, DaemonIsLinux, Network, SameHostDaemon, IsAmd64, NotUserNamespace)
 	plugin := "cpuguy83/docker-volume-driver-plugin-local:latest"
 	pluginV2 := "cpuguy83/docker-volume-driver-plugin-local:v2"
@@ -494,6 +530,8 @@ func (s *DockerSuite) TestPluginUpgrade(c *check.C) {
 }
 
 func (s *DockerSuite) TestPluginMetricsCollector(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, DaemonIsLinux, Network, SameHostDaemon, IsAmd64)
 	d := daemon.New(c, dockerBinary, dockerdBinary, daemon.Config{})
 	d.Start(c)
