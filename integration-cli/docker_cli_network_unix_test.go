@@ -782,6 +782,8 @@ func (s *DockerNetworkSuite) TestDockerNetworkDriverOptions(c *check.C) {
 }
 
 func (s *DockerNetworkSuite) TestDockerPluginV2NetworkDriver(c *check.C) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 
 	var (
