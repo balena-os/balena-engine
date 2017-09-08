@@ -29,6 +29,8 @@ var (
 )
 
 func (ps *DockerPluginSuite) TestPluginBasicOps(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	plugin := ps.getPluginRepoWithTag()
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", plugin)
 	assert.NilError(c, err)
@@ -57,6 +59,8 @@ func (ps *DockerPluginSuite) TestPluginBasicOps(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginForceRemove(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	pNameWithTag := ps.getPluginRepoWithTag()
 
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pNameWithTag)
@@ -70,6 +74,8 @@ func (ps *DockerPluginSuite) TestPluginForceRemove(c *testing.T) {
 }
 
 func (s *DockerSuite) TestPluginActive(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pNameWithTag)
@@ -92,6 +98,8 @@ func (s *DockerSuite) TestPluginActive(c *testing.T) {
 }
 
 func (s *DockerSuite) TestPluginActiveNetwork(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", npNameWithTag)
 	assert.NilError(c, err)
@@ -117,6 +125,8 @@ func (s *DockerSuite) TestPluginActiveNetwork(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginInstallDisable(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	pName := ps.getPluginRepoWithTag()
 
 	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", "--disable", pName)
@@ -137,6 +147,8 @@ func (ps *DockerPluginSuite) TestPluginInstallDisable(c *testing.T) {
 }
 
 func (s *DockerSuite) TestPluginInstallDisableVolumeLs(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", "--disable", pName)
 	assert.NilError(c, err)
@@ -145,6 +157,8 @@ func (s *DockerSuite) TestPluginInstallDisableVolumeLs(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginSet(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	client := testEnv.APIClient()
 
 	name := "test"
@@ -192,6 +206,8 @@ func (ps *DockerPluginSuite) TestPluginSet(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginInstallArgs(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	pName := path.Join(ps.registryHost(), "plugin", "testplugininstallwithargs")
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -207,6 +223,8 @@ func (ps *DockerPluginSuite) TestPluginInstallArgs(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginInstallImage(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, IsAmd64)
 
 	repoName := fmt.Sprintf("%v/dockercli/busybox", privateRegistryURL)
@@ -221,6 +239,8 @@ func (ps *DockerPluginSuite) TestPluginInstallImage(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginEnableDisableNegative(c *testing.T) {
+	c.Skip("Plugin aren't supported")
+
 	pName := ps.getPluginRepoWithTag()
 
 	out, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pName)
@@ -240,6 +260,8 @@ func (ps *DockerPluginSuite) TestPluginEnableDisableNegative(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginCreate(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	name := "foo/bar-driver"
 	temp, err := ioutil.TempDir("", "foo")
 	assert.NilError(c, err)
@@ -269,6 +291,8 @@ func (ps *DockerPluginSuite) TestPluginCreate(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginInspect(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	pNameWithTag := ps.getPluginRepoWithTag()
 
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pNameWithTag)
@@ -317,6 +341,8 @@ func (ps *DockerPluginSuite) TestPluginInspect(c *testing.T) {
 
 // Test case for https://github.com/docker/docker/pull/29186#discussion_r91277345
 func (s *DockerSuite) TestPluginInspectOnWindows(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	// This test should work on Windows only
 	testRequires(c, DaemonIsWindows)
 
@@ -381,6 +407,8 @@ func (ps *DockerPluginSuite) TestPluginIDPrefix(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginListDefaultFormat(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	config, err := ioutil.TempDir("", "config-file-")
 	assert.NilError(c, err)
 	defer os.RemoveAll(config)
@@ -412,6 +440,8 @@ enabled: false`, id, name)
 }
 
 func (s *DockerSuite) TestPluginUpgrade(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, DaemonIsLinux, Network, testEnv.IsLocalDaemon, IsAmd64, NotUserNamespace)
 	plugin := "cpuguy83/docker-volume-driver-plugin-local:latest"
 	pluginV2 := "cpuguy83/docker-volume-driver-plugin-local:v2"
@@ -443,6 +473,8 @@ func (s *DockerSuite) TestPluginUpgrade(c *testing.T) {
 }
 
 func (s *DockerSuite) TestPluginMetricsCollector(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, DaemonIsLinux, Network, testEnv.IsLocalDaemon, IsAmd64)
 	d := daemon.New(c, dockerBinary, dockerdBinary)
 	d.Start(c)
