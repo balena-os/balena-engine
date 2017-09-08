@@ -10,6 +10,8 @@ import (
 )
 
 func (s *DockerSuite) TestPluginLogDriver(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, IsAmd64, DaemonIsLinux)
 
 	pluginName := "cpuguy83/docker-logdriver-test:latest"
@@ -30,6 +32,8 @@ func (s *DockerSuite) TestPluginLogDriver(c *testing.T) {
 
 // Make sure log drivers are listed in info, and v2 plugins are not.
 func (s *DockerSuite) TestPluginLogDriverInfoList(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, IsAmd64, DaemonIsLinux)
 	pluginName := "cpuguy83/docker-logdriver-test"
 
