@@ -20,9 +20,6 @@ var (
 )
 
 func init() {
-	check.Suite(&DockerAuthzV2Suite{
-		ds: &DockerSuite{},
-	})
 }
 
 type DockerAuthzV2Suite struct {
