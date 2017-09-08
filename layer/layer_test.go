@@ -10,17 +10,18 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/distribution/digest"
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/daemon/graphdriver/vfs"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/opencontainers/go-digest"
 )
 
 func init() {
 	graphdriver.ApplyUncompressedLayer = archive.UnpackLayer
-	vfs.CopyWithTar = archive.CopyWithTar
+	defaultArchiver := archive.NewDefaultArchiver()
+	vfs.CopyWithTar = defaultArchiver.CopyWithTar
 }
 
 func newVFSGraphDriver(td string) (graphdriver.Driver, error) {
@@ -39,7 +40,8 @@ func newVFSGraphDriver(td string) (graphdriver.Driver, error) {
 		},
 	}
 
-	return graphdriver.GetDriver("vfs", td, nil, uidMap, gidMap)
+	options := graphdriver.Options{Root: td, UIDMaps: uidMap, GIDMaps: gidMap}
+	return graphdriver.GetDriver("vfs", nil, options)
 }
 
 func newTestGraphDriver(t *testing.T) (graphdriver.Driver, func()) {
@@ -69,7 +71,7 @@ func newTestStore(t *testing.T) (Store, string, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ls, err := NewStoreFromGraphDriver(fms, graph)
+	ls, err := NewStoreFromGraphDriver(fms, graph, runtime.GOOS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +86,7 @@ type layerInit func(root string) error
 
 func createLayer(ls Store, parent ChainID, layerFunc layerInit) (Layer, error) {
 	containerID := stringid.GenerateRandomID()
-	mount, err := ls.CreateRWLayer(containerID, parent, "", nil, nil)
+	mount, err := ls.CreateRWLayer(containerID, parent, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +106,7 @@ func createLayer(ls Store, parent ChainID, layerFunc layerInit) (Layer, error) {
 	}
 	defer ts.Close()
 
-	layer, err := ls.Register(ts, parent)
+	layer, err := ls.Register(ts, parent, Platform(runtime.GOOS))
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +232,7 @@ func cacheID(l Layer) string {
 
 func assertLayerEqual(t *testing.T, l1, l2 Layer) {
 	if l1.ChainID() != l2.ChainID() {
-		t.Fatalf("Mismatched ID: %s vs %s", l1.ChainID(), l2.ChainID())
+		t.Fatalf("Mismatched ChainID: %s vs %s", l1.ChainID(), l2.ChainID())
 	}
 	if l1.DiffID() != l2.DiffID() {
 		t.Fatalf("Mismatched DiffID: %s vs %s", l1.DiffID(), l2.DiffID())
@@ -276,7 +278,7 @@ func TestMountAndRegister(t *testing.T) {
 	size, _ := layer.Size()
 	t.Logf("Layer size: %d", size)
 
-	mount2, err := ls.CreateRWLayer("new-test-mount", layer.ChainID(), "", nil, nil)
+	mount2, err := ls.CreateRWLayer("new-test-mount", layer.ChainID(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +386,7 @@ func TestStoreRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := ls.CreateRWLayer("some-mount_name", layer3.ChainID(), "", nil, nil)
+	m, err := ls.CreateRWLayer("some-mount_name", layer3.ChainID(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +404,7 @@ func TestStoreRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ls2, err := NewStoreFromGraphDriver(ls.(*layerStore).store, ls.(*layerStore).driver)
+	ls2, err := NewStoreFromGraphDriver(ls.(*layerStore).store, ls.(*layerStore).driver, runtime.GOOS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +417,7 @@ func TestStoreRestore(t *testing.T) {
 	assertLayerEqual(t, layer3b, layer3)
 
 	// Create again with same name, should return error
-	if _, err := ls2.CreateRWLayer("some-mount_name", layer3b.ChainID(), "", nil, nil); err == nil {
+	if _, err := ls2.CreateRWLayer("some-mount_name", layer3b.ChainID(), nil); err == nil {
 		t.Fatal("Expected error creating mount with same name")
 	} else if err != ErrMountNameConflict {
 		t.Fatal(err)
@@ -497,7 +499,7 @@ func TestTarStreamStability(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	layer1, err := ls.Register(bytes.NewReader(tar1), "")
+	layer1, err := ls.Register(bytes.NewReader(tar1), "", Platform(runtime.GOOS))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +518,7 @@ func TestTarStreamStability(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	layer2, err := ls.Register(bytes.NewReader(tar2), layer1.ChainID())
+	layer2, err := ls.Register(bytes.NewReader(tar2), layer1.ChainID(), Platform(runtime.GOOS))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -684,12 +686,12 @@ func TestRegisterExistingLayer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	layer2a, err := ls.Register(bytes.NewReader(tar1), layer1.ChainID())
+	layer2a, err := ls.Register(bytes.NewReader(tar1), layer1.ChainID(), Platform(runtime.GOOS))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	layer2b, err := ls.Register(bytes.NewReader(tar1), layer1.ChainID())
+	layer2b, err := ls.Register(bytes.NewReader(tar1), layer1.ChainID(), Platform(runtime.GOOS))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -724,12 +726,12 @@ func TestTarStreamVerification(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	layer1, err := ls.Register(bytes.NewReader(tar1), "")
+	layer1, err := ls.Register(bytes.NewReader(tar1), "", Platform(runtime.GOOS))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	layer2, err := ls.Register(bytes.NewReader(tar2), "")
+	layer2, err := ls.Register(bytes.NewReader(tar2), "", Platform(runtime.GOOS))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -741,18 +743,20 @@ func TestTarStreamVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer src.Close()
 
 	dst, err := os.Create(filepath.Join(tmpdir, id2.Algorithm().String(), id2.Hex(), "tar-split.json.gz"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer dst.Close()
 
 	if _, err := io.Copy(dst, src); err != nil {
 		t.Fatal(err)
 	}
 
-	src.Close()
-	dst.Close()
+	src.Sync()
+	dst.Sync()
 
 	ts, err := layer2.TarStream()
 	if err != nil {

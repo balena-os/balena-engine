@@ -1,8 +1,9 @@
-package main
+package dockerd
 
 import (
 	"sync/atomic"
 
+	// because it used to be a main package
 	_ "github.com/docker/docker/autogen/winresources/dockerd"
 )
 

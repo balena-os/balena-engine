@@ -2,7 +2,7 @@ package container
 
 import (
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/engine-api/types"
+	"github.com/docker/docker/api/types"
 )
 
 // Health holds the current container health-check state
@@ -13,9 +13,8 @@ type Health struct {
 
 // String returns a human-readable description of the health-check state
 func (s *Health) String() string {
-	// This happens when the container is being shutdown and the monitor has stopped
-	// or the monitor has yet to be setup.
-	if s.stop == nil {
+	// This happens when the monitor has yet to be setup.
+	if s.Status == "" {
 		return types.Unhealthy
 	}
 
@@ -42,11 +41,10 @@ func (s *Health) OpenMonitorChannel() chan struct{} {
 func (s *Health) CloseMonitorChannel() {
 	if s.stop != nil {
 		logrus.Debug("CloseMonitorChannel: waiting for probe to stop")
-		// This channel does not buffer. Once the write succeeds, the monitor
-		// has read the stop request and will not make any further updates
-		// to c.State.Health.
-		s.stop <- struct{}{}
+		close(s.stop)
 		s.stop = nil
+		// unhealthy when the monitor has stopped for compatibility reasons
+		s.Status = types.Unhealthy
 		logrus.Debug("CloseMonitorChannel done")
 	}
 }

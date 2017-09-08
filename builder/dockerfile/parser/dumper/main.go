@@ -21,15 +21,12 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
+		defer f.Close()
 
-		d := parser.Directive{LookingForDirectives: true}
-		parser.SetEscapeToken(parser.DefaultEscapeToken, &d)
-
-		ast, err := parser.Parse(f, &d)
+		result, err := parser.Parse(f)
 		if err != nil {
 			panic(err)
-		} else {
-			fmt.Println(ast.Dump())
 		}
+		fmt.Println(result.AST.Dump())
 	}
 }

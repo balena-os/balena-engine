@@ -3,40 +3,31 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/links"
-	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
-	containertypes "github.com/docker/engine-api/types/container"
-	networktypes "github.com/docker/engine-api/types/network"
 	"github.com/docker/libnetwork"
-	"github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/devices"
-	"github.com/opencontainers/runc/libcontainer/label"
-	"github.com/opencontainers/specs/specs-go"
+	"github.com/opencontainers/selinux/go-selinux/label"
+	"github.com/pkg/errors"
 )
-
-func u32Ptr(i int64) *uint32     { u := uint32(i); return &u }
-func fmPtr(i int64) *os.FileMode { fm := os.FileMode(i); return &fm }
 
 func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]string, error) {
 	var env []string
 	children := daemon.children(container)
 
 	bridgeSettings := container.NetworkSettings.Networks[runconfig.DefaultDaemonNetworkMode().NetworkName()]
-	if bridgeSettings == nil {
+	if bridgeSettings == nil || bridgeSettings.EndpointSettings == nil {
 		return nil, nil
 	}
 
@@ -46,7 +37,7 @@ func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]s
 		}
 
 		childBridgeSettings := child.NetworkSettings.Networks[runconfig.DefaultDaemonNetworkMode().NetworkName()]
-		if childBridgeSettings == nil {
+		if childBridgeSettings == nil || childBridgeSettings.EndpointSettings == nil {
 			return nil, fmt.Errorf("container %s not attached to default bridge network", child.ID)
 		}
 
@@ -58,130 +49,42 @@ func (daemon *Daemon) setupLinkedContainers(container *container.Container) ([]s
 			child.Config.ExposedPorts,
 		)
 
-		for _, envVar := range link.ToEnv() {
-			env = append(env, envVar)
-		}
+		env = append(env, link.ToEnv()...)
 	}
 
 	return env, nil
 }
 
-// getSize returns the real size & virtual size of the container.
-func (daemon *Daemon) getSize(container *container.Container) (int64, int64) {
-	var (
-		sizeRw, sizeRootfs int64
-		err                error
-	)
-
-	if err := daemon.Mount(container); err != nil {
-		logrus.Errorf("Failed to compute size of container rootfs %s: %s", container.ID, err)
-		return sizeRw, sizeRootfs
-	}
-	defer daemon.Unmount(container)
-
-	sizeRw, err = container.RWLayer.Size()
-	if err != nil {
-		logrus.Errorf("Driver %s couldn't return diff size of container %s: %s",
-			daemon.GraphDriverName(), container.ID, err)
-		// FIXME: GetSize should return an error. Not changing it now in case
-		// there is a side-effect.
-		sizeRw = -1
-	}
-
-	if parent := container.RWLayer.Parent(); parent != nil {
-		sizeRootfs, err = parent.Size()
-		if err != nil {
-			sizeRootfs = -1
-		} else if sizeRw != -1 {
-			sizeRootfs += sizeRw
-		}
-	}
-	return sizeRw, sizeRootfs
-}
-
-// ConnectToNetwork connects a container to a network
-func (daemon *Daemon) ConnectToNetwork(container *container.Container, idOrName string, endpointConfig *networktypes.EndpointSettings) error {
-	if endpointConfig == nil {
-		endpointConfig = &networktypes.EndpointSettings{}
-	}
-	if !container.Running {
-		if container.RemovalInProgress || container.Dead {
-			return errRemovalContainer(container.ID)
-		}
-		if _, err := daemon.updateNetworkConfig(container, idOrName, endpointConfig, true); err != nil {
-			return err
-		}
-		container.NetworkSettings.Networks[idOrName] = endpointConfig
-	} else {
-		if err := daemon.connectToNetwork(container, idOrName, endpointConfig, true); err != nil {
-			return err
-		}
-	}
-	if err := container.ToDiskLocking(); err != nil {
-		return fmt.Errorf("Error saving container to disk: %v", err)
-	}
-	return nil
-}
-
-// DisconnectFromNetwork disconnects container from network n.
-func (daemon *Daemon) DisconnectFromNetwork(container *container.Container, n libnetwork.Network, force bool) error {
-	if container.HostConfig.NetworkMode.IsHost() && containertypes.NetworkMode(n.Type()).IsHost() {
-		return runconfig.ErrConflictHostNetwork
-	}
-	if !container.Running {
-		if container.RemovalInProgress || container.Dead {
-			return errRemovalContainer(container.ID)
-		}
-		if _, ok := container.NetworkSettings.Networks[n.Name()]; ok {
-			delete(container.NetworkSettings.Networks, n.Name())
-		} else {
-			return fmt.Errorf("container %s is not connected to the network %s", container.ID, n.Name())
-		}
-	} else {
-		if err := disconnectFromNetwork(container, n, false); err != nil {
-			return err
-		}
-	}
-
-	if err := container.ToDiskLocking(); err != nil {
-		return fmt.Errorf("Error saving container to disk: %v", err)
-	}
-
-	attributes := map[string]string{
-		"container": container.ID,
-	}
-	daemon.LogNetworkEventWithAttributes(n, "disconnect", attributes)
-	return nil
-}
-
 func (daemon *Daemon) getIpcContainer(container *container.Container) (*container.Container, error) {
 	containerID := container.HostConfig.IpcMode.Container()
-	c, err := daemon.GetContainer(containerID)
+	container, err := daemon.GetContainer(containerID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "cannot join IPC of a non running container: %s", container.ID)
 	}
-	if !c.IsRunning() {
-		return nil, fmt.Errorf("cannot join IPC of a non running container: %s", containerID)
-	}
-	if c.IsRestarting() {
-		return nil, errContainerIsRestarting(container.ID)
-	}
-	return c, nil
+	return container, daemon.checkContainer(container, containerIsRunning, containerIsNotRestarting)
 }
 
 func (daemon *Daemon) getPidContainer(container *container.Container) (*container.Container, error) {
 	containerID := container.HostConfig.PidMode.Container()
-	c, err := daemon.GetContainer(containerID)
+	container, err := daemon.GetContainer(containerID)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrapf(err, "cannot join PID of a non running container: %s", container.ID)
 	}
+	return container, daemon.checkContainer(container, containerIsRunning, containerIsNotRestarting)
+}
+
+func containerIsRunning(c *container.Container) error {
 	if !c.IsRunning() {
-		return nil, fmt.Errorf("cannot join PID of a non running container: %s", containerID)
+		return errors.Errorf("container %s is not running", c.ID)
 	}
+	return nil
+}
+
+func containerIsNotRestarting(c *container.Container) error {
 	if c.IsRestarting() {
-		return nil, errContainerIsRestarting(container.ID)
+		return errContainerIsRestarting(c.ID)
 	}
-	return c, nil
+	return nil
 }
 
 func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
@@ -204,18 +107,18 @@ func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
 		}
 		c.ShmPath = "/dev/shm"
 	} else {
-		rootUID, rootGID := daemon.GetRemappedUIDGID()
+		rootIDs := daemon.idMappings.RootPair()
 		if !c.HasMountFor("/dev/shm") {
 			shmPath, err := c.ShmResourcePath()
 			if err != nil {
 				return err
 			}
 
-			if err := idtools.MkdirAllAs(shmPath, 0700, rootUID, rootGID); err != nil {
+			if err := idtools.MkdirAllAndChown(shmPath, 0700, rootIDs); err != nil {
 				return err
 			}
 
-			shmSize := container.DefaultSHMSize
+			shmSize := int64(daemon.configStore.ShmSize)
 			if c.HostConfig.ShmSize != 0 {
 				shmSize = c.HostConfig.ShmSize
 			}
@@ -223,7 +126,7 @@ func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
 			if err := syscall.Mount("shm", shmPath, "tmpfs", uintptr(syscall.MS_NOEXEC|syscall.MS_NOSUID|syscall.MS_NODEV), label.FormatMountLabel(shmproperty, c.GetMountLabel())); err != nil {
 				return fmt.Errorf("mounting shm tmpfs: %s", err)
 			}
-			if err := os.Chown(shmPath, rootUID, rootGID); err != nil {
+			if err := os.Chown(shmPath, rootIDs.UID, rootIDs.GID); err != nil {
 				return err
 			}
 		}
@@ -233,58 +136,76 @@ func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
 	return nil
 }
 
-func (daemon *Daemon) mountVolumes(container *container.Container) error {
-	mounts, err := daemon.setupMounts(container)
-	if err != nil {
-		return err
+func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
+	if len(c.SecretReferences) == 0 {
+		return nil
 	}
 
-	for _, m := range mounts {
-		dest, err := container.GetResourcePath(m.Destination)
-		if err != nil {
-			return err
-		}
+	localMountPath := c.SecretMountPath()
+	logrus.Debugf("secrets: setting up secret dir: %s", localMountPath)
 
-		var stat os.FileInfo
-		stat, err = os.Stat(m.Source)
-		if err != nil {
-			return err
-		}
-		if err = fileutils.CreateIfNotExists(dest, stat.IsDir()); err != nil {
-			return err
-		}
-
-		opts := "rbind,ro"
-		if m.Writable {
-			opts = "rbind,rw"
-		}
-
-		if err := mount.Mount(m.Source, dest, "bind", opts); err != nil {
-			return err
-		}
-
-		// mountVolumes() seems to be called for temporary mounts
-		// outside the container. Soon these will be unmounted with
-		// lazy unmount option and given we have mounted the rbind,
-		// all the submounts will propagate if these are shared. If
-		// daemon is running in host namespace and has / as shared
-		// then these unmounts will propagate and unmount original
-		// mount as well. So make all these mounts rprivate.
-		// Do not use propagation property of volume as that should
-		// apply only when mounting happen inside the container.
-		if err := mount.MakeRPrivate(dest); err != nil {
-			return err
-		}
+	// retrieve possible remapped range start for root UID, GID
+	rootIDs := daemon.idMappings.RootPair()
+	// create tmpfs
+	if err := idtools.MkdirAllAndChown(localMountPath, 0700, rootIDs); err != nil {
+		return errors.Wrap(err, "error creating secret local mount path")
 	}
 
-	return nil
+	defer func() {
+		if setupErr != nil {
+			// cleanup
+			_ = detachMounted(localMountPath)
+
+			if err := os.RemoveAll(localMountPath); err != nil {
+				logrus.Errorf("error cleaning up secret mount: %s", err)
+			}
+		}
+	}()
+
+	tmpfsOwnership := fmt.Sprintf("uid=%d,gid=%d", rootIDs.UID, rootIDs.GID)
+	if err := mount.Mount("tmpfs", localMountPath, "tmpfs", "nodev,nosuid,noexec,"+tmpfsOwnership); err != nil {
+		return errors.Wrap(err, "unable to setup secret mount")
+	}
+
+	return fmt.Errorf("secret store is not initialized")
 }
 
-func killProcessDirectly(container *container.Container) error {
-	if _, err := container.WaitStop(10 * time.Second); err != nil {
+func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
+	if len(c.ConfigReferences) == 0 {
+		return nil
+	}
+
+	localPath := c.ConfigsDirPath()
+	logrus.Debugf("configs: setting up config dir: %s", localPath)
+
+	// retrieve possible remapped range start for root UID, GID
+	rootIDs := daemon.idMappings.RootPair()
+	// create tmpfs
+	if err := idtools.MkdirAllAndChown(localPath, 0700, rootIDs); err != nil {
+		return errors.Wrap(err, "error creating config dir")
+	}
+
+	defer func() {
+		if setupErr != nil {
+			if err := os.RemoveAll(localPath); err != nil {
+				logrus.Errorf("error cleaning up config dir: %s", err)
+			}
+		}
+	}()
+
+	return fmt.Errorf("config store is not initialized")
+}
+
+func killProcessDirectly(cntr *container.Container) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Block until the container to stops or timeout.
+	status := <-cntr.Wait(ctx, container.WaitConditionNotRunning)
+	if status.Err() != nil {
 		// Ensure that we don't kill ourselves
-		if pid := container.GetPID(); pid != 0 {
-			logrus.Infof("Container %s failed to exit within 10 seconds of kill - trying direct SIGKILL", stringid.TruncateID(container.ID))
+		if pid := cntr.GetPID(); pid != 0 {
+			logrus.Infof("Container %s failed to exit within 10 seconds of kill - trying direct SIGKILL", stringid.TruncateID(cntr.ID))
 			if err := syscall.Kill(pid, 9); err != nil {
 				if err != syscall.ESRCH {
 					return err
@@ -298,78 +219,6 @@ func killProcessDirectly(container *container.Container) error {
 	return nil
 }
 
-func specDevice(d *configs.Device) specs.Device {
-	return specs.Device{
-		Type:     string(d.Type),
-		Path:     d.Path,
-		Major:    d.Major,
-		Minor:    d.Minor,
-		FileMode: fmPtr(int64(d.FileMode)),
-		UID:      u32Ptr(int64(d.Uid)),
-		GID:      u32Ptr(int64(d.Gid)),
-	}
-}
-
-func specDeviceCgroup(d *configs.Device) specs.DeviceCgroup {
-	t := string(d.Type)
-	return specs.DeviceCgroup{
-		Allow:  true,
-		Type:   &t,
-		Major:  &d.Major,
-		Minor:  &d.Minor,
-		Access: &d.Permissions,
-	}
-}
-
-func getDevicesFromPath(deviceMapping containertypes.DeviceMapping) (devs []specs.Device, devPermissions []specs.DeviceCgroup, err error) {
-	resolvedPathOnHost := deviceMapping.PathOnHost
-
-	// check if it is a symbolic link
-	if src, e := os.Lstat(deviceMapping.PathOnHost); e == nil && src.Mode()&os.ModeSymlink == os.ModeSymlink {
-		if linkedPathOnHost, e := filepath.EvalSymlinks(deviceMapping.PathOnHost); e == nil {
-			resolvedPathOnHost = linkedPathOnHost
-		}
-	}
-
-	device, err := devices.DeviceFromPath(resolvedPathOnHost, deviceMapping.CgroupPermissions)
-	// if there was no error, return the device
-	if err == nil {
-		device.Path = deviceMapping.PathInContainer
-		return append(devs, specDevice(device)), append(devPermissions, specDeviceCgroup(device)), nil
-	}
-
-	// if the device is not a device node
-	// try to see if it's a directory holding many devices
-	if err == devices.ErrNotADevice {
-
-		// check if it is a directory
-		if src, e := os.Stat(resolvedPathOnHost); e == nil && src.IsDir() {
-
-			// mount the internal devices recursively
-			filepath.Walk(resolvedPathOnHost, func(dpath string, f os.FileInfo, e error) error {
-				childDevice, e := devices.DeviceFromPath(dpath, deviceMapping.CgroupPermissions)
-				if e != nil {
-					// ignore the device
-					return nil
-				}
-
-				// add the device to userSpecified devices
-				childDevice.Path = strings.Replace(dpath, resolvedPathOnHost, deviceMapping.PathInContainer, 1)
-				devs = append(devs, specDevice(childDevice))
-				devPermissions = append(devPermissions, specDeviceCgroup(childDevice))
-
-				return nil
-			})
-		}
-	}
-
-	if len(devs) > 0 {
-		return devs, devPermissions, nil
-	}
-
-	return devs, devPermissions, fmt.Errorf("error gathering device information while adding custom device %q: %s", deviceMapping.PathOnHost, err)
-}
-
 func detachMounted(path string) error {
 	return syscall.Unmount(path, syscall.MNT_DETACH)
 }
@@ -380,6 +229,33 @@ func isLinkable(child *container.Container) bool {
 	return ok
 }
 
-func errRemovalContainer(containerID string) error {
-	return fmt.Errorf("Container %s is marked for removal and cannot be connected or disconnected to the network", containerID)
+func enableIPOnPredefinedNetwork() bool {
+	return false
+}
+
+func (daemon *Daemon) isNetworkHotPluggable() bool {
+	return true
+}
+
+func setupPathsAndSandboxOptions(container *container.Container, sboxOptions *[]libnetwork.SandboxOption) error {
+	var err error
+
+	container.HostsPath, err = container.GetRootResourcePath("hosts")
+	if err != nil {
+		return err
+	}
+	*sboxOptions = append(*sboxOptions, libnetwork.OptionHostsPath(container.HostsPath))
+
+	container.ResolvConfPath, err = container.GetRootResourcePath("resolv.conf")
+	if err != nil {
+		return err
+	}
+	*sboxOptions = append(*sboxOptions, libnetwork.OptionResolvConfPath(container.ResolvConfPath))
+	return nil
+}
+
+func initializeNetworkingPaths(container *container.Container, nc *container.Container) {
+	container.HostnamePath = nc.HostnamePath
+	container.HostsPath = nc.HostsPath
+	container.ResolvConfPath = nc.ResolvConfPath
 }

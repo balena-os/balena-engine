@@ -6,14 +6,15 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"golang.org/x/net/context"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/client/auth"
-	"github.com/docker/docker/reference"
-	"github.com/docker/engine-api/types"
-	registrytypes "github.com/docker/engine-api/types/registry"
+	"github.com/docker/docker/api/types"
+	registrytypes "github.com/docker/docker/api/types/registry"
 )
 
 const (
@@ -27,16 +28,19 @@ type Service interface {
 	LookupPullEndpoints(hostname string) (endpoints []APIEndpoint, err error)
 	LookupPushEndpoints(hostname string) (endpoints []APIEndpoint, err error)
 	ResolveRepository(name reference.Named) (*RepositoryInfo, error)
-	ResolveIndex(name string) (*registrytypes.IndexInfo, error)
 	Search(ctx context.Context, term string, limit int, authConfig *types.AuthConfig, userAgent string, headers map[string][]string) (*registrytypes.SearchResults, error)
 	ServiceConfig() *registrytypes.ServiceConfig
 	TLSConfig(hostname string) (*tls.Config, error)
+	LoadAllowNondistributableArtifacts([]string) error
+	LoadMirrors([]string) error
+	LoadInsecureRegistries([]string) error
 }
 
 // DefaultService is a registry service. It tracks configuration data such as a list
 // of mirrors.
 type DefaultService struct {
 	config *serviceConfig
+	mu     sync.Mutex
 }
 
 // NewService returns a new instance of DefaultService ready to be
@@ -49,7 +53,54 @@ func NewService(options ServiceOptions) *DefaultService {
 
 // ServiceConfig returns the public registry service configuration.
 func (s *DefaultService) ServiceConfig() *registrytypes.ServiceConfig {
-	return &s.config.ServiceConfig
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	servConfig := registrytypes.ServiceConfig{
+		AllowNondistributableArtifactsCIDRs:     make([]*(registrytypes.NetIPNet), 0),
+		AllowNondistributableArtifactsHostnames: make([]string, 0),
+		InsecureRegistryCIDRs:                   make([]*(registrytypes.NetIPNet), 0),
+		IndexConfigs:                            make(map[string]*(registrytypes.IndexInfo)),
+		Mirrors:                                 make([]string, 0),
+	}
+
+	// construct a new ServiceConfig which will not retrieve s.Config directly,
+	// and look up items in s.config with mu locked
+	servConfig.AllowNondistributableArtifactsCIDRs = append(servConfig.AllowNondistributableArtifactsCIDRs, s.config.ServiceConfig.AllowNondistributableArtifactsCIDRs...)
+	servConfig.AllowNondistributableArtifactsHostnames = append(servConfig.AllowNondistributableArtifactsHostnames, s.config.ServiceConfig.AllowNondistributableArtifactsHostnames...)
+	servConfig.InsecureRegistryCIDRs = append(servConfig.InsecureRegistryCIDRs, s.config.ServiceConfig.InsecureRegistryCIDRs...)
+
+	for key, value := range s.config.ServiceConfig.IndexConfigs {
+		servConfig.IndexConfigs[key] = value
+	}
+
+	servConfig.Mirrors = append(servConfig.Mirrors, s.config.ServiceConfig.Mirrors...)
+
+	return &servConfig
+}
+
+// LoadAllowNondistributableArtifacts loads allow-nondistributable-artifacts registries for Service.
+func (s *DefaultService) LoadAllowNondistributableArtifacts(registries []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.config.LoadAllowNondistributableArtifacts(registries)
+}
+
+// LoadMirrors loads registry mirrors for Service
+func (s *DefaultService) LoadMirrors(mirrors []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.config.LoadMirrors(mirrors)
+}
+
+// LoadInsecureRegistries loads insecure registries for Service
+func (s *DefaultService) LoadInsecureRegistries(registries []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.config.LoadInsecureRegistries(registries)
 }
 
 // Auth contacts the public registry with the provided credentials,
@@ -122,7 +173,11 @@ func (s *DefaultService) Search(ctx context.Context, term string, limit int, aut
 
 	indexName, remoteName := splitReposSearchTerm(term)
 
+	// Search is a long-running operation, just lock s.config to avoid block others.
+	s.mu.Lock()
 	index, err := newIndexInfo(s.config, indexName)
+	s.mu.Unlock()
+
 	if err != nil {
 		return nil, err
 	}
@@ -186,22 +241,20 @@ func (s *DefaultService) Search(ctx context.Context, term string, limit int, aut
 // ResolveRepository splits a repository name into its components
 // and configuration of the associated registry.
 func (s *DefaultService) ResolveRepository(name reference.Named) (*RepositoryInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return newRepositoryInfo(s.config, name)
-}
-
-// ResolveIndex takes indexName and returns index info
-func (s *DefaultService) ResolveIndex(name string) (*registrytypes.IndexInfo, error) {
-	return newIndexInfo(s.config, name)
 }
 
 // APIEndpoint represents a remote API endpoint
 type APIEndpoint struct {
-	Mirror       bool
-	URL          *url.URL
-	Version      APIVersion
-	Official     bool
-	TrimHostname bool
-	TLSConfig    *tls.Config
+	Mirror                         bool
+	URL                            *url.URL
+	Version                        APIVersion
+	AllowNondistributableArtifacts bool
+	Official                       bool
+	TrimHostname                   bool
+	TLSConfig                      *tls.Config
 }
 
 // ToV1Endpoint returns a V1 API endpoint based on the APIEndpoint
@@ -211,17 +264,28 @@ func (e APIEndpoint) ToV1Endpoint(userAgent string, metaHeaders http.Header) (*V
 
 // TLSConfig constructs a client TLS configuration based on server defaults
 func (s *DefaultService) TLSConfig(hostname string) (*tls.Config, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return newTLSConfig(hostname, isSecureIndex(s.config, hostname))
+}
+
+// tlsConfig constructs a client TLS configuration based on server defaults
+func (s *DefaultService) tlsConfig(hostname string) (*tls.Config, error) {
 	return newTLSConfig(hostname, isSecureIndex(s.config, hostname))
 }
 
 func (s *DefaultService) tlsConfigForMirror(mirrorURL *url.URL) (*tls.Config, error) {
-	return s.TLSConfig(mirrorURL.Host)
+	return s.tlsConfig(mirrorURL.Host)
 }
 
 // LookupPullEndpoints creates a list of endpoints to try to pull from, in order of preference.
 // It gives preference to v2 endpoints over v1, mirrors over the actual
 // registry, and HTTPS over plain HTTP.
 func (s *DefaultService) LookupPullEndpoints(hostname string) (endpoints []APIEndpoint, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	return s.lookupEndpoints(hostname)
 }
 
@@ -229,6 +293,9 @@ func (s *DefaultService) LookupPullEndpoints(hostname string) (endpoints []APIEn
 // It gives preference to v2 endpoints over v1, and HTTPS over plain HTTP.
 // Mirrors are not included.
 func (s *DefaultService) LookupPushEndpoints(hostname string) (endpoints []APIEndpoint, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	allEndpoints, err := s.lookupEndpoints(hostname)
 	if err == nil {
 		for _, endpoint := range allEndpoints {

@@ -12,7 +12,7 @@ import (
 
 // normaliseDest normalises the destination of a COPY/ADD command in a
 // platform semantically consistent way.
-func normaliseDest(cmdName, workingDir, requested string) (string, error) {
+func normaliseDest(workingDir, requested string) (string, error) {
 	dest := filepath.FromSlash(requested)
 	endsInSlash := strings.HasSuffix(requested, string(os.PathSeparator))
 	if !system.IsAbs(requested) {
@@ -23,4 +23,20 @@ func normaliseDest(cmdName, workingDir, requested string) (string, error) {
 		}
 	}
 	return dest, nil
+}
+
+func containsWildcards(name string) bool {
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		if ch == '\\' {
+			i++
+		} else if ch == '*' || ch == '?' || ch == '[' {
+			return true
+		}
+	}
+	return false
+}
+
+func validateCopySourcePath(imageSource *imageMount, origPath string) error {
+	return nil
 }

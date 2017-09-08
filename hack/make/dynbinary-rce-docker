@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -e
+
+[ -z "$KEEPDEST" ] && rm -rf "$DEST"
+
+(
+	source "${MAKEDIR}/.binary-setup"
+	export BINARY_SHORT_NAME="$DOCKER_RCE_BINARY_NAME"
+	export GO_PACKAGE='github.com/docker/docker/cmd/rce'
+	export IAMSTATIC='false'
+	export LDFLAGS="$LDFLAGS"
+	export LDFLAGS_STATIC_DOCKER=''
+	export BUILDFLAGS=( "${BUILDFLAGS[@]/netgo /}" ) # disable netgo, since we don't need it for a dynamic binary
+	export BUILDFLAGS=( "${BUILDFLAGS[@]/static_build /}" ) # we're not building a "static" binary
+	source "${MAKEDIR}/.binary"
+	copy_binaries "$DEST" 'hash'
+
+	for file in docker dockerd docker-containerd docker-containerd-shim docker-containerd-ctr docker-runc docker-proxy; do
+		ln -sf $DOCKER_RCE_BINARY_NAME "$DEST/$file"
+	done
+)
