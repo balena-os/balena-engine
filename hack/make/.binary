@@ -50,6 +50,9 @@ if [ "$(go env GOOS)/$(go env GOARCH)" != "$(go env GOHOSTOS)/$(go env GOHOSTARC
 	esac
 fi
 
+COMMIT_RUNC="$RUNC_COMMIT"
+VERSION_RUNC="1.0.0-rc3"
+
 echo "Building: $DEST/$BINARY_FULLNAME"
 go build \
 	-o "$DEST/$BINARY_FULLNAME" \
@@ -57,6 +60,8 @@ go build \
 	-ldflags "
 		$LDFLAGS
 		$LDFLAGS_STATIC_DOCKER
+        -X github.com/docker/docker/vendor/github.com/opencontainers/runc.gitCommit=${COMMIT_RUNC}
+        -X github.com/docker/docker/vendor/github.com/opencontainers/runc.version=${VERSION_RUNC}
 	" \
 	$GO_PACKAGE
 )
