@@ -377,14 +377,25 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
 			platform layer.OS
 		)
 
+		commonLayer := false
+		dstRootFS := *dstImg.RootFS
+		dstRootFS.DiffIDs = dstRootFS.DiffIDs[:i+1]
+
+		if i < len(srcImg.RootFS.DiffIDs) {
+			srcRootFS := *srcImg.RootFS
+			srcRootFS.DiffIDs = srcRootFS.DiffIDs[:i+1]
+
+			if srcRootFS.ChainID() == dstRootFS.ChainID() {
+				commonLayer = true
+			}
+		}
+
 		// We're only interested in layers that are different. Push empty
 		// layers for common layers
-		if srcImg.RootFS.DiffIDs[i] == diffID {
+		if commonLayer {
 			layerData, _ = layer.EmptyLayer.TarStream()
 			platform = layer.EmptyLayer.OS()
 		} else {
-			dstRootFS := *dstImg.RootFS
-			dstRootFS.DiffIDs = dstRootFS.DiffIDs[:i+1]
 
 			l, err := ls.Get(dstRootFS.ChainID())
 			if err != nil {
