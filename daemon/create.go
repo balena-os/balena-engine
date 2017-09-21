@@ -411,7 +411,7 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
 
 		// We're only interested in layers that are different. Push empty
 		// layers for common layers
-		if srcImg.RootFS.DiffIDs[i] == diffID {
+		if i < len(srcImg.RootFS.DiffIDs) && srcImg.RootFS.DiffIDs[i] == diffID {
 			layerData, _ = layer.EmptyLayer.TarStream()
 			platform = layer.EmptyLayer.OS()
 		} else {
