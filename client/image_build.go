@@ -124,5 +124,11 @@ func (cli *Client) imageBuildOptionsToQuery(options types.ImageBuildOptions) (ur
 		query.Set("session", options.SessionID)
 	}
 
+	volumesJSON, err := json.Marshal(options.Volumes)
+	if err != nil {
+		return query, err
+	}
+	query.Set("volumes", string(volumesJSON))
+
 	return query, nil
 }

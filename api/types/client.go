@@ -179,6 +179,7 @@ type ImageBuildOptions struct {
 	ExtraHosts  []string // List of extra hosts
 	Target      string
 	SessionID   string
+	Volumes     []string
 
 	// TODO @jhowardmsft LCOW Support: This will require extending to include
 	// `Platform string`, but is ommited for now as it's hard-coded temporarily
