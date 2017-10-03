@@ -167,8 +167,8 @@ type mockDownloadDescriptor struct {
 	registeredDiffID layer.DiffID
 	expectedDiffID   layer.DiffID
 	simulateRetries  int
-	size             int64
 	retries          int
+	size             int64
 }
 
 func (d *mockDownloadDescriptor) DeltaBase() io.ReadSeeker {

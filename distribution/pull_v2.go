@@ -335,6 +335,10 @@ func (ld *layerDescriptor) Registered(diffID layer.DiffID) {
 	_ = ld.metadataService.Add(diffID, metadata.V2Metadata{Digest: ld.digest, SourceRepository: ld.repoInfo.Name.Name()})
 }
 
+func (ld *layerDescriptor) Size() int64 {
+	return ld.src.Size
+}
+
 func (p *puller) pullTag(ctx context.Context, ref reference.Named, platform *ocispec.Platform) (tagUpdated bool, err error) {
 	var (
 		tagOrDigest string // Used for logging/progress only
