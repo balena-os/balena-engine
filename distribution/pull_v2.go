@@ -249,6 +249,10 @@ func (ld *v2LayerDescriptor) Registered(diffID layer.DiffID) {
 	ld.V2MetadataService.Add(diffID, metadata.V2Metadata{Digest: ld.digest, SourceRepository: ld.repoInfo.Name.Name()})
 }
 
+func (ld *v2LayerDescriptor) Size() int64 {
+	return ld.src.Size
+}
+
 func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform *specs.Platform) (tagUpdated bool, err error) {
 
 	var (
