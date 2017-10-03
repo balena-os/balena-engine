@@ -72,6 +72,7 @@ type DownloadDescriptor interface {
 	// if it is unknown (for example, if it has not been downloaded
 	// before).
 	DiffID() (layer.DiffID, error)
+	Size() int64
 	// Download is called to perform the download.
 	Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error)
 	// Return the DeltaBase if any
@@ -113,6 +114,8 @@ func (ldm *LayerDownloadManager) Download(ctx context.Context, initialRootFS ima
 	if os == "" {
 		os = layer.OS(runtime.GOOS)
 	}
+
+	totalProgress := progress.NewProgressSink(progressOutput, 0, "Total", "")
 
 	rootFS := initialRootFS
 	for _, descriptor := range layers {
@@ -159,13 +162,14 @@ func (ldm *LayerDownloadManager) Download(ctx context.Context, initialRootFS ima
 
 		// Layer is not known to exist - download and register it.
 		progress.Update(progressOutput, descriptor.ID(), "Pulling fs layer")
+		totalProgress.Size += descriptor.Size()
 
 		var xferFunc DoFunc
 		if topDownload != nil {
-			xferFunc = ldm.makeDownloadFunc(descriptor, "", topDownload, os)
+			xferFunc = ldm.makeDownloadFunc(descriptor, "", topDownload, os, totalProgress)
 			defer topDownload.Transfer.Release(watcher)
 		} else {
-			xferFunc = ldm.makeDownloadFunc(descriptor, rootFS.ChainID(), nil, os)
+			xferFunc = ldm.makeDownloadFunc(descriptor, rootFS.ChainID(), nil, os, totalProgress)
 		}
 		topDownloadUncasted, watcher = ldm.tm.Transfer(transferKey, xferFunc, progressOutput)
 		topDownload = topDownloadUncasted.(*downloadTransfer)
@@ -222,7 +226,7 @@ func (ldm *LayerDownloadManager) Download(ctx context.Context, initialRootFS ima
 // complete before the registration step, and registers the downloaded data
 // on top of parentDownload's resulting layer. Otherwise, it registers the
 // layer on top of the ChainID given by parentLayer.
-func (ldm *LayerDownloadManager) makeDownloadFunc(descriptor DownloadDescriptor, parentLayer layer.ChainID, parentDownload *downloadTransfer, os layer.OS) DoFunc {
+func (ldm *LayerDownloadManager) makeDownloadFunc(descriptor DownloadDescriptor, parentLayer layer.ChainID, parentDownload *downloadTransfer, os layer.OS, totalProgress io.Writer) DoFunc {
 	return func(progressChan chan<- progress.Progress, start <-chan struct{}, inactive chan<- struct{}) Transfer {
 		d := &downloadTransfer{
 			Transfer:   NewTransfer(),
@@ -334,7 +338,7 @@ func (ldm *LayerDownloadManager) makeDownloadFunc(descriptor DownloadDescriptor,
 			reader := progress.NewProgressReader(ioutils.NewCancelReadCloser(d.Transfer.Context(), downloadReader), progressOutput, size, descriptor.ID(), "Extracting")
 			defer reader.Close()
 
-			inflatedLayerData, err := archive.DecompressStream(reader)
+			inflatedLayerData, err := archive.DecompressStream(io.TeeReader(reader, totalProgress))
 			if err != nil {
 				d.err = fmt.Errorf("could not get decompression stream: %v", err)
 				return
