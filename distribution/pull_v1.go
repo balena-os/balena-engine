@@ -369,3 +369,7 @@ func (ld *v1LayerDescriptor) Registered(diffID layer.DiffID) {
 	// Cache mapping from this layer's DiffID to the blobsum
 	ld.v1IDService.Set(ld.v1LayerID, ld.indexName, diffID)
 }
+
+func (ld *v1LayerDescriptor) Size() int64 {
+	return ld.layerSize
+}
