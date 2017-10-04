@@ -155,6 +155,7 @@ func (daemon *Daemon) SystemInfo() (*types.Info, error) {
 // SystemVersion returns version information about the daemon.
 func (daemon *Daemon) SystemVersion() types.Version {
 	v := types.Version{
+		Engine:        "balaena",
 		Version:       dockerversion.Version,
 		GitCommit:     dockerversion.GitCommit,
 		MinAPIVersion: api.MinVersion,
