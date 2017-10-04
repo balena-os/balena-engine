@@ -128,6 +128,7 @@ func (daemon *Daemon) SystemVersion(ctx context.Context) (types.Version, error) 
 		},
 
 		// Populate deprecated fields for older clients
+		Engine:        "balena",
 		Version:       dockerversion.Version,
 		GitCommit:     dockerversion.GitCommit,
 		APIVersion:    api.DefaultVersion,
