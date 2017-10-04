@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -296,7 +297,8 @@ func (s *DockerSuite) TestUpdateWithNanoCPUs(c *check.C) {
 	c.Assert(strings.TrimSpace(out), checker.Equals, "50000\n100000")
 
 	out = inspectField(c, "top", "HostConfig.NanoCpus")
-	c.Assert(out, checker.Equals, "5e+08", check.Commentf("setting the Nano CPUs failed"))
+	nanoCpu, _ := strconv.ParseFloat(out, 64)
+	c.Assert(nanoCpu, checker.Equals, 5e+08, check.Commentf("setting the Nano CPUs failed"))
 	out = inspectField(c, "top", "HostConfig.CpuQuota")
 	c.Assert(out, checker.Equals, "0", check.Commentf("CPU CFS quota should be 0"))
 	out = inspectField(c, "top", "HostConfig.CpuPeriod")
@@ -308,7 +310,9 @@ func (s *DockerSuite) TestUpdateWithNanoCPUs(c *check.C) {
 
 	out, _ = dockerCmd(c, "update", "--cpus", "0.8", "top")
 	out = inspectField(c, "top", "HostConfig.NanoCpus")
-	c.Assert(out, checker.Equals, "8e+08", check.Commentf("updating the Nano CPUs failed"))
+
+	nanoCpu, _ = strconv.ParseFloat(out, 64)
+	c.Assert(nanoCpu, checker.Equals, 8e+08, check.Commentf("updating the Nano CPUs failed"))
 	out = inspectField(c, "top", "HostConfig.CpuQuota")
 	c.Assert(out, checker.Equals, "0", check.Commentf("CPU CFS quota should be 0"))
 	out = inspectField(c, "top", "HostConfig.CpuPeriod")
