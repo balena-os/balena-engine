@@ -110,6 +110,7 @@ type Ping struct {
 // Version contains response of Engine API:
 // GET "/version"
 type Version struct {
+	Engine        string
 	Version       string
 	APIVersion    string `json:"ApiVersion"`
 	MinAPIVersion string `json:"MinAPIVersion,omitempty"`
