@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/platforms"
+	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
 	networktypes "github.com/docker/docker/api/types/network"
@@ -21,7 +22,12 @@ import (
 	"github.com/docker/docker/daemon/images"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/progress"
+	"github.com/docker/docker/pkg/streamformatter"
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/selinux/go-selinux"
@@ -344,15 +350,17 @@ func maximumSpec() v1.Platform {
 
 // DeltaCreate creates a delta of the specified src and dest images
 // This is called directly from the Engine API
-func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
+func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Writer) error {
+	progressOutput := streamformatter.NewJSONProgressOutput(outStream, false)
+
 	srcImg, err := daemon.GetImage(deltaSrc)
 	if err != nil {
-		return "", errors.Wrapf(err, "no such image: %s", deltaSrc)
+		return errors.Wrapf(err, "no such image: %s", deltaSrc)
 	}
 
 	dstImg, err := daemon.GetImage(deltaDest)
 	if err != nil {
-		return "", errors.Wrapf(err, "no such image: %s", deltaDest)
+		return errors.Wrapf(err, "no such image: %s", deltaDest)
 	}
 
 	is := daemon.stores[dstImg.OperatingSystem()].imageStore
@@ -360,23 +368,36 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
 
 	srcData, err := is.GetTarSeekStream(srcImg.ID())
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer srcData.Close()
 
-	srcSig, err := librsync.Signature(bufio.NewReaderSize(srcData, 65536), ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
+	srcDataLen, err := ioutils.SeekerSize(srcData)
 	if err != nil {
-		return "", err
+		return err
 	}
 
+	progressReader := progress.NewProgressReader(srcData, progressOutput, srcDataLen, deltaSrc, "Fingerprinting")
+	defer progressReader.Close()
+
+	srcSig, err := librsync.Signature(bufio.NewReaderSize(progressReader, 65536), ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
+	if err != nil {
+		return err
+	}
+
+	progress.Update(progressOutput, deltaSrc, "Fingerprint complete")
+
 	deltaRootFS := image.NewRootFS()
+
+	for _, diffID := range dstImg.RootFS.DiffIDs {
+		progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Waiting")
+	}
 
 	for i, diffID := range dstImg.RootFS.DiffIDs {
 		var (
 			layerData io.Reader
 			platform layer.OS
 		)
-
 		commonLayer := false
 		dstRootFS := *dstImg.RootFS
 		dstRootFS.DiffIDs = dstRootFS.DiffIDs[:i+1]
@@ -399,7 +420,7 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
 
 			l, err := ls.Get(dstRootFS.ChainID())
 			if err != nil {
-				return "", err
+				return err
 			}
 			defer layer.ReleaseAndLog(ls, l)
 
@@ -407,9 +428,17 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
 
 			input, err := l.TarStream()
 			if err != nil {
-				return "", err
+				return err
 			}
 			defer input.Close()
+
+			inputSize, err := l.DiffSize()
+			if err != nil {
+				return err
+			}
+
+			progressReader := progress.NewProgressReader(input, progressOutput, inputSize, stringid.TruncateID(diffID.String()), "Computing delta")
+			defer progressReader.Close()
 
 			pR, pW := io.Pipe()
 
@@ -417,13 +446,13 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
 
 			tmpDelta, err := ioutil.TempFile("", "docker-delta-")
 			if err != nil {
-				return "", err
+				return err
 			}
 			defer os.Remove(tmpDelta.Name())
 
 			go func() {
 				w := bufio.NewWriter(tmpDelta)
-				err := librsync.Delta(srcSig, bufio.NewReader(input), w)
+				err := librsync.Delta(srcSig, bufio.NewReader(progressReader), w)
 				if err != nil {
 					pW.CloseWithError(err)
 					return
@@ -470,9 +499,15 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
 
 		newLayer, err := ls.Register(layerData, deltaRootFS.ChainID(), platform)
 		if err != nil {
-			return "", err
+			return err
 		}
 		defer layer.ReleaseAndLog(ls, newLayer)
+
+		if commonLayer {
+			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Skipping common layer")
+		} else {
+			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Delta complete")
+		}
 
 		deltaRootFS.Append(newLayer.DiffID())
 	}
@@ -492,12 +527,12 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string) (string, error) {
 
 	rawConfig, err := json.Marshal(config)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	id, err := is.Create(rawConfig)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	outStream.Write(streamformatter.FormatStatus("", id.String()))

@@ -46,6 +46,7 @@ func (r *imageRouter) initRoutes() {
 		// POST
 		router.NewPostRoute("/images/load", r.postImagesLoad),
 		router.NewPostRoute("/images/create", r.postImagesCreate),
+		router.NewPostRoute("/images/delta", r.postImagesDelta),
 		router.NewPostRoute("/images/{name:.*}/push", r.postImagesPush),
 		router.NewPostRoute("/images/{name:.*}/tag", r.postImagesTag),
 		router.NewPostRoute("/images/prune", r.postImagesPrune),
