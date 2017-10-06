@@ -16,7 +16,6 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/docker/distribution/reference"
 	apierrors "github.com/docker/docker/api/errors"
 	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
@@ -31,7 +30,6 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
-	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/resin-os/librsync-go"
 )
@@ -518,16 +516,6 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 
 	id, err := is.Create(rawConfig)
 	if err != nil {
-		return err
-	}
-
-	ref, _ := reference.WithName("delta")
-
-	deltaTag := "delta-" + digest.FromString(srcImg.ID().String() + "-" + dstImg.ImageID()).Hex()[:8]
-
-	ref2, _ := reference.WithTag(ref, deltaTag)
-
-	if err := daemon.TagImageWithReference(id, "linux", ref2); err != nil {
 		return err
 	}
 
