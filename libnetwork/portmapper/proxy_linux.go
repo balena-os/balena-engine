@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const userlandProxyCommandName = "docker-proxy"
+const userlandProxyCommandName = "balena-engine-proxy"
 
 func newProxyCommand(proto string, hostIP net.IP, hostPort int, containerIP net.IP, containerPort int, proxyPath string) (userlandProxy, error) {
 	path := proxyPath
