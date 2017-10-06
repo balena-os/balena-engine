@@ -15,35 +15,35 @@ import (
 
 func getDefaultPidFile() (string, error) {
 	if !honorXDG {
-		return "/var/run/docker.pid", nil
+		return "/var/run/balena.pid", nil
 	}
 	runtimeDir, err := homedir.GetRuntimeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(runtimeDir, "docker.pid"), nil
+	return filepath.Join(runtimeDir, "balena.pid"), nil
 }
 
 func getDefaultDataRoot() (string, error) {
 	if !honorXDG {
-		return "/var/lib/docker", nil
+		return "/var/lib/balena", nil
 	}
 	dataHome, err := homedir.GetDataHome()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dataHome, "docker"), nil
+	return filepath.Join(dataHome, "balena"), nil
 }
 
 func getDefaultExecRoot() (string, error) {
 	if !honorXDG {
-		return "/var/run/docker", nil
+		return "/var/run/balena", nil
 	}
 	runtimeDir, err := homedir.GetRuntimeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(runtimeDir, "docker"), nil
+	return filepath.Join(runtimeDir, "balena"), nil
 }
 
 // installUnixConfigFlags adds command-line options to the top-level flag parser for
@@ -51,7 +51,7 @@ func getDefaultExecRoot() (string, error) {
 func installUnixConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
 	conf.Runtimes = make(map[string]types.Runtime)
 
-	flags.StringVarP(&conf.SocketGroup, "group", "G", "docker", "Group for the unix socket")
+	flags.StringVarP(&conf.SocketGroup, "group", "G", "balena", "Group for the unix socket")
 	flags.StringVar(&conf.BridgeConfig.IP, "bip", "", "Specify network bridge IP")
 	flags.StringVarP(&conf.BridgeConfig.Iface, "bridge", "b", "", "Attach containers to a network bridge")
 	flags.StringVar(&conf.BridgeConfig.FixedCIDR, "fixed-cidr", "", "IPv4 subnet for fixed IPs")
