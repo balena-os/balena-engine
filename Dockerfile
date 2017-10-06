@@ -341,7 +341,7 @@ RUN --mount=from=tini-src,src=/usr/src/tini,rw \
   make tini-static
   xx-verify --static tini-static
   mkdir /build
-  mv tini-static /build/docker-init
+  mv tini-static /build/balena-engine-init
 EOT
 
 FROM tini-build AS tini-linux
@@ -511,8 +511,8 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
 RUN sed -i 's/FirewallBackend=nftables/FirewallBackend=iptables/' /etc/firewalld/firewalld.conf
 
 FROM dev-firewalld-${FIREWALLD} AS dev-base
-RUN groupadd -r docker
-RUN useradd --create-home --gid docker unprivilegeduser \
+RUN groupadd -r balena-engine
+RUN useradd --create-home --gid balena-engine unprivilegeduser \
  && mkdir -p /home/unprivilegeduser/.local/share/docker \
  && chown -R unprivilegeduser /home/unprivilegeduser
 # Let us use a .bashrc file
@@ -618,15 +618,15 @@ RUN <<EOT
   fi
 EOT
 RUN --mount=type=bind,target=.,rw \
-    --mount=type=tmpfs,target=cli/winresources/dockerd \
-    --mount=type=tmpfs,target=cli/winresources/docker-proxy \
+    --mount=type=tmpfs,target=cli/winresources/balena-engine-daemon \
+    --mount=type=tmpfs,target=cli/winresources/balena-engine-proxy \
     --mount=type=cache,target=/root/.cache/go-build,id=moby-build-$TARGETPLATFORM <<EOT
   set -e
   target=$([ "$DOCKER_STATIC" = "1" ] && echo "binary" || echo "dynbinary")
   xx-go --wrap
   PKG_CONFIG=$(xx-go env PKG_CONFIG) ./hack/make.sh $target
-  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/dockerd$([ "$(xx-info os)" = "windows" ] && echo ".exe")
-  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/docker-proxy$([ "$(xx-info os)" = "windows" ] && echo ".exe")
+  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/balena-engine-daemon$([ "$(xx-info os)" = "windows" ] && echo ".exe")
+  # balena-engine-proxy is a symlink to the multicall binary, not a standalone binary
   mkdir /build
   mv /tmp/bundles/${target}-daemon/* /build/
 EOT
@@ -659,10 +659,10 @@ WORKDIR /usr/local/bin
 COPY --from=build /build .
 RUN <<EOT
   set -ex
-  file dockerd
-  dockerd --version
-  file docker-proxy
-  docker-proxy --version
+  file balena-engine-daemon
+  balena-engine-daemon --version
+  file balena-engine-proxy
+  balena-engine-proxy --version
 EOT
 
 # usage:

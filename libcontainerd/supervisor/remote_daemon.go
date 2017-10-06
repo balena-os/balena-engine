@@ -30,8 +30,8 @@ const (
 	shutdownTimeout         = 15 * time.Second
 	startupTimeout          = 15 * time.Second
 	configFile              = "containerd.toml"
-	binaryName              = "containerd"
-	pidFile                 = "containerd.pid"
+	binaryName              = "balena-engine-containerd"
+	pidFile                 = "balena-engine-containerd.pid"
 )
 
 type remote struct {

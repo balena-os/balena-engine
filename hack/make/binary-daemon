@@ -14,7 +14,7 @@ copy_binaries() {
 		return
 	fi
 	echo "Copying nested executables into $dir"
-	for file in containerd containerd-shim-runc-v2 ctr runc docker-init rootlesskit rootlesskit-docker-proxy dockerd-rootless.sh dockerd-rootless-setuptool.sh; do
+	for file in containerd containerd-shim-runc-v2 ctr runc balena-engine-init rootlesskit rootlesskit-docker-proxy dockerd-rootless.sh dockerd-rootless-setuptool.sh; do
 		cp -f "$(command -v "$file")" "$dir/"
 	done
 	# vpnkit might not be available for the target platform, see vpnkit stage in
@@ -29,7 +29,7 @@ copy_binaries() {
 (
 	DOCKER_STATIC=1
 	GO_PACKAGE='github.com/docker/docker/cmd/dockerd'
-	BINARY_NAME='dockerd'
+	BINARY_NAME='balena-engine-daemon'
 	source "${MAKEDIR}/.binary"
 	copy_binaries "$DEST"
 )

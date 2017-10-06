@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	sockFile      = "containerd.sock"
-	debugSockFile = "containerd-debug.sock"
+	sockFile      = "balena-engine-containerd.sock"
+	debugSockFile = "balena-engine-containerd-debug.sock"
 )
 
 func (r *remote) setDefaults() {

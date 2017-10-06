@@ -24,7 +24,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const defaultPrefix = "/var/run/docker"
+const defaultPrefix = "/var/run/balena-engine"
 
 func init() {
 	// Lock main() to the initial thread to exclude the goroutines spawned

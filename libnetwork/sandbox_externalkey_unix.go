@@ -21,7 +21,7 @@ import (
 
 const (
 	execSubdir      = "libnetwork"
-	defaultExecRoot = "/run/docker"
+	defaultExecRoot = "/run/balena-engine"
 	success         = "success"
 )
 
@@ -39,7 +39,7 @@ type setKeyData struct {
 // It expects 3 args { [0] = "libnetwork-setkey", [1] = <container-id>, [2] = <short-controller-id> }
 // It also expects specs.State as a json string in <stdin>
 // Refer to https://github.com/opencontainers/runc/pull/160/ for more information
-// The docker exec-root can be specified as "-exec-root" flag. The default value is "/run/docker".
+// The docker exec-root can be specified as "-exec-root" flag. The default value is "/run/balena-engine".
 func processSetKeyReexec() {
 	if err := setKey(); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)

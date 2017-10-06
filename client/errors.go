@@ -32,9 +32,9 @@ func IsErrConnectionFailed(err error) bool {
 func ErrorConnectionFailed(host string) error {
 	var err error
 	if host == "" {
-		err = fmt.Errorf("Cannot connect to the Docker daemon. Is the docker daemon running on this host?")
+		err = fmt.Errorf("Cannot connect to the balenaEngine daemon. Is the balenaEngine daemon running on this host?")
 	} else {
-		err = fmt.Errorf("Cannot connect to the Docker daemon at %s. Is the docker daemon running?", host)
+		err = fmt.Errorf("Cannot connect to the balenaEngine daemon at %s. Is the balenaEngine daemon running?", host)
 	}
 	return errConnectionFailed{error: err}
 }

@@ -35,10 +35,10 @@ const (
 	privateRegistryURL = registry.DefaultURL
 
 	// path to containerd's ctr binary
-	ctrBinary = "ctr"
+	ctrBinary = "balena-engine-containerd-ctr"
 
 	// the docker daemon binary to use
-	dockerdBinary = "dockerd"
+	dockerdBinary = "balena-engine-daemon"
 )
 
 var (
