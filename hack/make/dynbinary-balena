@@ -3,15 +3,15 @@ set -e
 
 (
 	source "${MAKEDIR}/.binary-setup"
-	export BINARY_SHORT_NAME="$DOCKER_RCE_BINARY_NAME"
-	export GO_PACKAGE='github.com/docker/docker/cmd/rce'
+	export BINARY_SHORT_NAME="$balena_BINARY_NAME"
+	export GO_PACKAGE='github.com/docker/docker/cmd/balena'
 	export IAMSTATIC='false'
 	export LDFLAGS_STATIC_DOCKER=''
 	export BUILDFLAGS=( "${BUILDFLAGS[@]/netgo /}" ) # disable netgo, since we don't need it for a dynamic binary
 	export BUILDFLAGS=( "${BUILDFLAGS[@]/static_build /}" ) # we're not building a "static" binary here
 	source "${MAKEDIR}/.binary"
 
-	for file in docker dockerd docker-containerd docker-containerd-shim docker-containerd-ctr docker-runc docker-proxy; do
-		ln -sf $DOCKER_RCE_BINARY_NAME "$DEST/$file"
+	for file in balenad balena-containerd balena-containerd-shim balena-containerd-ctr balena-runc balena-proxy; do
+		ln -sf $balena_BINARY_NAME "$DEST/$file"
 	done
 )
