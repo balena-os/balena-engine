@@ -47,7 +47,7 @@ func parseFlags() (host net.Addr, container net.Addr) {
 	flag.Parse()
 
 	if *printVer || *printVersion {
-		fmt.Printf("docker-proxy (commit %s) version %s\n", dockerversion.GitCommit, dockerversion.Version)
+		fmt.Printf("balena-engine-proxy (commit %s) version %s\n", dockerversion.GitCommit, dockerversion.Version)
 		os.Exit(0)
 	}
 

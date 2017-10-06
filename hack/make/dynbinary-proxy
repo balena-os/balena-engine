@@ -9,6 +9,6 @@ set -e
 	export BUILDFLAGS=("${BUILDFLAGS[@]/static_build /}") # we're not building a "static" binary here
 
 	GO_PACKAGE='github.com/docker/docker/cmd/docker-proxy'
-	BINARY_NAME='docker-proxy'
+	BINARY_NAME='balena-engine-proxy'
 	source "${MAKEDIR}/.binary"
 )
