@@ -33,9 +33,9 @@ echo
 # List of bundles to create when no argument is passed
 DEFAULT_BUNDLES=(
 	binary-daemon
-	binary-rce-docker
+	binary-balena
 	dynbinary
-	dynbinary-rce-docker
+	dynbinary-balena
 
 	test-integration
 	test-docker-py

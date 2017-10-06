@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -e
+
+(
+	source "${MAKEDIR}/.binary-setup"
+	export BINARY_SHORT_NAME="$balena_BINARY_NAME"
+	export GO_PACKAGE='github.com/docker/docker/cmd/balena'
+	export LDFLAGS="$LDFLAGS"
+	export BUILDFLAGS=( "${BUILDFLAGS[@]/netgo /}" ) # disable netgo, since we don't need it for a dynamic binary
+	source "${MAKEDIR}/.binary"
+
+	for file in balenad balena-containerd balena-containerd-shim balena-containerd-ctr balena-runc balena-proxy; do
+		ln -sf $balena_BINARY_NAME "$DEST/$file"
+	done
+)
