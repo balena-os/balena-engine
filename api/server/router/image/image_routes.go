@@ -97,6 +97,28 @@ func (s *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWrite
 	return nil
 }
 
+func (d *imageRouter) postImagesDelta(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	if err := httputils.ParseForm(r); err != nil {
+		return err
+	}
+
+	deltaSrc := r.Form.Get("src")
+	deltaDest := r.Form.Get("dest")
+
+	output := ioutils.NewWriteFlusher(w)
+	defer output.Close()
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := d.backend.DeltaCreate(deltaSrc, deltaDest, output); err != nil {
+		if !output.Flushed() {
+			return err
+		}
+		output.Write(streamformatter.FormatError(err))
+	}
+	return nil
+}
+
 func (s *imageRouter) postImagesPush(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	metaHeaders := map[string][]string{}
 	for k, v := range r.Header {
