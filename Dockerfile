@@ -453,6 +453,8 @@ COPY --from=delve         /build/ /usr/local/bin/
 COPY --from=tomll         /build/ /usr/local/bin/
 COPY --from=gowinres      /build/ /usr/local/bin/
 COPY --from=tini          /build/ /usr/local/bin/
+# Create balena-engine-init symlink to docker-init (tini)
+RUN ln -sf docker-init /usr/local/bin/balena-engine-init
 COPY --from=registry      /build/ /usr/local/bin/
 
 # Skip the CRIU stage for now, as the opensuse package repository is sometimes
@@ -488,8 +490,8 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
 ENTRYPOINT ["hack/dind-systemd"]
 
 FROM dev-systemd-${SYSTEMD} AS dev-base
-RUN groupadd -r docker
-RUN useradd --create-home --gid docker unprivilegeduser \
+RUN groupadd -r balena-engine
+RUN useradd --create-home --gid balena-engine unprivilegeduser \
  && mkdir -p /home/unprivilegeduser/.local/share/docker \
  && chown -R unprivilegeduser /home/unprivilegeduser
 # Let us use a .bashrc file

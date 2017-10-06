@@ -14,7 +14,7 @@ var (
 
 func init() {
 	if DefaultClientBinary == "" {
-		DefaultClientBinary = "docker"
+		DefaultClientBinary = "balena-engine"
 	}
 }
 

@@ -4,24 +4,23 @@ already open. You can ensure this by searching the issue list for this
 repository. If there is a duplicate, please close your issue and add a comment
 to the existing issue instead.
 
+Also make sure to search the upstream issues at https://github.com/moby/moby/issues
+
 If you suspect your issue is a bug, please edit your issue description to
 include the BUG REPORT INFORMATION shown below. If you fail to provide this
 information within 7 days, we cannot debug your issue and will close it. We
 will, however, reopen it if you later provide the information.
 
-For more information about reporting issues, see
-https://github.com/moby/moby/blob/master/CONTRIBUTING.md#reporting-other-issues
+To report an issue please use https://github.com/balena-os/balena-engine/issues
 
 ---------------------------------------------------
 GENERAL SUPPORT INFORMATION
 ---------------------------------------------------
 
 The GitHub issue tracker is for bug reports and feature requests.
-General support for **docker** can be found at the following locations:
+General support for **balenaEngine** can be found at the following locations:
 
-- Docker Support Forums - https://forums.docker.com
-- Slack - community.docker.com #general channel
-- Post a question on StackOverflow, using the Docker tag
+- balena.io Support Forums - https://forums.balena.io/
 
 General support for **moby** can be found at the following locations:
 
@@ -55,16 +54,16 @@ Briefly describe the problem you are having in a few paragraphs.
 
 **Additional information you deem important (e.g. issue happens only occasionally):**
 
-**Output of `docker version`:**
+**Output of `balena-engine version`:**
 
 ```
 (paste your output here)
 ```
 
-**Output of `docker info`:**
+**Output of `balena-engine info`:**
 
 ```
 (paste your output here)
 ```
 
-**Additional environment details (AWS, VirtualBox, physical, etc.):**
+**Additional environment details (device type, OS, etc.):**

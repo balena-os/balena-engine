@@ -26,7 +26,8 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	flags.Var(opts.NewNamedListOptsRef("authorization-plugins", &conf.AuthorizationPlugins, nil), "authorization-plugin", "Authorization plugins to load")
 	flags.Var(opts.NewNamedListOptsRef("exec-opts", &conf.ExecOptions, nil), "exec-opt", "Runtime execution options")
 	flags.StringVarP(&conf.Pidfile, "pidfile", "p", conf.Pidfile, "Path to use for daemon PID file")
-	flags.StringVar(&conf.Root, "data-root", conf.Root, "Root directory of persistent Docker state")
+	flags.StringVar(&conf.Root, "data-root", conf.Root, "Root directory of persistent balenaEngine state")
+	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only balenaEngine state used for deltas")
 	flags.StringVar(&conf.ExecRoot, "exec-root", conf.ExecRoot, "Root directory for execution state files")
 	flags.StringVar(&conf.ContainerdAddr, "containerd", "", "containerd grpc address")
 	flags.BoolVar(&conf.CriContainerd, "cri-containerd", false, "start containerd with cri")
@@ -35,8 +36,6 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	flags.IntVar(&conf.NetworkControlPlaneMTU, "network-control-plane-mtu", conf.NetworkControlPlaneMTU, "Network Control plane MTU")
 	flags.IntVar(&conf.NetworkDiagnosticPort, "network-diagnostic-port", 0, "TCP port number of the network diagnostic server")
 	_ = flags.MarkHidden("network-diagnostic-port")
-
-	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only Docker state used for deltas")
 
 	flags.BoolVar(&conf.RawLogs, "raw-logs", false, "Full timestamps without ANSI coloring")
 	flags.Var(opts.NewListOptsRef(&conf.DNS, opts.ValidateIPAddress), "dns", "DNS server to use")
@@ -69,10 +68,10 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	// Deprecated flags / options
 
 	//nolint:staticcheck // TODO(thaJeztah): remove in next release.
-	flags.StringVarP(&conf.RootDeprecated, "graph", "g", conf.RootDeprecated, "Root of the Docker runtime")
+	flags.StringVarP(&conf.RootDeprecated, "graph", "g", conf.RootDeprecated, "Root of the balena runtime")
 	_ = flags.MarkDeprecated("graph", "Use --data-root instead")
-	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on docker run")
-	_ = flags.MarkDeprecated("restart", "Please use a restart policy on docker run")
+	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on balena run")
+	_ = flags.MarkDeprecated("restart", "Please use a restart policy on balena run")
 	flags.StringVar(&conf.ClusterAdvertise, "cluster-advertise", "", "Address or interface name to advertise")
 	_ = flags.MarkDeprecated("cluster-advertise", "Swarm classic is deprecated. Please use Swarm-mode (docker swarm init)")
 	flags.StringVar(&conf.ClusterStore, "cluster-store", "", "URL of the distributed storage backend")

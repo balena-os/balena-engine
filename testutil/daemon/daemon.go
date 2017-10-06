@@ -41,10 +41,10 @@ type nopLog struct{}
 func (nopLog) Logf(string, ...interface{}) {}
 
 const (
-	defaultDockerdBinary         = "dockerd"
-	defaultContainerdSocket      = "/var/run/docker/containerd/containerd.sock"
+	defaultDockerdBinary         = "balena-engine-daemon"
+	defaultContainerdSocket      = "/var/run/balena-engine/containerd/balena-engine-containerd.sock"
 	defaultDockerdRootlessBinary = "dockerd-rootless.sh"
-	defaultUnixSocket            = "/var/run/docker.sock"
+	defaultUnixSocket            = "/var/run/balena-engine.sock"
 	defaultTLSHost               = "localhost:2376"
 )
 

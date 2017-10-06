@@ -24,7 +24,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const defaultPrefix = "/var/run/docker"
+const defaultPrefix = "/var/run/balena-engine"
 
 func init() {
 	reexec.Register("set-ipv6", reexecSetIPv6)

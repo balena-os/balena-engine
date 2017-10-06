@@ -48,10 +48,10 @@ const (
 	// the daemon for containers to stop when it is shutting down.
 	DefaultShutdownTimeout = 15
 	// DefaultInitBinary is the name of the default init binary
-	DefaultInitBinary = "docker-init"
+	DefaultInitBinary = "balena-engine-init"
 	// DefaultRuntimeBinary is the default runtime to be used by
 	// containerd if none is specified
-	DefaultRuntimeBinary = "runc"
+	DefaultRuntimeBinary = "balena-engine-runc"
 	// DefaultContainersNamespace is the name of the default containerd namespace used for users containers.
 	DefaultContainersNamespace = "moby"
 	// DefaultPluginNamespace is the name of the default containerd namespace used for plugins.
