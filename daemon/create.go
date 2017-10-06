@@ -28,7 +28,6 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
-	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/pkg/errors"
@@ -554,16 +553,6 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 
 	id, err := is.Create(rawConfig)
 	if err != nil {
-		return err
-	}
-
-	ref, _ := reference.WithName("delta")
-
-	deltaTag := "delta-" + digest.FromString(srcImg.ID().String() + "-" + dstImg.ImageID()).Hex()[:8]
-
-	ref2, _ := reference.WithTag(ref, deltaTag)
-
-	if err := daemon.TagImageWithReference(id, "linux", ref2); err != nil {
 		return err
 	}
 
