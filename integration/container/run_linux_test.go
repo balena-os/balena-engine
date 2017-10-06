@@ -222,7 +222,7 @@ func TestRunWithAlternativeContainerdShim(t *testing.T) {
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 
-	realShimPath, err := exec.LookPath("containerd-shim-runc-v2")
+	realShimPath, err := exec.LookPath("balena-containerd-shim-runc-v2")
 	assert.Assert(t, err)
 	realShimPath, err = filepath.Abs(realShimPath)
 	assert.Assert(t, err)

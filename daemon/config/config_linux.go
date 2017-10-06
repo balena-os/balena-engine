@@ -202,11 +202,11 @@ func setPlatformDefaults(cfg *Config) error {
 
 		cfg.Root = filepath.Join(dataHome, "docker")
 		cfg.ExecRoot = filepath.Join(runtimeDir, "docker")
-		cfg.Pidfile = filepath.Join(runtimeDir, "docker.pid")
+		cfg.Pidfile = filepath.Join(runtimeDir, "balena-engine.pid")
 	} else {
 		cfg.Root = "/var/lib/docker"
-		cfg.ExecRoot = "/var/run/docker"
-		cfg.Pidfile = "/var/run/docker.pid"
+		cfg.ExecRoot = "/var/run/balena-engine"
+		cfg.Pidfile = "/var/run/balena-engine.pid"
 	}
 
 	return nil
