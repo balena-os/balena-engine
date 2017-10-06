@@ -38,7 +38,7 @@ const (
 
 	// userlandProxyBinary is the name of the userland-proxy binary.
 	// In rootless-mode, [rootless.RootlessKitDockerProxyBinary] is used instead.
-	userlandProxyBinary = "docker-proxy"
+	userlandProxyBinary = "balena-engine-proxy"
 )
 
 // BridgeConfig stores all the parameters for both the bridge driver and the default bridge network.

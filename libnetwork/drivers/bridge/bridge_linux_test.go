@@ -657,7 +657,7 @@ func testQueryEndpointInfo(t *testing.T, ulPxyEnabled bool) {
 	var proxyBinary string
 	var err error
 	if ulPxyEnabled {
-		proxyBinary, err = exec.LookPath("docker-proxy")
+		proxyBinary, err = exec.LookPath("balena-engine-proxy")
 		if err != nil {
 			t.Fatalf("failed to lookup userland-proxy binary: %v", err)
 		}
