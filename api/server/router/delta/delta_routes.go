@@ -4,7 +4,8 @@ import (
 	"net/http"
 
 	"github.com/docker/docker/api/server/httputils"
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/streamformatter"
 	"golang.org/x/net/context"
 )
 
@@ -16,12 +17,16 @@ func (d *deltaRouter) postDeltasCreate(ctx context.Context, w http.ResponseWrite
 	deltaSrc := r.Form.Get("src")
 	deltaDest := r.Form.Get("dest")
 
-	imgID, err := d.backend.DeltaCreate(deltaSrc, deltaDest)
-	if err != nil {
-		return err
-	}
+	output := ioutils.NewWriteFlusher(w)
+	defer output.Close()
 
-	return httputils.WriteJSON(w, http.StatusCreated, &types.IDResponse{
-		ID: string(imgID),
-	})
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := d.backend.DeltaCreate(deltaSrc, deltaDest, output); err != nil {
+		if !output.Flushed() {
+			return err
+		}
+		output.Write(streamformatter.FormatError(err))
+	}
+	return nil
 }
