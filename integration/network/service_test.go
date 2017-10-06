@@ -51,13 +51,13 @@ func TestDaemonRestartWithLiveRestore(t *testing.T) {
 
 	out1, err := c.NetworkInspect(context.Background(), "bridge", types.NetworkInspectOptions{})
 	assert.NilError(t, err)
-	// Make sure docker0 doesn't get override with new IP in live restore case
+	// Make sure balena0 doesn't get override with new IP in live restore case
 	assert.Equal(t, out1.IPAM.Config[0].Subnet, subnet)
 }
 
 func TestDaemonDefaultNetworkPools(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
-	// Remove docker0 bridge and the start daemon defining the predefined address pools
+	// Remove balena0 bridge and the start daemon defining the predefined address pools
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
