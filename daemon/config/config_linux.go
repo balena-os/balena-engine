@@ -200,13 +200,13 @@ func setPlatformDefaults(cfg *Config) error {
 			return err
 		}
 
-		cfg.Root = filepath.Join(dataHome, "docker")
-		cfg.ExecRoot = filepath.Join(runtimeDir, "docker")
-		cfg.Pidfile = filepath.Join(runtimeDir, "docker.pid")
+		cfg.Root = filepath.Join(dataHome, "balena")
+		cfg.ExecRoot = filepath.Join(runtimeDir, "balena")
+		cfg.Pidfile = filepath.Join(runtimeDir, "balena.pid")
 	} else {
-		cfg.Root = "/var/lib/docker"
-		cfg.ExecRoot = "/var/run/docker"
-		cfg.Pidfile = "/var/run/docker.pid"
+		cfg.Root = "/var/lib/balena"
+		cfg.ExecRoot = "/var/run/balena"
+		cfg.Pidfile = "/var/run/balena.pid"
 	}
 
 	return nil

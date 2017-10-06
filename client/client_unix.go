@@ -5,7 +5,7 @@ package client // import "github.com/docker/docker/client"
 
 // DefaultDockerHost defines OS-specific default host if the DOCKER_HOST
 // (EnvOverrideHost) environment variable is unset or empty.
-const DefaultDockerHost = "unix:///var/run/docker.sock"
+const DefaultDockerHost = "unix:///var/run/balena.sock"
 
 const defaultProto = "unix"
-const defaultAddr = "/var/run/docker.sock"
+const defaultAddr = "/var/run/balena.sock"
