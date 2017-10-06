@@ -217,31 +217,31 @@ func setupDirectLVM(cfg directLVMConfig) error {
 		return errors.Wrap(err, string(out))
 	}
 
-	out, err = exec.Command(vgCreate, "docker", cfg.Device).CombinedOutput()
+	out, err = exec.Command(vgCreate, "balena", cfg.Device).CombinedOutput()
 	if err != nil {
 		return errors.Wrap(err, string(out))
 	}
 
-	out, err = exec.Command(lvCreate, "--wipesignatures", "y", "-n", "thinpool", "docker", "--extents", fmt.Sprintf("%d%%VG", cfg.ThinpPercent)).CombinedOutput()
+	out, err = exec.Command(lvCreate, "--wipesignatures", "y", "-n", "thinpool", "balena", "--extents", fmt.Sprintf("%d%%VG", cfg.ThinpPercent)).CombinedOutput()
 	if err != nil {
 		return errors.Wrap(err, string(out))
 	}
-	out, err = exec.Command(lvCreate, "--wipesignatures", "y", "-n", "thinpoolmeta", "docker", "--extents", fmt.Sprintf("%d%%VG", cfg.ThinpMetaPercent)).CombinedOutput()
+	out, err = exec.Command(lvCreate, "--wipesignatures", "y", "-n", "thinpoolmeta", "balena", "--extents", fmt.Sprintf("%d%%VG", cfg.ThinpMetaPercent)).CombinedOutput()
 	if err != nil {
 		return errors.Wrap(err, string(out))
 	}
 
-	out, err = exec.Command(lvConvert, "-y", "--zero", "n", "-c", "512K", "--thinpool", "docker/thinpool", "--poolmetadata", "docker/thinpoolmeta").CombinedOutput()
+	out, err = exec.Command(lvConvert, "-y", "--zero", "n", "-c", "512K", "--thinpool", "balena/thinpool", "--poolmetadata", "balena/thinpoolmeta").CombinedOutput()
 	if err != nil {
 		return errors.Wrap(err, string(out))
 	}
 
 	profile := fmt.Sprintf("activation{\nthin_pool_autoextend_threshold=%d\nthin_pool_autoextend_percent=%d\n}", cfg.AutoExtendThreshold, cfg.AutoExtendPercent)
-	err = ioutil.WriteFile("/etc/lvm/profile/docker-thinpool.profile", []byte(profile), 0600)
+	err = ioutil.WriteFile("/etc/lvm/profile/balena-thinpool.profile", []byte(profile), 0600)
 	if err != nil {
-		return errors.Wrap(err, "error writing docker thinp autoextend profile")
+		return errors.Wrap(err, "error writing balena thinp autoextend profile")
 	}
 
-	out, err = exec.Command(lvChange, "--metadataprofile", "docker-thinpool", "docker/thinpool").CombinedOutput()
+	out, err = exec.Command(lvChange, "--metadataprofile", "balena-thinpool", "balena/thinpool").CombinedOutput()
 	return errors.Wrap(err, string(out))
 }

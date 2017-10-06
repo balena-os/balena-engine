@@ -35,9 +35,9 @@ const (
 	maxConnectionRetryCount      = 3
 	containerdHealthCheckTimeout = 3 * time.Second
 	containerdShutdownTimeout    = 15 * time.Second
-	containerdBinary             = "docker-containerd"
-	containerdPidFilename        = "docker-containerd.pid"
-	containerdSockFilename       = "docker-containerd.sock"
+	containerdBinary             = "balena-containerd"
+	containerdPidFilename        = "balena-containerd.pid"
+	containerdSockFilename       = "balena-containerd.sock"
 	containerdStateDir           = "containerd"
 	eventTimestampFilename       = "event.ts"
 )
@@ -397,7 +397,7 @@ func (r *remote) runContainerdDaemon() error {
 	if goruntime.GOOS == "solaris" {
 		args = append(args, "--shim", "containerd-shim", "--runtime", "runc")
 	} else {
-		args = append(args, "--shim", "docker-containerd-shim")
+		args = append(args, "--shim", "balena-containerd-shim")
 		if r.runtime != "" {
 			args = append(args, "--runtime")
 			args = append(args, r.runtime)
