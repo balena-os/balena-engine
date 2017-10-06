@@ -10,7 +10,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-const defaultSocketGroup = "docker"
+const defaultSocketGroup = "balena"
 
 func lookupGID(name string) (int, error) {
 	groupFile, err := user.GetGroupPath()

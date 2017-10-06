@@ -64,6 +64,10 @@ import (
 
 // MainNamespace is the name of the namespace used for users containers
 const MainNamespace = "moby"
+var (
+	// DefaultRuntimeBinary is the default runtime to be used by
+	// containerd if none is specified
+	DefaultRuntimeBinary = "balena-runc"
 
 var (
 	errSystemNotSupported = errors.New("the Docker daemon is not supported on this platform")

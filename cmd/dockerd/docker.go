@@ -19,7 +19,7 @@ func newDaemonCommand() *cobra.Command {
 	opts := newDaemonOptions(config.New())
 
 	cmd := &cobra.Command{
-		Use:           "dockerd [OPTIONS]",
+		Use:           "balena [OPTIONS]",
 		Short:         "A self-sufficient runtime for containers.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -52,7 +52,7 @@ func runDaemon(opts *daemonOptions) error {
 	// Windows specific settings as these are not defaulted.
 	if runtime.GOOS == "windows" {
 		if opts.daemonConfig.Pidfile == "" {
-			opts.daemonConfig.Pidfile = filepath.Join(opts.daemonConfig.Root, "docker.pid")
+			opts.daemonConfig.Pidfile = filepath.Join(opts.daemonConfig.Root, "balena.pid")
 		}
 		if opts.configFile == "" {
 			opts.configFile = filepath.Join(opts.daemonConfig.Root, `config\daemon.json`)

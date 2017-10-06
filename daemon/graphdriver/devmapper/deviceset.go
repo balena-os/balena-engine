@@ -1185,7 +1185,7 @@ func (devices *DeviceSet) growFS(info *devInfo) error {
 
 	defer devices.deactivateDevice(info)
 
-	fsMountPoint := "/run/docker/mnt"
+	fsMountPoint := "/run/balena/mnt"
 	if _, err := os.Stat(fsMountPoint); os.IsNotExist(err) {
 		if err := os.MkdirAll(fsMountPoint, 0700); err != nil {
 			return err
@@ -1729,22 +1729,23 @@ func (devices *DeviceSet) initDevmapper(doInit bool) (retErr error) {
 				return err
 			}
 		}
-		devices.thinPoolDevice = "docker-thinpool"
+		devices.thinPoolDevice = "balena-thinpool"
 		logrus.WithField("storage-driver", "devicemapper").Debugf("Setting dm.thinpooldev to %q", devices.thinPoolDevice)
 	}
 
-	// Set the device prefix from the device id and inode of the docker root dir
+	// Set the device prefix from the device id and inode of the balena root dir
 	var st unix.Stat_t
 	if err := unix.Stat(devices.root, &st); err != nil {
 		return fmt.Errorf("devmapper: Error looking up dir %s: %s", devices.root, err)
 	}
 	// "reg-" stands for "regular file".
 	// In the future we might use "dev-" for "device file", etc.
-	// docker-maj,min[-inode] stands for:
-	//	- Managed by docker
+	// balena-maj,min[-inode] stands for:
+	//	- Managed by balena
 	//	- The target of this device is at major <maj> and minor <min>
 	//	- If <inode> is defined, use that file inside the device as a loopback image. Otherwise use the device itself.
-	devices.devicePrefix = fmt.Sprintf("docker-%d:%d-%d", major(st.Dev), minor(st.Dev), st.Ino)
+	devices.devicePrefix = fmt.Sprintf("balena-%d:%d-%d", major(st.Dev), minor(st.Dev), st.Ino)
+
 	logrus.Debugf("devmapper: Generated prefix: %s", devices.devicePrefix)
 
 	// Check for the existence of the thin-pool device

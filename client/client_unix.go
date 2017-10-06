@@ -3,4 +3,4 @@
 package client
 
 // DefaultDockerHost defines os specific default if DOCKER_HOST is unset
-const DefaultDockerHost = "unix:///var/run/docker.sock"
+const DefaultDockerHost = "unix:///var/run/balena.sock"

@@ -20,19 +20,19 @@ func main() {
 		return
 	}
 	switch filepath.Base(os.Args[0]) {
-	case "docker":
+	case "balena":
 		docker.Main()
-	case "dockerd":
+	case "balenad":
 		dockerd.Main()
-	case "docker-containerd":
+	case "balena-containerd":
 		containerd.Main()
-	case "docker-containerd-shim":
+	case "balena-containerd-shim":
 		containerdShim.Main()
-	case "docker-containerd-ctr":
+	case "balena-containerd-ctr":
 		ctr.Main()
-	case "docker-runc":
+	case "balena-runc":
 		runc.Main()
-	case "docker-proxy":
+	case "balena-proxy":
 		proxy.Main()
 
 	default:

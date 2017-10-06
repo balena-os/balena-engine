@@ -116,6 +116,17 @@ func TranslatePullError(err error, ref reference.Named) error {
 		switch v.Code {
 		case errcode.ErrorCodeDenied, v2.ErrorCodeManifestUnknown, v2.ErrorCodeNameUnknown:
 			return notFoundError{v, ref}
+		case errcode.ErrorCodeDenied:
+			// ErrorCodeDenied is used when access to the repository was denied
+			newErr = errors.Errorf("pull access denied for %s, repository does not exist or may require 'balena login'", reference.FamiliarName(ref))
+		case v2.ErrorCodeManifestUnknown:
+			newErr = errors.Errorf("manifest for %s not found", reference.FamiliarString(ref))
+		case v2.ErrorCodeNameUnknown:
+			newErr = errors.Errorf("repository %s not found", reference.FamiliarName(ref))
+		}
+		if newErr != nil {
+			logrus.Infof("Translating %q to %q", err, newErr)
+			return newErr
 		}
 	case xfer.DoNotRetry:
 		return TranslatePullError(v.Err, ref)
