@@ -19,7 +19,7 @@ func max(x, y int) int {
 	return x
 }
 
-func seekerSize(s io.Seeker) (int64, error) {
+func SeekerSize(s io.Seeker) (int64, error) {
 	cur, err := s.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return 0, err
@@ -109,12 +109,12 @@ func (self *concatReadSeekCloser) Close() error {
 }
 
 func ConcatReadSeekClosers(a, b ReadSeekCloser) (ReadSeekCloser, error) {
-	aSize, err := seekerSize(a)
+	aSize, err := SeekerSize(a)
 	if err != nil {
 		return nil, err
 	}
 
-	bSize, err := seekerSize(b)
+	bSize, err := SeekerSize(b)
 	if err != nil {
 		return nil, err
 	}
