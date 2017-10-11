@@ -70,6 +70,8 @@ func (s *DockerSuite) TestInfoFormat(c *testing.T) {
 // TestInfoDiscoveryBackend verifies that a daemon run with `--cluster-advertise` and
 // `--cluster-store` properly show the backend's endpoint in info output.
 func (s *DockerSuite) TestInfoDiscoveryBackend(c *testing.T) {
+	c.Skip("swarm isn't supported")
+
 	testRequires(c, testEnv.IsLocalDaemon, DaemonIsLinux)
 
 	d := daemon.New(c, dockerBinary, dockerdBinary, testdaemon.WithEnvironment(testEnv.Execution))
@@ -104,6 +106,8 @@ func (s *DockerSuite) TestInfoDiscoveryInvalidAdvertise(c *testing.T) {
 // TestInfoDiscoveryAdvertiseInterfaceName verifies that a daemon run with `--cluster-advertise`
 // configured with interface name properly show the advertise ip-address in info output.
 func (s *DockerSuite) TestInfoDiscoveryAdvertiseInterfaceName(c *testing.T) {
+	c.Skip("swarm isn't supported")
+
 	testRequires(c, testEnv.IsLocalDaemon, Network, DaemonIsLinux)
 
 	d := daemon.New(c, dockerBinary, dockerdBinary, testdaemon.WithEnvironment(testEnv.Execution))
