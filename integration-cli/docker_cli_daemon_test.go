@@ -2148,6 +2148,8 @@ func (s *DockerDaemonSuite) TestDaemonDebugLog(c *testing.T) {
 
 // Test for #21956
 func (s *DockerDaemonSuite) TestDaemonLogOptions(c *testing.T) {
+	c.Skip("syslog log-driver isn't supported")
+
 	s.d.StartWithBusybox(c, "--log-driver=syslog", "--log-opt=syslog-address=udp://127.0.0.1:514")
 
 	out, err := s.d.Cmd("run", "-d", "--log-driver=json-file", "busybox", "top")
