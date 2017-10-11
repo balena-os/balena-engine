@@ -825,6 +825,8 @@ func (s *DockerDaemonSuite) TestDaemonDefaultGatewayIPv4ExplicitOutsideContainer
 }
 
 func (s *DockerDaemonSuite) TestDaemonDefaultNetworkInvalidClusterConfig(c *check.C) {
+	c.Skip("swarm isn't supported")
+
 	testRequires(c, DaemonIsLinux, SameHostDaemon)
 
 	// Start daemon without docker0 bridge
@@ -1688,6 +1690,8 @@ func (s *DockerDaemonSuite) TestDaemonRestartLocalVolumes(c *check.C) {
 
 // FIXME(vdemeester) should be a unit test
 func (s *DockerDaemonSuite) TestDaemonCorruptedLogDriverAddress(c *check.C) {
+	c.Skip("syslog log-driver isn't supported")
+
 	d := daemon.New(c, dockerBinary, dockerdBinary, daemon.Config{
 		Experimental: testEnv.ExperimentalDaemon(),
 	})
@@ -1698,6 +1702,8 @@ func (s *DockerDaemonSuite) TestDaemonCorruptedLogDriverAddress(c *check.C) {
 
 // FIXME(vdemeester) should be a unit test
 func (s *DockerDaemonSuite) TestDaemonCorruptedFluentdAddress(c *check.C) {
+	c.Skip("fluentd isn't supported")
+
 	d := daemon.New(c, dockerBinary, dockerdBinary, daemon.Config{
 		Experimental: testEnv.ExperimentalDaemon(),
 	})
@@ -2253,8 +2259,6 @@ func (s *DockerDaemonSuite) TestDaemonDiscoveryBackendConfigReload(c *check.C) {
 
 	// daemon config file
 	daemonConfig = `{
-	      "cluster-store": "consul://consuladdr:consulport/some/path",
-	      "cluster-advertise": "192.168.56.100:0",
 	      "debug" : false
 	}`
 
@@ -2269,15 +2273,15 @@ func (s *DockerDaemonSuite) TestDaemonDiscoveryBackendConfigReload(c *check.C) {
 	err = s.d.ReloadConfig()
 	c.Assert(err, checker.IsNil, check.Commentf("error reloading daemon config"))
 
-	out, err := s.d.Cmd("info")
+	_, err = s.d.Cmd("info")
 	c.Assert(err, checker.IsNil)
 
-	c.Assert(out, checker.Contains, fmt.Sprintf("Cluster Store: consul://consuladdr:consulport/some/path"))
-	c.Assert(out, checker.Contains, fmt.Sprintf("Cluster Advertise: 192.168.56.100:0"))
 }
 
 // Test for #21956
 func (s *DockerDaemonSuite) TestDaemonLogOptions(c *check.C) {
+	c.Skip("Syslog and json-file aren't supported")
+
 	s.d.StartWithBusybox(c, "--log-driver=syslog", "--log-opt=syslog-address=udp://127.0.0.1:514")
 
 	out, err := s.d.Cmd("run", "-d", "--log-driver=json-file", "busybox", "top")
