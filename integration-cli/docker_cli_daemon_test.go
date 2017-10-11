@@ -826,6 +826,7 @@ func (s *DockerDaemonSuite) TestDaemonDefaultGatewayIPv4ExplicitOutsideContainer
 }
 
 func (s *DockerDaemonSuite) TestDaemonDefaultNetworkInvalidClusterConfig(c *testing.T) {
+	c.Skip("swarm isn't supported")
 
 	// Start daemon without docker0 bridge
 	defaultNetworkBridge := "docker0"
@@ -1657,6 +1658,8 @@ func (s *DockerDaemonSuite) TestDaemonRestartLocalVolumes(c *testing.T) {
 
 // FIXME(vdemeester) should be a unit test
 func (s *DockerDaemonSuite) TestDaemonCorruptedLogDriverAddress(c *testing.T) {
+	c.Skip("syslog log-driver isn't supported")
+
 	d := daemon.New(c, dockerBinary, dockerdBinary, testdaemon.WithEnvironment(testEnv.Execution))
 	assert.Assert(c, d.StartWithError("--log-driver=syslog", "--log-opt", "syslog-address=corrupted:42") != nil)
 	expected := "syslog-address should be in form proto://address"
@@ -1665,6 +1668,8 @@ func (s *DockerDaemonSuite) TestDaemonCorruptedLogDriverAddress(c *testing.T) {
 
 // FIXME(vdemeester) should be a unit test
 func (s *DockerDaemonSuite) TestDaemonCorruptedFluentdAddress(c *testing.T) {
+	c.Skip("fluentd isn't supported")
+
 	d := daemon.New(c, dockerBinary, dockerdBinary, testdaemon.WithEnvironment(testEnv.Execution))
 	assert.Assert(c, d.StartWithError("--log-driver=fluentd", "--log-opt", "fluentd-address=corrupted:c") != nil)
 	expected := "invalid fluentd-address corrupted:c: "
@@ -2219,8 +2224,6 @@ func (s *DockerDaemonSuite) TestDaemonDiscoveryBackendConfigReload(c *testing.T)
 
 	// daemon config file
 	daemonConfig = `{
-	      "cluster-store": "consul://consuladdr:consulport/some/path",
-	      "cluster-advertise": "192.168.56.100:0",
 	      "debug" : false
 	}`
 
@@ -2244,6 +2247,8 @@ func (s *DockerDaemonSuite) TestDaemonDiscoveryBackendConfigReload(c *testing.T)
 
 // Test for #21956
 func (s *DockerDaemonSuite) TestDaemonLogOptions(c *testing.T) {
+	c.Skip("syslog log-driver isn't supported")
+
 	s.d.StartWithBusybox(c, "--log-driver=syslog", "--log-opt=syslog-address=udp://127.0.0.1:514")
 
 	out, err := s.d.Cmd("run", "-d", "--log-driver=json-file", "busybox", "top")

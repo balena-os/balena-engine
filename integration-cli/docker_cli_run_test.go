@@ -4029,6 +4029,8 @@ func (s *DockerDaemonSuite) TestRunWithUlimitAndDaemonDefault(c *testing.T) {
 }
 
 func (s *DockerSuite) TestRunStoppedLoggingDriverNoLeak(c *testing.T) {
+	c.Skip("splunk log-driver isn't supported")
+
 	nroutines, err := getGoroutineNumber()
 	assert.NilError(c, err)
 
