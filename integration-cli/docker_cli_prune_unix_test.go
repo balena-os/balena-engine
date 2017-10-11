@@ -243,6 +243,8 @@ func (s *DockerSuite) TestPruneVolumeLabel(c *check.C) {
 }
 
 func (s *DockerSuite) TestPruneNetworkLabel(c *check.C) {
+	c.Skip("swarm isn't supported")
+
 	dockerCmd(c, "network", "create", "--label", "foo", "n1")
 	dockerCmd(c, "network", "create", "--label", "bar", "n2")
 	dockerCmd(c, "network", "create", "n3")
