@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"net/http"
+	"os"
+	"strings"
 
 	"fmt"
 
@@ -65,6 +68,10 @@ func (s *DockerSuite) TestInfoAPIRuncCommit(c *check.C) {
 	c.Assert(json.Unmarshal(b, &i), checker.IsNil)
 	c.Assert(i.RuncCommit.ID, checker.Not(checker.Equals), "N/A")
 	c.Assert(i.RuncCommit.ID, checker.Equals, i.RuncCommit.Expected)
+
+	version, err := ioutil.ReadFile("/go/src/github.com/docker/docker/vendor/github.com/opencontainers/runc/VERSION")
+	c.Assert(err, checker.IsNil)
+	c.Assert(strings.TrimSpace(string(version)), checker.Equals, os.Getenv("DOCKER_RCE_RUNC_VERSION"))
 }
 
 func (s *DockerSuite) TestInfoAPIVersioned(c *check.C) {
