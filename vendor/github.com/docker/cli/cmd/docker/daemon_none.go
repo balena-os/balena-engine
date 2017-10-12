@@ -24,6 +24,6 @@ func newDaemonCommand() *cobra.Command {
 
 func runDaemon() error {
 	return fmt.Errorf(
-		"`docker daemon` is not supported on %s. Please run `dockerd` directly",
+		"`balena daemon` is not supported on %s. Please run `balenad` directly",
 		strings.Title(runtime.GOOS))
 }
