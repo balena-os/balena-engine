@@ -7932,7 +7932,7 @@ paths:
           schema:
             $ref: "#/definitions/ErrorResponse"
       tags: ["Image"]
-  /image/delta:
+  /images/delta:
     post:
       summary: "Create a delta"
       description: "Create a binary delta between two images."
