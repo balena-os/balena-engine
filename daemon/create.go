@@ -28,6 +28,7 @@ import (
 	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
+	units "github.com/docker/go-units"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/pkg/errors"
@@ -422,6 +423,9 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 		progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Waiting")
 	}
 
+	statTotalSize := int64(0)
+	statDetlaSize := int64(0)
+
 	for i, diffID := range dstImg.RootFS.DiffIDs {
 		var (
 			layerData io.Reader
@@ -457,6 +461,8 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 			if err != nil {
 				return err
 			}
+
+			statTotalSize += inputSize
 
 			progressReader := progress.NewProgressReader(input, progressOutput, inputSize, stringid.TruncateID(diffID.String()), "Computing delta")
 			defer progressReader.Close()
@@ -527,6 +533,11 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 		if commonLayer {
 			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Skipping common layer")
 		} else {
+			deltaSize, err := newLayer.DiffSize()
+			if err != nil {
+				return err
+			}
+			statDetlaSize += deltaSize
 			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Delta complete")
 		}
 
@@ -556,6 +567,14 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 		return err
 	}
 
-	outStream.Write(streamformatter.FormatStatus("", id.String()))
+	humanTotal := units.HumanSize(float64(statTotalSize))
+	humanDelta := units.HumanSize(float64(statDetlaSize))
+	deltaRatio := float64(statTotalSize) / float64(statDetlaSize)
+	if statTotalSize == 0 {
+		deltaRatio = 1
+	}
+
+	outStream.Write(streamformatter.FormatStatus("", "Normal size: %s, Delta size: %s, %.2fx improvement", humanTotal, humanDelta, deltaRatio))
+	outStream.Write(streamformatter.FormatStatus("", "Created delta: %s", id.String()))
 	return nil
 }
