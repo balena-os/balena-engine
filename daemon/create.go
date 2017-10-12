@@ -405,7 +405,7 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 	}
 
 	statTotalSize := int64(0)
-	statDetlaSize := int64(0)
+	statDeltaSize := int64(0)
 
 	for i, diffID := range dstImg.RootFS.DiffIDs {
 		var (
@@ -518,7 +518,7 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 			if err != nil {
 				return err
 			}
-			statDetlaSize += deltaSize
+			statDeltaSize += deltaSize
 			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Delta complete")
 		}
 
@@ -549,8 +549,8 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 	}
 
 	humanTotal := units.HumanSize(float64(statTotalSize))
-	humanDelta := units.HumanSize(float64(statDetlaSize))
-	deltaRatio := float64(statTotalSize) / float64(statDetlaSize)
+	humanDelta := units.HumanSize(float64(statDeltaSize))
+	deltaRatio := float64(statTotalSize) / float64(statDeltaSize)
 	if statTotalSize == 0 {
 		deltaRatio = 1
 	}
