@@ -1,0 +1,18 @@
+FROM resin/raspberrypi3-golang:1.9
+
+# Enable QEMU emulation
+ENTRYPOINT [ "qemu-arm-static", "-execve" ]
+SHELL      [ "qemu-arm-static", "-execve", "/bin/sh", "-c" ]
+
+RUN apt-get update \
+	&& apt-get install -y \
+		btrfs-tools \
+		libapparmor-dev \
+		libdevmapper-dev \
+		libnl-3-dev \
+		libsystemd-dev \
+		libsystemd-journal-dev
+
+COPY . /balena
+
+WORKDIR /balena
