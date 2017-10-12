@@ -8,7 +8,7 @@ import (
 
 var (
 	// CertsDir is the directory where certificates are stored
-	CertsDir = "/etc/docker/certs.d"
+	CertsDir = "/etc/balena/certs.d"
 )
 
 // cleanPath is used to ensure that a directory name is valid on the target

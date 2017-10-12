@@ -41,7 +41,7 @@ const (
 	// DisableNetworkBridge is the default value of the option to disable network bridge
 	DisableNetworkBridge = "none"
 	// DefaultInitBinary is the name of the default init binary
-	DefaultInitBinary = "docker-init"
+	DefaultInitBinary = "balena-init"
 )
 
 // flatOptions contains configuration keys

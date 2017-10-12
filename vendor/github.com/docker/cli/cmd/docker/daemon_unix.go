@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const daemonBinary = "dockerd"
+const daemonBinary = "balenad"
 
 func newDaemonCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -24,7 +24,7 @@ func newDaemonCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDaemon()
 		},
-		Deprecated: "and will be removed in Docker 17.12. Please run `dockerd` directly.",
+		Deprecated: "and will be removed. Please run `balenad` directly.",
 	}
 	cmd.SetHelpFunc(helpFunc)
 	return cmd
