@@ -1,0 +1,13 @@
+FROM i386/golang:1.9
+
+RUN apt-get update \
+	&& apt-get install -y \
+		btrfs-tools \
+		libapparmor-dev \
+		libdevmapper-dev \
+		libnl-3-dev \
+		libsystemd-dev
+
+COPY . /balena
+
+WORKDIR /balena
