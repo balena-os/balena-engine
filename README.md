@@ -14,7 +14,7 @@ atomicity and durability of container pulling.
 ## Features
 
 - __Small footprint__
-	- 3x smaller than Docker CE, packaged as a single binary
+	- 3.5x smaller than Docker CE, packaged as a single binary
 - __Multi-arch support__
 	- Available for a wide variety of chipset architectures, supporting everything from tiny IoT devices to large industrial gateways
 - __True container deltas__
