@@ -28,10 +28,15 @@ atomicity and durability of container pulling.
 
 ## Transitioning from Docker CE
 
-Balena drops several features of Moby and Docker that are not needed in the
-embedded scenarios we’re focusing on. As such, balena does not include Docker
-Swarm, support for plugins, cloud logging drivers, overlay networking drivers,
-and stores that are not backed by boltdb, such as etcd, consul, zookeeper, etc.
+We left out Docker features that we saw as most needed in cloud deployments and
+therefore not warranting inclusion in a lightweight IoT-focused container
+engine. Specifically, we’ve excluded:
+
+- Docker Swarm
+- Cloud logging drivers
+- Plugin support
+- Overlay networking drivers
+- Non-boltdb discovery backends (consul, zookeeper, etcd, etc.)
 
 Unless you depend on one of the features in Docker that balena omits, using
 balena should be a drop-in replacement
