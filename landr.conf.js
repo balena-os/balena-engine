@@ -23,8 +23,8 @@ module.exports = {
   theme: 'landr-theme-basic',
   hooks: {
     'post-build': ({ config }) => {
-      const data = fs.readFileSync(`${__dirname}/contrib/project-stats.sh`, 'utf-8')
-      return fs.writeFileSync(`${config.distDir}/project-stats.sh`, data)
+      const data = fs.readFileSync(`${__dirname}/contrib/install.sh`, 'utf-8')
+      return fs.writeFileSync(`${config.distDir}/install.sh`, data)
     }
   },
   middleware: (store, action, next) => {
