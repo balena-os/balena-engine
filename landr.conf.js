@@ -53,7 +53,7 @@ module.exports = {
       {
         'title': 'Small footprint',
         'image': 'footprint',
-        'description': '3x smaller than Docker CE, packaged as a single binary'
+        'description': '3.5x smaller than Docker CE, packaged as a single binary'
       },
       {
         'title': 'Multi-arch support',
