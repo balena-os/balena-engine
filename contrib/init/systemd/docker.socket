@@ -3,7 +3,7 @@ Description=Docker Socket for the API
 PartOf=docker.service
 
 [Socket]
-ListenStream=/var/run/docker.sock
+ListenStream=/var/run/balena.sock
 SocketMode=0660
 SocketUser=root
 SocketGroup=docker

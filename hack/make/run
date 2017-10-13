@@ -3,7 +3,7 @@
 set -e
 rm -rf "$DEST"
 
-if ! command -v dockerd &> /dev/null; then
+if ! command -v balenad &> /dev/null; then
 	echo >&2 'error: binary-daemon or dynbinary-daemon must be run before run'
 	false
 fi
@@ -34,11 +34,11 @@ if [ "$DOCKER_REMAP_ROOT" ]; then
 fi
 
 args="--debug \
-	--host tcp://0.0.0.0:${listen_port} --host unix:///var/run/docker.sock \
+	--host tcp://0.0.0.0:${listen_port} --host unix:///var/run/balena.sock \
 	--storage-driver "${DOCKER_GRAPHDRIVER}" \
 	--userland-proxy="${DOCKER_USERLANDPROXY}" \
 	$storage_params \
 	$extra_params"
 
-echo dockerd ${args}
-exec dockerd ${args}
+echo balenad ${args}
+exec balenad ${args}

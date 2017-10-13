@@ -57,7 +57,7 @@ func TestParseDockerDaemonHost(t *testing.T) {
 		"tcp:a.b.c.d/path":              "",
 		"udp://127.0.0.1":               "Invalid bind address format: udp://127.0.0.1",
 		"udp://127.0.0.1:2375":          "Invalid bind address format: udp://127.0.0.1:2375",
-		"tcp://unix:///run/docker.sock": "Invalid proto, expected tcp: unix:///run/docker.sock",
+		"tcp://unix:///run/balena.sock": "Invalid proto, expected tcp: unix:///run/balena.sock",
 		" tcp://:7777/path ":            "Invalid bind address format:  tcp://:7777/path ",
 		"":                              "Invalid bind address format: ",
 	}
@@ -74,7 +74,7 @@ func TestParseDockerDaemonHost(t *testing.T) {
 		"tcp://":                      DefaultTCPHost,
 		"tcp://:7777":                 fmt.Sprintf("tcp://%s:7777", DefaultHTTPHost),
 		"tcp://:7777/path":            fmt.Sprintf("tcp://%s:7777/path", DefaultHTTPHost),
-		"unix:///run/docker.sock":     "unix:///run/docker.sock",
+		"unix:///run/docker.sock":     "unix:///run/balena.sock",
 		"unix://":                     "unix://" + DefaultUnixSocket,
 		"fd://":                       "fd://",
 		"fd://something":              "fd://something",
@@ -137,14 +137,14 @@ func TestParseTCP(t *testing.T) {
 }
 
 func TestParseInvalidUnixAddrInvalid(t *testing.T) {
-	if _, err := parseSimpleProtoAddr("unix", "tcp://127.0.0.1", "unix:///var/run/docker.sock"); err == nil || err.Error() != "Invalid proto, expected unix: tcp://127.0.0.1" {
+	if _, err := parseSimpleProtoAddr("unix", "tcp://127.0.0.1", "unix:///var/run/balena.sock"); err == nil || err.Error() != "Invalid proto, expected unix: tcp://127.0.0.1" {
 		t.Fatalf("Expected an error, got %v", err)
 	}
-	if _, err := parseSimpleProtoAddr("unix", "unix://tcp://127.0.0.1", "/var/run/docker.sock"); err == nil || err.Error() != "Invalid proto, expected unix: tcp://127.0.0.1" {
+	if _, err := parseSimpleProtoAddr("unix", "unix://tcp://127.0.0.1", "/var/run/balena.sock"); err == nil || err.Error() != "Invalid proto, expected unix: tcp://127.0.0.1" {
 		t.Fatalf("Expected an error, got %v", err)
 	}
-	if v, err := parseSimpleProtoAddr("unix", "", "/var/run/docker.sock"); err != nil || v != "unix:///var/run/docker.sock" {
-		t.Fatalf("Expected an %v, got %v", v, "unix:///var/run/docker.sock")
+	if v, err := parseSimpleProtoAddr("unix", "", "/var/run/balena.sock"); err != nil || v != "unix:///var/run/balena.sock" {
+		t.Fatalf("Expected an %v, got %v", v, "unix:///var/run/balena.sock")
 	}
 }
 
