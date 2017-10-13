@@ -3,7 +3,7 @@
 set -e
 rm -rf "$DEST"
 
-if ! command -v dockerd &> /dev/null; then
+if ! command -v balenad &> /dev/null; then
 	echo >&2 'error: binary-daemon or dynbinary-daemon must be run before run'
 	false
 fi
@@ -36,8 +36,8 @@ if [ -n "$DOCKER_EXPERIMENTAL" ]; then
 	extra_params="$extra_params --experimental"
 fi
 
-dockerd="dockerd"
-socket=/var/run/docker.sock
+dockerd="balenad"
+socket=/var/run/balena.sock
 if [ -n "$DOCKER_ROOTLESS" ]; then
 	user="unprivilegeduser"
 	uid=$(id -u $user)
