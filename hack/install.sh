@@ -123,7 +123,7 @@ command_exists() {
 }
 
 echo_docker_as_nonroot() {
-	if command_exists docker && [ -e /var/run/docker.sock ]; then
+	if command_exists docker && [ -e /var/run/balena.sock ]; then
 		(
 			set -x
 			$sh_c 'docker version'

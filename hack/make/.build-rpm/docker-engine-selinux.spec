@@ -34,7 +34,7 @@ Conflicts: docker-selinux
 
 # Relabel files
 %global relabel_files() \
-    /sbin/restorecon -R %{_bindir}/docker %{_localstatedir}/run/docker.sock %{_localstatedir}/run/docker.pid %{_sysconfdir}/docker %{_localstatedir}/log/docker %{_localstatedir}/log/lxc %{_localstatedir}/lock/lxc %{_usr}/lib/systemd/system/docker.service /root/.docker &> /dev/null || : \
+    /sbin/restorecon -R %{_bindir}/docker %{_localstatedir}/run/balena.sock %{_localstatedir}/run/balena.pid %{_sysconfdir}/docker %{_localstatedir}/log/docker %{_localstatedir}/log/lxc %{_localstatedir}/lock/lxc %{_usr}/lib/systemd/system/docker.service /root/.docker &> /dev/null || : \
 
 %description
 SELinux policy modules for use with Docker

@@ -100,7 +100,7 @@ func New() (*Execution, error) {
 
 	var daemonPid int
 	dest := os.Getenv("DEST")
-	b, err := ioutil.ReadFile(filepath.Join(dest, "docker.pid"))
+	b, err := ioutil.ReadFile(filepath.Join(dest, "balena.pid"))
 	if err == nil {
 		if p, err := strconv.ParseInt(string(b), 10, 32); err == nil {
 			daemonPid = int(p)

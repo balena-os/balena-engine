@@ -289,8 +289,8 @@ interface(`docker_filetrans_named_content',`
         type docker_home_t;
     ')
 
-    files_pid_filetrans($1, docker_var_run_t, file, "docker.pid")
-    files_pid_filetrans($1, docker_var_run_t, sock_file, "docker.sock")
+    files_pid_filetrans($1, docker_var_run_t, file, "balena.pid")
+    files_pid_filetrans($1, docker_var_run_t, sock_file, "balena.sock")
     files_pid_filetrans($1, docker_var_run_t, dir, "docker-client")
     files_var_lib_filetrans($1, docker_var_lib_t, dir, "docker")
     filetrans_pattern($1, docker_var_lib_t, docker_share_t, file, "config.env")
