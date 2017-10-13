@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-DOCKER_DAEMON_BINARY_NAME='dockerd'
-DOCKER_RUNC_BINARY_NAME='docker-runc'
-DOCKER_CONTAINERD_BINARY_NAME='docker-containerd'
-DOCKER_CONTAINERD_CTR_BINARY_NAME='docker-containerd-ctr'
-DOCKER_CONTAINERD_SHIM_BINARY_NAME='docker-containerd-shim'
-DOCKER_PROXY_BINARY_NAME='docker-proxy'
-DOCKER_INIT_BINARY_NAME='docker-init'
+DOCKER_DAEMON_BINARY_NAME='balenad'
+DOCKER_RUNC_BINARY_NAME='balena-runc'
+DOCKER_CONTAINERD_BINARY_NAME='balena-containerd'
+DOCKER_CONTAINERD_CTR_BINARY_NAME='balena-containerd-ctr'
+DOCKER_CONTAINERD_SHIM_BINARY_NAME='balena-containerd-shim'
+DOCKER_PROXY_BINARY_NAME='balena-proxy'
+DOCKER_INIT_BINARY_NAME='balena-init'
 
 balena_BINARY_NAME='balena'
