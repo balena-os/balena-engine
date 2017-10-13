@@ -472,7 +472,7 @@ COPY --from=crun          /build/ /usr/local/bin/
 COPY hack/dockerfile/etc/docker/  /etc/docker/
 ENV PATH=/usr/local/cli:$PATH
 WORKDIR /go/src/github.com/docker/docker
-VOLUME /var/lib/docker
+VOLUME /var/lib/balena
 VOLUME /home/unprivilegeduser/.local/share/docker
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
@@ -488,8 +488,8 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
 ENTRYPOINT ["hack/dind-systemd"]
 
 FROM dev-systemd-${SYSTEMD} AS dev-base
-RUN groupadd -r docker
-RUN useradd --create-home --gid docker unprivilegeduser \
+RUN groupadd -r balena
+RUN useradd --create-home --gid balena unprivilegeduser \
  && mkdir -p /home/unprivilegeduser/.local/share/docker \
  && chown -R unprivilegeduser /home/unprivilegeduser
 # Let us use a .bashrc file

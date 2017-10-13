@@ -105,7 +105,7 @@ func TestFindConfigurationConflictsWithNamedOptions(t *testing.T) {
 	var hosts []string
 	flags.VarP(opts.NewNamedListOptsRef("hosts", &hosts, opts.ValidateHost), "host", "H", "Daemon socket(s) to connect to")
 	assert.Check(t, flags.Set("host", "tcp://127.0.0.1:4444"))
-	assert.Check(t, flags.Set("host", "unix:///var/run/docker.sock"))
+	assert.Check(t, flags.Set("host", "unix:///var/run/balena.sock"))
 	assert.Check(t, is.ErrorContains(findConfigurationConflicts(config, flags), "hosts"))
 }
 
@@ -208,9 +208,9 @@ func TestFindConfigurationConflictsWithMergedValues(t *testing.T) {
 	err := findConfigurationConflicts(config, flags)
 	assert.NilError(t, err)
 
-	assert.Check(t, flags.Set("host", "unix:///var/run/docker.sock"))
+	assert.Check(t, flags.Set("host", "unix:///var/run/balena.sock"))
 	err = findConfigurationConflicts(config, flags)
-	assert.ErrorContains(t, err, "hosts: (from flag: [unix:///var/run/docker.sock], from file: tcp://127.0.0.1:2345)")
+	assert.ErrorContains(t, err, "hosts: (from flag: [unix:///var/run/balena.sock], from file: tcp://127.0.0.1:2345)")
 }
 
 func TestValidateConfigurationErrors(t *testing.T) {
