@@ -38,10 +38,10 @@ module.exports = {
   settings: {
     lead: 'A Moby-based container engine for IoT',
     analytics: {
-      mixpanelToken: '',  // mixpanelToken
-      gosquaredId: '', // gosquared Id
-      gaSite: '', // google Analytics site eg balena.io
-      gaId: '' // google Analytics ID
+      mixpanelToken: '81dd4ca517f8bd50d46aa8fe057882ac',  // mixpanelToken
+      gosquaredId: 'GSN-122115-A', // gosquared Id
+      gaSite: 'balena.io', // google Analytics site eg balena.io
+      gaId: 'UA-45671959-5' // google Analytics ID
     },
     theme: {
       colors: {
@@ -58,7 +58,7 @@ module.exports = {
       {
         'title': 'Multi-arch support',
         'image': 'multiple',
-        'description': 'Bandwidth-efficient updates with binary diffs, 10-70x smaller than pulling layers in <a href="blog link, hashtagged to the technical comparison title">common scenarios</a>'
+        'description': 'Bandwidth-efficient updates with binary diffs, 10-70x smaller than pulling layers in <a href="https://resin.io/blog/announcing-balena-a-moby-based-container-engine-for-iot" target="_blank">common scenarios</a>'
       },
       {
         'title': 'True container deltas',
