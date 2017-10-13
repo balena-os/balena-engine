@@ -58,12 +58,12 @@ module.exports = {
       {
         'title': 'Multi-arch support',
         'image': 'multiple',
-        'description': 'Bandwidth-efficient updates with binary diffs, 10-70x smaller than pulling layers in <a href="https://resin.io/blog/announcing-balena-a-moby-based-container-engine-for-iot" target="_blank">common scenarios</a>'
+        'description': 'Available for a wide variety of chipset architectures, supporting everything from tiny IoT devices to large industrial gateways'
       },
       {
         'title': 'True container deltas',
         'image': 'bandwidth',
-        'description': 'True container deltas calculate full binary diffs that are 10-50x more bandwidth efficient than the standard layer-based delta updates'
+        'description': 'Bandwidth-efficient updates with binary diffs, 10-70x smaller than pulling layers in <a href="https://resin.io/blog/announcing-balena-a-moby-based-container-engine-for-iot" target="_blank">common scenarios</a>'
       },
       {
         'title': 'Minimal wear-and-tear',
