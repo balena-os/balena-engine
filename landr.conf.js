@@ -63,7 +63,7 @@ module.exports = {
       {
         'title': 'True container deltas',
         'image': 'bandwidth',
-        'description': 'Bandwidth-efficient updates with binary diffs, 10-70x smaller than pulling layers in <a href="https://resin.io/blog/announcing-balena-a-moby-based-container-engine-for-iot" target="_blank">common scenarios</a>'
+        'description': 'Bandwidth-efficient updates with binary diffs, 10-70x smaller than pulling layers in <a href="https://resin.io/blog/announcing-balena-a-moby-based-container-engine-for-iot/#technical_comparison" target="_blank">common scenarios</a>'
       },
       {
         'title': 'Minimal wear-and-tear',
@@ -82,7 +82,7 @@ module.exports = {
       }
     ],
     motivation: [
-      'Balena is a new container engine based on Docker’s Moby project, with an emphasis on embedded and IoT use cases, and compatible with Docker containers.</br></br> It supports container deltas for 10-50x more efficient bandwidth usage, has 3x smaller binaries, uses ram and storage more conservatively, and focuses on atomicity and durability of container pulling.'
+      'Balena is a new container engine purpose-built for embedded and IoT use cases and compatible with Docker containers. </br></br>Based on Docker’s Moby Project, balena supports container deltas for 10-70x more efficient bandwidth usage, has 3.5x smaller binaries, uses RAM and storage more conservatively, and focuses on atomicity and durability of container pulling.</br></br>Read more in our <a href="https://resin.io/blog/announcing-balena-a-moby-based-container-engine-for-iot" target="_blank">blog post</a>.'
     ],
   }
 }
