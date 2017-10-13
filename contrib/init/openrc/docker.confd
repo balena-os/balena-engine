@@ -14,7 +14,7 @@
 #DOCKER_ERRFILE="/var/log/docker-err.log"
 
 # where docker's pid get stored
-#DOCKER_PIDFILE="/run/docker.pid"
+#DOCKER_PIDFILE="/run/balena.pid"
 
 # Settings for process limits (ulimit)
 #DOCKER_ULIMIT="-c unlimited -n 1048576 -u unlimited"

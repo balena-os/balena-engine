@@ -2,7 +2,7 @@
 set -e
 
 docker-version-osarch() {
-	if ! type docker &> /dev/null; then
+	if ! type balena &> /dev/null; then
 		# docker is not installed
 		return
 	fi
