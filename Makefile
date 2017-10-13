@@ -117,6 +117,9 @@ rce: build ## build the linux consolidate binary
 rce-docker: build ## build the linux consolidate binary
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary-rce-docker
 
+balena: build ## build the linux consolidate binary
+	$(DOCKER_RUN_DOCKER) hack/make.sh binary-balena
+
 build: bundles init-go-pkg-cache
 	$(warning The docker client CLI has moved to github.com/docker/cli. For a dev-test cycle involving the CLI, run:${\n} DOCKER_CLI_PATH=/host/path/to/cli/binary make shell ${\n} then change the cli and compile into a binary at the same location.${\n})
 	docker build ${BUILD_APT_MIRROR} ${DOCKER_BUILD_ARGS} -t "$(DOCKER_IMAGE)" -f "$(DOCKERFILE)" .
@@ -132,10 +135,10 @@ clean-pkg-cache-vol:
 	)
 
 cross: build ## cross build the binaries for darwin, freebsd and\nwindows
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker binary cross
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena binary cross
 
 deb: build  ## build the deb packages
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker build-deb
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena build-deb
 
 
 help: ## this help
@@ -148,7 +151,7 @@ install: ## install the linux binaries
 	KEEPBUNDLE=1 hack/make.sh install-binary
 
 rpm: build ## build the rpm packages
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker build-rpm
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena build-rpm
 
 run: build ## run the docker daemon in a container
 	$(DOCKER_RUN_DOCKER) sh -c "KEEPBUNDLE=1 hack/make.sh install-binary run"
@@ -157,18 +160,19 @@ shell: build ## start a shell inside the build env
 	$(DOCKER_RUN_DOCKER) bash
 
 test: build ## run the unit, integration and docker-py tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker cross test-unit test-integration test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena cross test-unit test-integration-cli test-docker-py
 
 test-docker-py: build ## run the docker-py tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker test-docker-py
-
-test-integration-cli: test-integration ## (DEPRECATED) use test-integration
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena test-docker-py
 
 test-integration: build ## run the integration tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker test-integration
+	$(DOCKER_RUN_DOCKER) hack/make.sh build-integration-test-binary dynbinary-balena test-integration-cli
 
 test-unit: build ## run the unit tests
 	$(DOCKER_RUN_DOCKER) hack/test/unit
+
+tgz: build ## build the archives (.zip on windows and .tgz\notherwise) containing the binaries
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena binary cross tgz
 
 validate: build ## validate DCO, Seccomp profile generation, gofmt,\n./pkg/ isolation, golint, tests, tomls, go vet and vendor
 	$(DOCKER_RUN_DOCKER) hack/validate/all
@@ -203,7 +207,7 @@ build-integration-cli-on-swarm: build ## build images and binary for running int
 # We mount pkgcache, but not bundle (bundle needs to be baked into the image)
 # For avoiding bakings DOCKER_GRAPHDRIVER and so on to image, we cannot use $(DOCKER_ENVS) here
 	docker run -t -d --name $(tmp) -e DOCKER_GITCOMMIT -e BUILDFLAGS -e DOCKER_INCREMENTAL_BINARY --privileged $(DOCKER_MOUNT_PKGCACHE) $(DOCKER_IMAGE) top
-	docker exec $(tmp) hack/make.sh build-integration-test-binary dynbinary-rce-docker
+	docker exec $(tmp) hack/make.sh build-integration-test-binary dynbinary-balena
 	docker exec $(tmp) go build -o /worker github.com/docker/docker/hack/integration-cli-on-swarm/agent/worker
 	docker commit -c 'ENTRYPOINT ["/worker"]' $(tmp) $(INTEGRATION_CLI_WORKER_IMAGE)
 	docker rm -f $(tmp)
