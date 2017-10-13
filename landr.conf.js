@@ -1,4 +1,5 @@
 const ARM_REGEX = /(?:arm)[0-9]+/g
+const fs = require('fs')
 
 const getArch = (str) => {
   if (str.match(ARM_REGEX)) {
@@ -26,6 +27,12 @@ const prepAssets = (release) => {
 
 module.exports = {
   theme: 'landr-theme-basic',
+  hooks: {
+    'post-build': ({ config }) => {
+      const data = fs.readFileSync(`${__dirname}/contrib/project-stats.sh`, 'utf-8')
+      return fs.writeFileSync(`${config.distDir}/project-stats.sh`, data)
+    }
+  },
   middleware: (store, action, next) => {
     if (action.type === 'ADD_RELEASE') {
       // intercept all releases and add pretty labels to assets
