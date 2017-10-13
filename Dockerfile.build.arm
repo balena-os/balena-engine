@@ -1,4 +1,4 @@
-FROM resin/armhf-golang:1.9
+FROM resin/raspberrypi3-golang:1.9
 
 # Enable QEMU emulation
 ENTRYPOINT [ "qemu-arm-static", "-execve" ]
