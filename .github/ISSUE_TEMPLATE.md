@@ -55,13 +55,13 @@ Briefly describe the problem you are having in a few paragraphs.
 
 **Additional information you deem important (e.g. issue happens only occasionally):**
 
-**Output of `docker version`:**
+**Output of `balena version`:**
 
 ```
 (paste your output here)
 ```
 
-**Output of `docker info`:**
+**Output of `balena info`:**
 
 ```
 (paste your output here)
