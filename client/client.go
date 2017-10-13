@@ -198,7 +198,10 @@ func NewClient(host string, version string, client *http.Client, httpHeaders map
 	}, nil
 }
 
-// Close the transport used by the client
+// Close ensures that transport.Client is closed
+// especially needed while using NewClient with *http.Client = nil
+// for example
+// client.NewClient("unix:///var/run/balena.sock", nil, "v1.18", map[string]string{"User-Agent": "engine-api-cli-1.0"})
 func (cli *Client) Close() error {
 	if t, ok := cli.client.Transport.(*http.Transport); ok {
 		t.CloseIdleConnections()

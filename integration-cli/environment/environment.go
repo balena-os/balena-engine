@@ -37,7 +37,37 @@ func New() (*Execution, error) {
 	if err != nil {
 		return nil, err
 	}
+	daemonPlatform := info.OSType
+	if daemonPlatform != "linux" && daemonPlatform != "windows" {
+		return nil, fmt.Errorf("Cannot run tests against platform: %s", daemonPlatform)
+	}
+	baseImage := "scratch"
+	volumesConfigPath := filepath.Join(info.DockerRootDir, "volumes")
+	containerStoragePath := filepath.Join(info.DockerRootDir, "containers")
+	// Make sure in context of daemon, not the local platform. Note we can't
+	// use filepath.FromSlash or ToSlash here as they are a no-op on Unix.
+	if daemonPlatform == "windows" {
+		volumesConfigPath = strings.Replace(volumesConfigPath, `/`, `\`, -1)
+		containerStoragePath = strings.Replace(containerStoragePath, `/`, `\`, -1)
 
+		baseImage = "microsoft/windowsservercore"
+		if len(os.Getenv("WINDOWS_BASE_IMAGE")) > 0 {
+			baseImage = os.Getenv("WINDOWS_BASE_IMAGE")
+			fmt.Println("INFO: Windows Base image is ", baseImage)
+		}
+	} else {
+		volumesConfigPath = strings.Replace(volumesConfigPath, `\`, `/`, -1)
+		containerStoragePath = strings.Replace(containerStoragePath, `\`, `/`, -1)
+	}
+
+	var daemonPid int
+	dest := os.Getenv("DEST")
+	b, err := ioutil.ReadFile(filepath.Join(dest, "balena.pid"))
+	if err == nil {
+		if p, err := strconv.ParseInt(string(b), 10, 32); err == nil {
+			daemonPid = int(p)
+		}
+	}
 	dockerBinary, err := exec.LookPath(DefaultClientBinary)
 	if err != nil {
 		return nil, err

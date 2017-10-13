@@ -154,10 +154,10 @@ RUN git clone https://github.com/go-swagger/go-swagger.git /go/src/github.com/go
 RUN git config --global user.email 'docker-dummy@example.com'
 
 # Add an unprivileged user to be used for tests which need it
-RUN groupadd -r docker
-RUN useradd --create-home --gid docker unprivilegeduser
+RUN groupadd -r balena
+RUN useradd --create-home --gid balena unprivilegeduser
 
-VOLUME /var/lib/docker
+VOLUME /var/lib/balena
 WORKDIR /go/src/github.com/docker/docker
 ENV DOCKER_BUILDTAGS apparmor seccomp selinux
 

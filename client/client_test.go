@@ -123,10 +123,16 @@ func TestGetAPIPath(t *testing.T) {
 		{"v1.22", "/networks/kiwl$%^", nil, "/v1.22/networks/kiwl$%25%5E"},
 	}
 
-	for _, testcase := range testcases {
-		c := Client{version: testcase.version, basePath: "/"}
-		actual := c.getAPIPath(testcase.path, testcase.query)
-		assert.Equal(t, actual, testcase.expected)
+	for _, cs := range cases {
+		c, err := NewClient("unix:///var/run/balena.sock", cs.v, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		g := c.getAPIPath(cs.p, cs.q)
+		assert.Equal(t, g, cs.e)
+
+		err = c.Close()
+		assert.NoError(t, err)
 	}
 }
 

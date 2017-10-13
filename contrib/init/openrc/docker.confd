@@ -14,7 +14,7 @@
 #DOCKER_ERRFILE="/var/log/docker-err.log"
 
 # where docker's pid get stored
-#DOCKER_PIDFILE="/run/docker.pid"
+#DOCKER_PIDFILE="/run/balena.pid"
 
 # where the docker daemon itself is run from
 #DOCKERD_BINARY="/usr/bin/dockerd"
