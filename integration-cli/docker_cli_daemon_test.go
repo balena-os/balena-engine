@@ -1179,7 +1179,7 @@ func (s *DockerDaemonSuite) TestDaemonUnixSockCleanedUp(c *check.C) {
 	}
 	defer os.RemoveAll(dir)
 
-	sockPath := filepath.Join(dir, "docker.sock")
+	sockPath := filepath.Join(dir, "balena.sock")
 	s.d.Start(c, "--host", "unix://"+sockPath)
 
 	if _, err := os.Stat(sockPath); err != nil {
@@ -1425,7 +1425,7 @@ func pingContainers(c *check.C, d *daemon.Daemon, expectFailure bool) {
 func (s *DockerDaemonSuite) TestDaemonRestartWithSocketAsVolume(c *check.C) {
 	s.d.StartWithBusybox(c)
 
-	socket := filepath.Join(s.d.Folder, "docker.sock")
+	socket := filepath.Join(s.d.Folder, "balena.sock")
 
 	out, err := s.d.Cmd("run", "--restart=always", "-v", socket+":/sock", "busybox")
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s", out))

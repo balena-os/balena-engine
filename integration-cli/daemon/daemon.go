@@ -225,7 +225,7 @@ func (d *Daemon) StartWithLogFile(out *os.File, providedArgs ...string) error {
 		"--containerd", "/var/run/docker/containerd/docker-containerd.sock",
 		"--data-root", d.Root,
 		"--exec-root", d.execRoot,
-		"--pidfile", fmt.Sprintf("%s/docker.pid", d.Folder),
+		"--pidfile", fmt.Sprintf("%s/balena.pid", d.Folder),
 		fmt.Sprintf("--userland-proxy=%t", d.userlandProxy),
 	)
 	if d.experimental {
@@ -348,7 +348,7 @@ func (d *Daemon) Kill() error {
 		return err
 	}
 
-	if err := os.Remove(fmt.Sprintf("%s/docker.pid", d.Folder)); err != nil {
+	if err := os.Remove(fmt.Sprintf("%s/balena.pid", d.Folder)); err != nil {
 		return err
 	}
 
@@ -459,7 +459,7 @@ out2:
 
 	d.cmd.Wait()
 
-	if err := os.Remove(fmt.Sprintf("%s/docker.pid", d.Folder)); err != nil {
+	if err := os.Remove(fmt.Sprintf("%s/balena.pid", d.Folder)); err != nil {
 		return err
 	}
 
