@@ -136,8 +136,8 @@ all: build ## validate all checks, build linux binaries, run all tests\ncross bu
 binary: build ## build the linux binaries
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
-rce-docker: build ## build the linux consolidate binary
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary-rce-docker
+balena: build ## build the linux consolidate binary
+	$(DOCKER_RUN_DOCKER) hack/make.sh binary-balena
 
 
 
@@ -180,10 +180,10 @@ shell: build ## start a shell inside the build env
 	$(DOCKER_RUN_DOCKER) bash
 
 test: build test-unit ## run the unit, integration and docker-py tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker cross test-integration test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena cross test-integration test-docker-py
 
 test-docker-py: build ## run the docker-py tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-rce-docker test-docker-py
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena test-docker-py
 
 test-integration-cli: test-integration ## (DEPRECATED) use test-integration
 
