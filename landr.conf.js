@@ -1,14 +1,8 @@
-const ARM_REGEX = /(?:arm)[0-9]+/g
 const fs = require('fs')
 
 const getArch = (str) => {
-  if (str.match(ARM_REGEX)) {
-    return str.match(ARM_REGEX)
-  } else if (str.includes('amd64')) {
-    return 'x86'
-  } else if (str.includes('386')) {
-    return 'i386'
-  }
+  const [ _, arch ] = str.match(/-([^-]+)\.tar\.gz$/)
+  return arch
 }
 
 const packagePrettyName = (str) => `Balena for ${getArch(str)}`
@@ -54,7 +48,7 @@ module.exports = {
         primary: '#00A375'
       }
     },
-    callToActionCommand: 'curl https://balena.io/downloads.sh',
+    callToActionCommand: 'curl -sfL https://balena.io/install.sh | sh',
     features: [
       {
         'title': 'Small footprint',
