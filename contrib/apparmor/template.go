@@ -39,7 +39,7 @@ profile /usr/bin/docker (attach_disconnected, complain) {
   /dev/urandom r,
   /dev/null rw,
   /dev/pts/[0-9]* rw,
-  /run/docker.sock rw,
+  /run/balena.sock rw,
   /proc/** r,
   /proc/[0-9]*/attr/exec w,
   /sys/kernel/mm/hugepages/ r,
