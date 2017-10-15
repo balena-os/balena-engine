@@ -37,7 +37,7 @@ being transferred. This amount to huge bandwidth savings that range between
 **Creating a container delta**
 
 ```bash
-balaena image delta resin/raspberrypi3-node:6 resin/raspberrypi3-node:7
+balena image delta resin/raspberrypi3-node:6 resin/raspberrypi3-node:7
 ```
 
 The image ID of the delta will be printed at the end of the command. You can
