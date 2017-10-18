@@ -166,11 +166,16 @@ type mockDownloadDescriptor struct {
 	registeredDiffID layer.DiffID
 	expectedDiffID   layer.DiffID
 	simulateRetries  int
+	size             int64
 }
 
 func (d *mockDownloadDescriptor) DeltaBase() io.ReadSeeker {
 	// TODO implement a test for DeltaBase
 	return nil
+}
+
+func (d *mockDownloadDescriptor) Size() int64 {
+	return d.size
 }
 
 // Key returns the key used to deduplicate downloads.
