@@ -167,6 +167,7 @@ type mockDownloadDescriptor struct {
 	expectedDiffID   layer.DiffID
 	simulateRetries  int
 	retries          int
+	size             int64
 }
 
 // Key returns the key used to deduplicate downloads.
@@ -177,6 +178,10 @@ func (d *mockDownloadDescriptor) Key() string {
 // ID returns the ID for display purposes.
 func (d *mockDownloadDescriptor) ID() string {
 	return d.id
+}
+
+func (d *mockDownloadDescriptor) Size() int64 {
+	return d.size
 }
 
 // DiffID should return the DiffID for this layer, or an error
