@@ -7,7 +7,7 @@ Description=Docker Socket for the API
 ListenStream=/run/balena.sock
 SocketMode=0660
 SocketUser=root
-SocketGroup=docker
+SocketGroup=balena
 
 [Install]
 WantedBy=sockets.target
