@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-#       /etc/rc.d/init.d/docker
+#       /etc/rc.d/init.d/balena
 #
 #       Daemon for docker.com
 #
@@ -8,23 +8,23 @@
 # description: Daemon for docker.com
 
 ### BEGIN INIT INFO
-# Provides:       docker
+# Provides:       balena
 # Required-Start: $network cgconfig
 # Required-Stop:
 # Should-Start:
 # Should-Stop:
 # Default-Start: 2 3 4 5
 # Default-Stop:  0 1 6
-# Short-Description: start and stop docker
+# Short-Description: start and stop balena
 # Description: Daemon for docker.com
 ### END INIT INFO
 
 # Source function library.
 . /etc/rc.d/init.d/functions
 
-prog="docker"
+prog="balena"
 unshare=/usr/bin/unshare
-exec="/usr/bin/dockerd"
+exec="/usr/bin/balenad"
 pidfile="/var/run/$prog.pid"
 lockfile="/var/lock/subsys/$prog"
 logfile="/var/log/$prog"

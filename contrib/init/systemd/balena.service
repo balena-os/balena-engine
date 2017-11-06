@@ -1,16 +1,16 @@
 [Unit]
 Description=Docker Application Container Engine
 Documentation=https://docs.docker.com
-After=network-online.target docker.socket firewalld.service containerd.service time-set.target
-Wants=network-online.target containerd.service
-Requires=docker.socket
+After=network-online.target balena.socket firewalld.service
+Wants=network-online.target
+Requires=balena.socket
 
 [Service]
 Type=notify
 # the default is not to use systemd for cgroups because the delegate issues still
 # exists and systemd currently does not support the cgroup feature set required
 # for containers run by docker
-ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+ExecStart=/usr/bin/balenad -H fd://
 ExecReload=/bin/kill -s HUP $MAINPID
 TimeoutStartSec=0
 RestartSec=2
