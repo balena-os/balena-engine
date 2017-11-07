@@ -202,10 +202,6 @@ func (n *nodeRunner) watchClusterEvents(ctx context.Context, conn *grpc.ClientCo
 				Kind:   "secret",
 				Action: swarmapi.WatchActionKindCreate | swarmapi.WatchActionKindUpdate | swarmapi.WatchActionKindRemove,
 			},
-			{
-				Kind:   "config",
-				Action: swarmapi.WatchActionKindCreate | swarmapi.WatchActionKindUpdate | swarmapi.WatchActionKindRemove,
-			},
 		},
 		IncludeOldObject: true,
 	})
