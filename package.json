@@ -1,0 +1,25 @@
+{
+  "name": "balena",
+  "version": "1.0.0",
+  "description": "Moby-based container engine for IoT",
+  "main": "landr.conf.js",
+  "devDependencies": {
+    "landr": "2.0.0-beta0.0.5"
+  },
+  "scripts": {
+    "start": "landr",
+    "build": "landr build && cp contrib/install.sh www/dist/install.sh",
+    "serve": "landr serve",
+    "deploy": "landr deploy"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/resin-os/balaena.git"
+  },
+  "author": "",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/resin-os/balaena/issues"
+  },
+  "homepage": "https://github.com/resin-os/balaena#readme"
+}

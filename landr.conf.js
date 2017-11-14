@@ -1,5 +1,3 @@
-const fs = require('fs')
-
 const getArch = (str) => {
   const [ _, arch ] = str.match(/-([^-]+)\.tar\.gz$/)
   return arch
@@ -20,21 +18,19 @@ const prepAssets = (release) => {
 }
 
 module.exports = {
-  theme: 'landr-theme-basic',
-  hooks: {
-    'post-build': ({ config }) => {
-      const data = fs.readFileSync(`${__dirname}/contrib/install.sh`, 'utf-8')
-      return fs.writeFileSync(`${config.distDir}/install.sh`, data)
-    }
-  },
-  middleware: (store, action, next) => {
-    if (action.type === 'ADD_RELEASE') {
-      // intercept all releases and add pretty labels to assets
-      action.payload = prepAssets(action.payload)
-    }
+  plugins: [
+    {
+      middleware: (store, action, next) => {
+        if (action.type === 'ADD_RELEASE') {
+          // intercept all releases and add pretty labels to assets
+          action.payload = prepAssets(action.payload)
+        }
 
-    return next(action)
-  },
+        return next(action)
+      }
+    }
+  ],
+  theme: 'landr-theme-resin',
   settings: {
     lead: 'A Moby-based container engine for IoT',
     analytics: {
@@ -48,7 +44,7 @@ module.exports = {
         primary: '#00A375'
       }
     },
-    callToActionCommand: 'curl -sfL https://balena.io/install.sh | sh',
+    installCommand: 'curl -sfL https://balena.io/install.sh | sh',
     features: [
       {
         'title': 'Small footprint',
@@ -82,7 +78,7 @@ module.exports = {
       }
     ],
     motivation: [
-      'Balena is a new container engine purpose-built for embedded and IoT use cases and compatible with Docker containers. </br></br>Based on Docker’s Moby Project, balena supports container deltas for 10-70x more efficient bandwidth usage, has 3.5x smaller binaries, uses RAM and storage more conservatively, and focuses on atomicity and durability of container pulling.</br></br>Read more in our <a href="https://resin.io/blog/announcing-balena-a-moby-based-container-engine-for-iot" target="_blank">blog post</a>.'
+      'Balena is a new container engine purpose-built for embedded and IoT use cases and compatible with Docker containers. <br><br>Based on Docker’s Moby Project, balena supports container deltas for 10-70x more efficient bandwidth usage, has 3.5x smaller binaries, uses RAM and storage more conservatively, and focuses on atomicity and durability of container pulling.</br></br>Read more in our <a href="https://resin.io/blog/announcing-balena-a-moby-based-container-engine-for-iot" target="_blank">blog post</a>.'
     ],
   }
 }
