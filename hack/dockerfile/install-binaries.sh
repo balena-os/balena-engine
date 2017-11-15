@@ -24,7 +24,7 @@ install_runc() {
 	cd "$GOPATH/src/github.com/opencontainers/runc"
 	git checkout -q "$RUNC_COMMIT"
 	make BUILDTAGS="$RUNC_BUILDTAGS" $1
-	cp runc /usr/local/bin/docker-runc
+	cp runc /usr/local/bin/balena-runc
 }
 
 install_containerd() {
@@ -33,9 +33,9 @@ install_containerd() {
 	cd "$GOPATH/src/github.com/containerd/containerd"
 	git checkout -q "$CONTAINERD_COMMIT"
 	make $1
-	cp bin/containerd /usr/local/bin/docker-containerd
-	cp bin/containerd-shim /usr/local/bin/docker-containerd-shim
-	cp bin/ctr /usr/local/bin/docker-containerd-ctr
+	cp bin/containerd /usr/local/bin/balena-containerd
+	cp bin/containerd-shim /usr/local/bin/balena-containerd-shim
+	cp bin/ctr /usr/local/bin/balena-containerd-ctr
 }
 
 install_proxy() {
@@ -43,7 +43,7 @@ install_proxy() {
 	git clone https://github.com/docker/libnetwork.git "$GOPATH/src/github.com/docker/libnetwork"
 	cd "$GOPATH/src/github.com/docker/libnetwork"
 	git checkout -q "$LIBNETWORK_COMMIT"
-	go build -ldflags="$PROXY_LDFLAGS" -o /usr/local/bin/docker-proxy github.com/docker/libnetwork/cmd/proxy
+	go build -ldflags="$PROXY_LDFLAGS" -o /usr/local/bin/balena-proxy github.com/docker/libnetwork/cmd/proxy
 }
 
 install_dockercli() {
@@ -51,7 +51,7 @@ install_dockercli() {
 	git clone "$DOCKERCLI_REPO" "$GOPATH/src/github.com/docker/cli"
 	cd "$GOPATH/src/github.com/docker/cli"
 	git checkout -q "$DOCKERCLI_COMMIT"
-	go build -o /usr/local/bin/docker github.com/docker/cli/cmd/docker
+	go build -o /usr/local/bin/balena github.com/docker/cli/cmd/docker
 }
 
 for prog in "$@"
