@@ -92,7 +92,7 @@ if [ -z "$DOCKER_TEST_HOST" ]; then
 		--userland-proxy="$DOCKER_USERLANDPROXY" \
 		$storage_params \
 		$extra_params \
-			&> "$DEST/docker.log"
+			&> "$DEST/balena.log"
 	) &
 	# make sure that if the script exits unexpectedly, we stop this daemon we just started
 	trap 'bundle .integration-daemon-stop' EXIT
@@ -109,7 +109,7 @@ while ! $TEST_CLIENT_BINARY version &> /dev/null; do
 		printf "\n"
 		if [ -z "$DOCKER_HOST" ]; then
 			echo >&2 "error: daemon failed to start"
-			echo >&2 "  check $DEST/docker.log for details"
+			echo >&2 "  check $DEST/balena.log for details"
 		else
 			echo >&2 "error: daemon at $DOCKER_HOST fails to '$TEST_CLIENT_BINARY version':"
 			$TEST_CLIENT_BINARY version >&2 || true
