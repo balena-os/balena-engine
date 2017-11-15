@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"io"
 
-	"github.com/armon/circbuf"
+	"github.com/resin-os/circbuf"
 )
 
 func Delta(sig *SignatureType, i io.Reader, output io.Writer) error {
@@ -22,7 +22,7 @@ func Delta(sig *SignatureType, i io.Reader, output io.Writer) error {
 
 	weakSum := NewRollsum()
 	block, _ := circbuf.NewBuffer(int64(sig.blockLen))
-	block.Write([]byte{0})
+	block.WriteByte(0)
 	pos := 0
 
 	for {
@@ -35,9 +35,12 @@ func Delta(sig *SignatureType, i io.Reader, output io.Writer) error {
 		}
 
 		if block.TotalWritten() > 0 {
-			prevByte = block.Bytes()[0]
+			prevByte, err = block.Get(0)
+			if err != nil {
+				return err
+			}
 		}
-		block.Write([]byte{in})
+		block.WriteByte(in)
 		weakSum.Rollin(in)
 
 		if weakSum.count < uint64(sig.blockLen) {

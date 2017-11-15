@@ -10,6 +10,7 @@ import (
 // are retained.
 type Buffer struct {
 	data        []byte
+	out         []byte
 	size        int64
 	writeCursor int64
 	written     int64
@@ -25,6 +26,7 @@ func NewBuffer(size int64) (*Buffer, error) {
 	b := &Buffer{
 		size: size,
 		data: make([]byte, size),
+		out:  make([]byte, size),
 	}
 	return b, nil
 }
@@ -54,6 +56,14 @@ func (b *Buffer) Write(buf []byte) (int, error) {
 	return n, nil
 }
 
+// WriteByte writes a single byte into the buffer.
+func (b *Buffer) WriteByte(c byte) error {
+	b.data[b.writeCursor] = c
+	b.writeCursor = ((b.writeCursor + 1) % b.size)
+	b.written++
+	return nil
+}
+
 // Size returns the size of the buffer
 func (b *Buffer) Size() int64 {
 	return b.size
@@ -65,18 +75,31 @@ func (b *Buffer) TotalWritten() int64 {
 }
 
 // Bytes provides a slice of the bytes written. This
-// slice should not be written to.
+// slice should not be written to. The underlying array
+// may point to data that will be overwritten by a subsequent
+// call to Bytes. It does no allocation.
 func (b *Buffer) Bytes() []byte {
 	switch {
 	case b.written >= b.size && b.writeCursor == 0:
 		return b.data
 	case b.written > b.size:
-		out := make([]byte, b.size)
-		copy(out, b.data[b.writeCursor:])
-		copy(out[b.size-b.writeCursor:], b.data[:b.writeCursor])
-		return out
+		copy(b.out, b.data[b.writeCursor:])
+		copy(b.out[b.size-b.writeCursor:], b.data[:b.writeCursor])
+		return b.out
 	default:
 		return b.data[:b.writeCursor]
+	}
+}
+
+// Get returns a single byte out of the buffer, at the given position.
+func (b *Buffer) Get(i int64) (byte, error) {
+	switch {
+	case i >= b.written || i >= b.size:
+		return 0, fmt.Errorf("Index out of bounds: %v", i)
+	case b.written > b.size:
+		return b.data[(b.writeCursor+i)%b.size], nil
+	default:
+		return b.data[i], nil
 	}
 }
 
