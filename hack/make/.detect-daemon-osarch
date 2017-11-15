@@ -8,11 +8,11 @@ docker-version-osarch() {
 	fi
 	local target="$1" # "Client" or "Server"
 	local fmtStr="{{.${target}.Os}}/{{.${target}.Arch}}"
-	if docker version -f "$fmtStr" 2> /dev/null; then
+	if balena version -f "$fmtStr" 2> /dev/null; then
 		# if "docker version -f" works, let's just use that!
 		return
 	fi
-	docker version | awk '
+	balena version | awk '
 		$1 ~ /^(Client|Server):$/ { section = 0 }
 		$1 == "'"$target"':" { section = 1; next }
 		section && $1 == "OS/Arch:" { print $2 }
