@@ -201,9 +201,6 @@ func (daemon *Daemon) NetworksPrune(ctx context.Context, pruneFilters filters.Ar
 	}
 
 	rep := &types.NetworksPruneReport{}
-	if clusterRep, err := daemon.clusterNetworksPrune(ctx, pruneFilters); err == nil {
-		rep.NetworksDeleted = append(rep.NetworksDeleted, clusterRep.NetworksDeleted...)
-	}
 
 	localRep := daemon.localNetworksPrune(ctx, pruneFilters)
 	rep.NetworksDeleted = append(rep.NetworksDeleted, localRep.NetworksDeleted...)
