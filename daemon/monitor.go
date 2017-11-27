@@ -64,7 +64,7 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerdtypes.EventType, ei
 				ExitedAt:  ei.ExitedAt,
 				OOMKilled: ei.OOMKilled,
 			}
-			restart, wait, err := c.RestartManager().ShouldRestart(ei.ExitCode, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt))
+			restart, wait, err := c.RestartManager().ShouldRestart(ei.ExitCode, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt), c.Health.Health)
 			if err == nil && restart {
 				c.RestartCount++
 				c.SetRestarting(&exitStatus)
