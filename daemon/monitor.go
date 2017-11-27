@@ -39,6 +39,11 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 	c.Reset(false)
 
+	var health types.Health
+	if c.Health != nil {
+		health = c.Health.Health
+	}
+
 	exitStatus := container.ExitStatus{
 		ExitCode: int(ec),
 		ExitedAt: et,
@@ -54,7 +59,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 	daemonShutdown := daemon.IsShuttingDown()
 	execDuration := time.Since(c.StartedAt)
-	restart, wait, err := c.RestartManager().ShouldRestart(ec, daemonShutdown || c.HasBeenManuallyStopped, execDuration)
+	restart, wait, err := c.RestartManager().ShouldRestart(ec, daemonShutdown || c.HasBeenManuallyStopped, execDuration, health)
 	if err != nil {
 		logrus.WithError(err).
 			WithField("container", c.ID).
@@ -63,6 +68,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 			WithField("daemonShuttingDown", daemonShutdown).
 			WithField("hasBeenManuallyStopped", c.HasBeenManuallyStopped).
 			WithField("execDuration", execDuration).
+			WithField("health", health).
 			Warn("ShouldRestart failed, container will not be restarted")
 		restart = false
 	}

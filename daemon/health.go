@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/exec"
+	"github.com/docker/docker/restartmanager"
 	"github.com/sirupsen/logrus"
 )
 
@@ -228,6 +229,25 @@ func handleProbeResult(d *Daemon, c *container.Container, result *types.Healthch
 	current := h.Status()
 	if oldStatus != current {
 		d.LogContainerEvent(c, "health_status: "+current)
+
+		if d.HasExperimental() && current == types.Unhealthy {
+			restart, wait, err := c.RestartManager().ShouldRestart(0, false, time.Since(c.StartedAt), c.Health.Health)
+			if err == nil && restart {
+				logrus.Infof("Unhealthy container %v: restarting...", c.ID)
+				go func() {
+					err := <-wait
+					if err == nil {
+						d.stopHealthchecks(c)
+						timeout := c.StopTimeout()
+						if err := d.containerRestart(context.Background(), c, containertypes.StopOptions{Timeout: &timeout}); err != nil {
+							logrus.Debugf("failed to restart container: %+v", err)
+						}
+					} else if err != restartmanager.ErrRestartCanceled {
+						logrus.Errorf("restartmanger wait error: %+v", err)
+					}
+				}()
+			}
+		}
 	}
 }
 

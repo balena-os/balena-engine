@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/cio"
+	dockertypes "github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
 	mounttypes "github.com/docker/docker/api/types/mount"
 	swarmtypes "github.com/docker/docker/api/types/swarm"
@@ -468,7 +469,12 @@ func (container *Container) GetExecIDs() []string {
 // ShouldRestart decides whether the daemon should restart the container or not.
 // This is based on the container's restart policy.
 func (container *Container) ShouldRestart() bool {
-	shouldRestart, _, _ := container.RestartManager().ShouldRestart(uint32(container.ExitCode()), container.HasBeenManuallyStopped, container.FinishedAt.Sub(container.StartedAt))
+	var health dockertypes.Health
+	if container.Health != nil {
+		health = container.Health.Health
+	}
+
+	shouldRestart, _, _ := container.RestartManager().ShouldRestart(uint32(container.ExitCode()), container.HasBeenManuallyStopped, container.FinishedAt.Sub(container.StartedAt), health)
 	return shouldRestart
 }
 
