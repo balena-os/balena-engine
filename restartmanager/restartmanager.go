@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 )
 
@@ -22,7 +23,7 @@ var ErrRestartCanceled = errors.New("restart canceled")
 // RestartManager defines object that controls container restarting rules.
 type RestartManager interface {
 	Cancel() error
-	ShouldRestart(exitCode uint32, hasBeenManuallyStopped bool, executionDuration time.Duration) (bool, chan error, error)
+	ShouldRestart(exitCode uint32, hasBeenManuallyStopped bool, executionDuration time.Duration, health types.Health) (bool, chan error, error)
 }
 
 type restartManager struct {
@@ -47,7 +48,7 @@ func (rm *restartManager) SetPolicy(policy container.RestartPolicy) {
 	rm.Unlock()
 }
 
-func (rm *restartManager) ShouldRestart(exitCode uint32, hasBeenManuallyStopped bool, executionDuration time.Duration) (bool, chan error, error) {
+func (rm *restartManager) ShouldRestart(exitCode uint32, hasBeenManuallyStopped bool, executionDuration time.Duration, health types.Health) (bool, chan error, error) {
 	if rm.policy.IsNone() {
 		return false, nil, nil
 	}
@@ -90,7 +91,7 @@ func (rm *restartManager) ShouldRestart(exitCode uint32, hasBeenManuallyStopped 
 	case rm.policy.IsOnFailure():
 		// the default value of 0 for MaximumRetryCount means that we will not enforce a maximum count
 		if max := rm.policy.MaximumRetryCount; max == 0 || rm.restartCount < max {
-			restart = exitCode != 0
+			restart = (exitCode != 0) || (health.Status == types.Unhealthy)
 		}
 	}
 

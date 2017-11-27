@@ -52,7 +52,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 		}
 	}
 
-	restart, wait, err := c.RestartManager().ShouldRestart(ec, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt))
+	restart, wait, err := c.RestartManager().ShouldRestart(ec, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt), c.Health.Health)
 	if err == nil && restart {
 		c.RestartCount++
 		c.SetRestarting(&exitStatus)

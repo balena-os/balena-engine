@@ -470,7 +470,7 @@ func (container *Container) GetExecIDs() []string {
 // ShouldRestart decides whether the daemon should restart the container or not.
 // This is based on the container's restart policy.
 func (container *Container) ShouldRestart() bool {
-	shouldRestart, _, _ := container.RestartManager().ShouldRestart(uint32(container.ExitCode()), container.HasBeenManuallyStopped, container.FinishedAt.Sub(container.StartedAt))
+	shouldRestart, _, _ := container.RestartManager().ShouldRestart(uint32(container.ExitCode()), container.HasBeenManuallyStopped, container.FinishedAt.Sub(container.StartedAt), container.Health.Health)
 	return shouldRestart
 }
 
