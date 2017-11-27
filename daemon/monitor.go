@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/containerd/log"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/container"
@@ -61,6 +62,11 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 	c.Reset(false)
 
+	var health types.Health
+	if c.Health != nil {
+		health = c.Health.Health
+	}
+
 	if e != nil {
 		exitStatus.ExitCode = int(e.ExitCode)
 		exitStatus.ExitedAt = e.ExitedAt
@@ -71,7 +77,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 	daemonShutdown := daemon.IsShuttingDown()
 	execDuration := time.Since(c.StartedAt)
-	restart, wait, err := c.RestartManager().ShouldRestart(uint32(exitStatus.ExitCode), daemonShutdown || c.HasBeenManuallyStopped, execDuration)
+	restart, wait, err := c.RestartManager().ShouldRestart(uint32(exitStatus.ExitCode), daemonShutdown || c.HasBeenManuallyStopped, execDuration, health)
 	if err != nil {
 		log.G(ctx).WithFields(log.Fields{
 			"error":                  err,
@@ -81,6 +87,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 			"daemonShuttingDown":     daemonShutdown,
 			"hasBeenManuallyStopped": c.HasBeenManuallyStopped,
 			"execDuration":           execDuration,
+			"health":                 health,
 		}).Warn("ShouldRestart failed, container will not be restarted")
 		restart = false
 	}

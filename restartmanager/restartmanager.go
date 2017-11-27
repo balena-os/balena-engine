@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 )
 
@@ -44,7 +45,7 @@ func (rm *RestartManager) SetPolicy(policy container.RestartPolicy) {
 }
 
 // ShouldRestart returns whether the container should be restarted.
-func (rm *RestartManager) ShouldRestart(exitCode uint32, hasBeenManuallyStopped bool, executionDuration time.Duration) (bool, chan error, error) {
+func (rm *RestartManager) ShouldRestart(exitCode uint32, hasBeenManuallyStopped bool, executionDuration time.Duration, health types.Health) (bool, chan error, error) {
 	if rm.policy.IsNone() {
 		return false, nil, nil
 	}
@@ -87,7 +88,7 @@ func (rm *RestartManager) ShouldRestart(exitCode uint32, hasBeenManuallyStopped 
 	case rm.policy.IsOnFailure():
 		// the default value of 0 for MaximumRetryCount means that we will not enforce a maximum count
 		if maxRetryCount := rm.policy.MaximumRetryCount; maxRetryCount == 0 || rm.restartCount < maxRetryCount {
-			restart = exitCode != 0
+			restart = (exitCode != 0) || (health.Status == types.Unhealthy)
 		}
 	}
 

@@ -15,6 +15,7 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/container"
+	"github.com/docker/docker/restartmanager"
 )
 
 const (
@@ -244,6 +245,25 @@ func handleProbeResult(d *Daemon, c *container.Container, result *types.Healthch
 	current := h.Status()
 	if oldStatus != current {
 		d.LogContainerEvent(c, events.Action(string(events.ActionHealthStatus)+": "+current))
+
+		if d.HasExperimental() && current == types.Unhealthy {
+			restart, wait, err := c.RestartManager().ShouldRestart(0, false, time.Since(c.StartedAt), c.Health.Health)
+			if err == nil && restart {
+				log.G(context.TODO()).Infof("Unhealthy container %v: restarting...", c.ID)
+				go func() {
+					err := <-wait
+					if err == nil {
+						d.stopHealthchecks(c)
+						timeout := c.StopTimeout()
+						if err := d.containerRestart(context.Background(), d.config(), c, containertypes.StopOptions{Timeout: &timeout}); err != nil {
+							log.G(context.TODO()).Debugf("failed to restart container: %+v", err)
+						}
+					} else if err != restartmanager.ErrRestartCanceled {
+						log.G(context.TODO()).Errorf("restartmanger wait error: %+v", err)
+					}
+				}()
+			}
+		}
 	}
 }
 
