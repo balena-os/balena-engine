@@ -39,6 +39,11 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 	c.Reset(false)
 
+	var health types.Health
+	if c.Health != nil {
+		health = c.Health.Health
+	}
+
 	exitStatus := container.ExitStatus{
 		ExitCode: int(ec),
 		ExitedAt: et,
@@ -52,7 +57,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 		}
 	}
 
-	restart, wait, err := c.RestartManager().ShouldRestart(ec, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt), c.Health.Health)
+	restart, wait, err := c.RestartManager().ShouldRestart(ec, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt), health)
 	if err == nil && restart {
 		c.RestartCount++
 		c.SetRestarting(&exitStatus)
