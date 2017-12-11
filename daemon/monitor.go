@@ -49,8 +49,13 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 		c.StreamConfig.Wait()
 		c.Reset(false)
 
+		var health types.Health
+		if c.Health != nil {
+			health = c.Health.Health
+		}
+
 		// If daemon is being shutdown, don't let the container restart
-		restart, wait, err := c.RestartManager().ShouldRestart(e.ExitCode, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt), c.Health.Health)
+		restart, wait, err := c.RestartManager().ShouldRestart(e.ExitCode, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt), health)
 		if err == nil && restart {
 			c.RestartCount++
 			c.SetRestarting(platformConstructExitStatus(e))
