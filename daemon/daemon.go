@@ -304,9 +304,11 @@ func (daemon *Daemon) restore() error {
 
 	// Now that all the containers are registered, register the links
 	for _, c := range containers {
+		c.Lock()
 		if err := daemon.registerLinks(c, c.HostConfig); err != nil {
 			logrus.Errorf("failed to register link for container %s: %v", c.ID, err)
 		}
+		c.Unlock()
 	}
 
 	group := sync.WaitGroup{}
