@@ -39,6 +39,8 @@ func (daemon *Daemon) StateChanged(id string, e libcontainerd.StateInfo) error {
 			return errors.New("Received StateOOM from libcontainerd on Windows. This should never happen.")
 		}
 		daemon.updateHealthMonitor(c)
+		c.Lock()
+		defer c.Unlock()
 		if err := c.CheckpointTo(daemon.containersReplica); err != nil {
 			return err
 		}
