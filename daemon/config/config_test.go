@@ -322,7 +322,7 @@ func TestValidateConfigurationErrors(t *testing.T) {
 					NodeGenericResources: []string{"foo"},
 				},
 			},
-			expectedErr: "could not parse GenericResource: incorrect term foo, missing '=' or malformed expression",
+			expectedErr: "Unsupported feature",
 		},
 		{
 			name: "generic resource mixed named and discrete",
@@ -331,7 +331,7 @@ func TestValidateConfigurationErrors(t *testing.T) {
 					NodeGenericResources: []string{"foo=bar", "foo=1"},
 				},
 			},
-			expectedErr: "could not parse GenericResource: mixed discrete and named resources in expression 'foo=[bar 1]'",
+			expectedErr: "Unsupported feature",
 		},
 		{
 			name: "with invalid hosts",
@@ -448,24 +448,6 @@ func TestValidateConfiguration(t *testing.T) {
 			config: &Config{
 				CommonConfig: CommonConfig{
 					MaxDownloadAttempts: 4,
-				},
-			},
-		},
-		{
-			name:  "with multiple node generic resources",
-			field: "NodeGenericResources",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=bar", "foo=baz"},
-				},
-			},
-		},
-		{
-			name:  "with node generic resources",
-			field: "NodeGenericResources",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=1"},
 				},
 			},
 		},

@@ -25,6 +25,8 @@ import (
 )
 
 func TestServiceCreateInit(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	ctx := setupTest(t)
 	t.Run("daemonInitDisabled", testServiceCreateInit(ctx, false))
 	t.Run("daemonInitEnabled", testServiceCreateInit(ctx, true))
