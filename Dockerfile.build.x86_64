@@ -6,7 +6,9 @@ RUN apt-get update \
 		libapparmor-dev \
 		libdevmapper-dev \
 		libnl-3-dev \
-		libsystemd-dev
+		libsystemd-dev \
+		libsystemd-journal-dev \
+		libudev-dev
 
 COPY . /balena
 
