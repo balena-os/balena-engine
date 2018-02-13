@@ -11,7 +11,8 @@ RUN apt-get update \
 		libdevmapper-dev \
 		libnl-3-dev \
 		libsystemd-dev \
-		libsystemd-journal-dev
+		libsystemd-journal-dev \
+		libudev-dev
 
 COPY . /balena
 
