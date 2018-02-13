@@ -19,7 +19,7 @@ esac
 
 version=$(git describe --tags --always)
 
-AUTO_GOPATH=1 GOMAXPROCS=1 ./hack/make.sh dynbinary-balena
+AUTO_GOPATH=1 GOMAXPROCS=1 DOCKER_LDFLAGS="-s" ./hack/make.sh dynbinary-balena
 
 src="bundles/latest/dynbinary-balena"
 dst="balena"
@@ -28,7 +28,6 @@ rm -rf "$dst"
 mkdir "$dst"
 
 cp -L "$src/balena" "$dst/balena"
-strip "$dst/balena"
 
 ln -s balena "$dst/balenad"
 ln -s balena "$dst/balena-containerd"
