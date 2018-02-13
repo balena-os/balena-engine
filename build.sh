@@ -19,9 +19,9 @@ esac
 
 version=$(git describe --tags --always)
 
-AUTO_GOPATH=1 GOMAXPROCS=1 DOCKER_LDFLAGS="-s" ./hack/make.sh dynbinary-balena
+AUTO_GOPATH=1 GOMAXPROCS=1 DOCKER_LDFLAGS="-s" ./hack/make.sh binary-balena
 
-src="bundles/latest/dynbinary-balena"
+src="bundles/latest/binary-balena"
 dst="balena"
 
 rm -rf "$dst"
