@@ -167,6 +167,7 @@ func newCommand(binary, daemonAddress string, debug bool, config shim.Config, so
 		"-workdir", config.WorkDir,
 		"-address", daemonAddress,
 		"-containerd-binary", selfExe,
+		"-containerd-binary-argv0", os.Args[0],
 	}
 
 	if config.Criu != "" {
