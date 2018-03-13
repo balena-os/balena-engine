@@ -97,8 +97,6 @@ func (daemon *Daemon) ContainerRename(oldName, newName string) error {
 	}
 
 	defer func() {
-		container.Lock()
-		defer container.Unlock()
 		if err != nil {
 			container.Name = oldName
 			container.NetworkSettings.IsAnonymousEndpoint = oldIsAnonymousEndpoint
