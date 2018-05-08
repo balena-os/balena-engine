@@ -80,7 +80,7 @@ case "$(go env GOOS)/$(go env GOARCH)" in
 esac
 
 COMMIT_RUNC="$RUNC_COMMIT"
-VERSION_RUNC="1.0.0-rc3"
+VERSION_RUNC="1.0.0-rc4+dev"
 
 echo "Building: $DEST/$BINARY_FULLNAME"
 echo "GOOS=\"${GOOS}\" GOARCH=\"${GOARCH}\" GOARM=\"${GOARM}\""
