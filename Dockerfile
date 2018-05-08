@@ -160,22 +160,6 @@ COPY hack/dockerfile/install/install.sh ./install.sh
 COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
 
-FROM dev-base AS containerd
-ARG DEBIAN_FRONTEND
-RUN apt-get update && apt-get install -y --no-install-recommends \
-	btrfs-tools \
-	&& rm -rf /var/lib/apt/lists/*
-ENV INSTALL_BINARY_NAME=containerd
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
-
-FROM dev-base AS proxy
-ENV INSTALL_BINARY_NAME=proxy
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
-
 FROM base AS gometalinter
 ENV INSTALL_BINARY_NAME=gometalinter
 COPY hack/dockerfile/install/install.sh ./install.sh
@@ -184,18 +168,6 @@ RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
 
 FROM base AS gotestsum
 ENV INSTALL_BINARY_NAME=gotestsum
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
-
-FROM dev-base AS dockercli
-ENV INSTALL_BINARY_NAME=dockercli
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
-
-FROM runtime-dev AS runc
-ENV INSTALL_BINARY_NAME=runc
 COPY hack/dockerfile/install/install.sh ./install.sh
 COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
 RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
