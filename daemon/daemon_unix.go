@@ -55,7 +55,7 @@ import (
 const (
 	// DefaultShimBinary is the default shim to be used by containerd if none
 	// is specified
-	DefaultShimBinary = "containerd-shim"
+	DefaultShimBinary = "balena-containerd-shim"
 
 	// DefaultRuntimeBinary is the default runtime to be used by
 	// containerd if none is specified
@@ -78,7 +78,7 @@ const (
 
 	// DefaultRuntimeName is the default runtime to be used by
 	// containerd if none is specified
-	DefaultRuntimeName = "runc"
+	DefaultRuntimeName = "balena-runc"
 )
 
 type containerGetter interface {
