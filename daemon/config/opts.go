@@ -8,5 +8,8 @@ import (
 
 // ParseGenericResources parses and validates the specified string as a list of GenericResource
 func ParseGenericResources(value []string) ([]swarm.GenericResource, error) {
-	return nil, fmt.Errorf("Unsupported feature")
+	if (len(value) > 0) {
+		return nil, fmt.Errorf("Unsupported feature")
+	}
+	return []swarm.GenericResource{}, nil
 }
