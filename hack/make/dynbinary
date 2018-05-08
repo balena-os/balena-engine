@@ -6,4 +6,5 @@ set -e
 	DEST="${DEST}-daemon"
 	ABS_DEST="${ABS_DEST}-daemon"
 	. hack/make/dynbinary-daemon
+	. hack/make/.binary-symlinks
 )
