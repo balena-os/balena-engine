@@ -36,7 +36,7 @@ func mountContainer(containerID, graphDriver string) string {
 		MetadataStorePathTemplate: filepath.Join(LAYER_ROOT, "image", "%s", "layerdb"),
 		IDMapping:                 &idtools.IdentityMapping{},
 		GraphDriver:               graphDriver,
-		Platform:                  "linux",
+		OS:                        "linux",
 	})
 	if err != nil {
 		log.Fatal("error loading layer store:", err)
@@ -51,17 +51,18 @@ func mountContainer(containerID, graphDriver string) string {
 	if err != nil {
 		log.Fatal("error mounting container fs:", err)
 	}
+	newRootPath := newRoot.Path()
 
-	if err := unix.Mount("", newRoot, "", unix.MS_REMOUNT, ""); err != nil {
+	if err := unix.Mount("", newRootPath, "", unix.MS_REMOUNT, ""); err != nil {
 		log.Fatal("error remounting container as read/write:", err)
 	}
-	defer unix.Mount("", newRoot, "", unix.MS_REMOUNT|unix.MS_RDONLY, "")
+	defer unix.Mount("", newRootPath, "", unix.MS_REMOUNT|unix.MS_RDONLY, "")
 
-	if err := os.MkdirAll(filepath.Join(newRoot, PIVOT_PATH), os.ModePerm); err != nil {
+	if err := os.MkdirAll(filepath.Join(newRootPath, PIVOT_PATH), os.ModePerm); err != nil {
 		log.Fatal("creating /mnt/sysroot failed:", err)
 	}
 
-	return newRoot
+	return newRootPath
 }
 
 func main() {
