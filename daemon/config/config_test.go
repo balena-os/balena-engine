@@ -332,24 +332,6 @@ func TestValidateConfigurationErrors(t *testing.T) {
 			},
 		*/
 		{
-			name: "generic resource without =",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo"},
-				},
-			},
-			expectedErr: "could not parse GenericResource: incorrect term foo, missing '=' or malformed expression",
-		},
-		{
-			name: "generic resource mixed named and discrete",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=bar", "foo=1"},
-				},
-			},
-			expectedErr: "could not parse GenericResource: mixed discrete and named resources in expression 'foo=[bar 1]'",
-		},
-		{
 			name: "with invalid hosts",
 			config: &Config{
 				CommonConfig: CommonConfig{
@@ -465,30 +447,13 @@ func TestValidateConfiguration(t *testing.T) {
 				},
 			},
 		},
+		// remove swarm-specific test cases
 		{
 			name:  "with max-download-attempts",
 			field: "MaxDownloadAttempts",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					MaxDownloadAttempts: 4,
-				},
-			},
-		},
-		{
-			name:  "with multiple node generic resources",
-			field: "NodeGenericResources",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=bar", "foo=baz"},
-				},
-			},
-		},
-		{
-			name:  "with node generic resources",
-			field: "NodeGenericResources",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=1"},
 				},
 			},
 		},
