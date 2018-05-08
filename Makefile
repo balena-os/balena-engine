@@ -118,7 +118,7 @@ binary: build ## build the linux binaries
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
 balena: build ## build the linux consolidate binary
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary-balena
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena
 
 build: bundles init-go-pkg-cache
 	$(warning The docker client CLI has moved to github.com/docker/cli. For a dev-test cycle involving the CLI, run:${\n} DOCKER_CLI_PATH=/host/path/to/cli/binary make shell ${\n} then change the cli and compile into a binary at the same location.${\n})
