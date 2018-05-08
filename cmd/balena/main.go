@@ -19,7 +19,10 @@ func main() {
 	if reexec.Init() {
 		return
 	}
-	switch filepath.Base(os.Args[0]) {
+
+	command := filepath.Base(os.Args[0])
+
+	switch command {
 	case "balena":
 		docker.Main()
 	case "balenad":
@@ -34,8 +37,8 @@ func main() {
 		runc.Main()
 	case "balena-proxy":
 		proxy.Main()
-
 	default:
-		fmt.Println("Unknown command")
+		fmt.Fprintf(os.Stderr, "error: unkown command: %v\n", command)
+		os.Exit(1)
 	}
 }
