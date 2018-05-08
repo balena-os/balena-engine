@@ -24,7 +24,7 @@ var (
 	server  *httptest.Server
 )
 
-const dockerdBinary = "dockerd"
+const dockerdBinary = "balenad"
 
 func TestMain(m *testing.M) {
 	var err error

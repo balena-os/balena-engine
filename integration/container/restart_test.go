@@ -53,7 +53,7 @@ func TestDaemonRestartKillContainers(t *testing.T) {
 
 					t.Parallel()
 
-					d := daemon.New(t, "", "dockerd", daemon.Config{})
+					d := daemon.New(t, "", "balenad", daemon.Config{})
 					client, err := d.NewClient()
 					if err != nil {
 						t.Fatal(err)
