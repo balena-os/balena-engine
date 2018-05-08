@@ -178,7 +178,7 @@ RUN ./contrib/download-frozen-image-v2.sh /docker-frozen-images \
 # Please edit hack/dockerfile/install-binaries.sh to update them.
 COPY hack/dockerfile/binaries-commits /tmp/binaries-commits
 COPY hack/dockerfile/install-binaries.sh /tmp/install-binaries.sh
-RUN /tmp/install-binaries.sh tomlv vndr runc containerd tini proxy dockercli gometalinter
+RUN /tmp/install-binaries.sh tomlv vndr tini gometalinter
 ENV PATH=/usr/local/cli:$PATH
 
 # Activate bash completion and include Docker's completion if mounted with DOCKER_BASH_COMPLETION_PATH
