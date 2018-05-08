@@ -137,7 +137,7 @@ binary: build ## build the linux binaries
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
 balena: build ## build the linux consolidate binary
-	$(DOCKER_RUN_DOCKER) hack/make.sh binary-balena
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena
 
 
 
