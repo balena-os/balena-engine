@@ -49,9 +49,6 @@ func ProtectAll(ctx context.Context, t testing.TB, testEnv *Execution) {
 	ProtectImages(ctx, t, testEnv)
 	ProtectNetworks(ctx, t, testEnv)
 	ProtectVolumes(ctx, t, testEnv)
-	if testEnv.DaemonInfo.OSType == "linux" {
-		ProtectPlugins(ctx, t, testEnv)
-	}
 }
 
 // ProtectContainer adds the specified container(s) to be protected in case of

@@ -36,9 +36,6 @@ func (e *Execution) Clean(ctx context.Context, t testing.TB) {
 	deleteAllImages(ctx, t, apiClient, e.protectedElements.images)
 	deleteAllVolumes(ctx, t, apiClient, e.protectedElements.volumes)
 	deleteAllNetworks(ctx, t, apiClient, platform, e.protectedElements.networks)
-	if platform == "linux" {
-		deleteAllPlugins(ctx, t, apiClient, e.protectedElements.plugins)
-	}
 }
 
 func unpauseAllContainers(ctx context.Context, t testing.TB, client client.ContainerAPIClient) {
@@ -164,24 +161,6 @@ func deleteAllNetworks(ctx context.Context, t testing.TB, c client.NetworkAPICli
 		}
 		err := c.NetworkRemove(ctx, n.ID)
 		assert.Check(t, err, "failed to remove network %s", n.ID)
-	}
-}
-
-func deleteAllPlugins(ctx context.Context, t testing.TB, c client.PluginAPIClient, protectedPlugins map[string]struct{}) {
-	t.Helper()
-	plugins, err := c.PluginList(ctx, filters.Args{})
-	// Docker EE does not allow cluster-wide plugin management.
-	if errdefs.IsNotImplemented(err) {
-		return
-	}
-	assert.Check(t, err, "failed to list plugins")
-
-	for _, p := range plugins {
-		if _, ok := protectedPlugins[p.Name]; ok {
-			continue
-		}
-		err := c.PluginRemove(ctx, p.Name, types.PluginRemoveOptions{Force: true})
-		assert.Check(t, err, "failed to remove plugin %s", p.ID)
 	}
 }
 

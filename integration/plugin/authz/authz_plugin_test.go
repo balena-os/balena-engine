@@ -36,10 +36,7 @@ const (
 	serverVersionAPI    = "/version"
 )
 
-var (
-	alwaysAllowed = []string{"/_ping", "/info"}
-	ctrl          *authorizationController
-)
+var ctrl *authorizationController
 
 type authorizationController struct {
 	reqRes          authorization.Response // reqRes holds the plugin response to the initial client request
@@ -69,16 +66,6 @@ func setupTestV1(t *testing.T) context.Context {
 		ctrl = nil
 	})
 	return ctx
-}
-
-// check for always allowed endpoints to not inhibit test framework functions
-func isAllowed(reqURI string) bool {
-	for _, endpoint := range alwaysAllowed {
-		if strings.HasSuffix(reqURI, endpoint) {
-			return true
-		}
-	}
-	return false
 }
 
 func socketHTTPClient(u *url.URL) (*http.Client, error) {
