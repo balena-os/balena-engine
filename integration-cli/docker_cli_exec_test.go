@@ -62,7 +62,7 @@ func (s *DockerSuite) TestExecInteractive(c *testing.T) {
 	case err := <-errChan:
 		assert.NilError(c, err)
 	case <-time.After(1 * time.Second):
-		c.Fatal("docker exec failed to exit on stdin close")
+		c.Fatal("balena exec failed to exit on stdin close")
 	}
 
 }
@@ -212,7 +212,7 @@ func (s *DockerSuite) TestExecParseError(c *testing.T) {
 	icmd.RunCommand(dockerBinary, "exec", "top").Assert(c, icmd.Expected{
 		ExitCode: 1,
 		Error:    "exit status 1",
-		Err:      "See 'docker exec --help'",
+		Err:      "See 'balena exec --help'",
 	})
 }
 

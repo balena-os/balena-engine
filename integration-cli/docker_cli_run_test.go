@@ -2030,7 +2030,7 @@ func (s *DockerSuite) TestRunDeallocatePortOnMissingIptablesRule(c *testing.T) {
 	id := strings.TrimSpace(out)
 	ip := inspectField(c, id, "NetworkSettings.Networks.bridge.IPAddress")
 	icmd.RunCommand("iptables", "-D", "DOCKER", "-d", fmt.Sprintf("%s/32", ip),
-		"!", "-i", "docker0", "-o", "docker0", "-p", "tcp", "-m", "tcp", "--dport", "23", "-j", "ACCEPT").Assert(c, icmd.Success)
+		"!", "-i", "balena0", "-o", "balena0", "-p", "tcp", "-m", "tcp", "--dport", "23", "-j", "ACCEPT").Assert(c, icmd.Success)
 
 	cli.DockerCmd(c, "rm", "-fv", id)
 

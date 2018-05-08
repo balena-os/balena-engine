@@ -59,7 +59,7 @@ const (
 
 	// DefaultShimBinary is the default shim to be used by containerd if none
 	// is specified
-	DefaultShimBinary = "containerd-shim"
+	DefaultShimBinary = "balena-containerd-shim"
 
 	// DefaultRuntimeBinary is the default runtime to be used by
 	// containerd if none is specified

@@ -44,7 +44,7 @@ import (
 	"gotest.tools/v3/poll"
 )
 
-const containerdSocket = "/var/run/docker/containerd/containerd.sock"
+const containerdSocket = "/var/run/balena/containerd/balena-containerd.sock"
 
 // TestLegacyDaemonCommand test starting docker daemon using "deprecated" docker daemon
 // command. Remove this test when we remove this.
@@ -279,7 +279,7 @@ func convertBasesize(basesizeBytes int64) (int64, error) {
 	return int64(basesizeFloat) * 1024 * 1024 * 1024, nil
 }
 
-// Issue #8444: If docker0 bridge is modified (intentionally or unintentionally) and
+// Issue #8444: If balena0 bridge is modified (intentionally or unintentionally) and
 // no longer has an IP associated, we should gracefully handle that case and associate
 // an IP with it rather than fail daemon start
 func (s *DockerDaemonSuite) TestDaemonStartBridgeWithoutIPAssociation(c *testing.T) {
@@ -289,12 +289,12 @@ func (s *DockerDaemonSuite) TestDaemonStartBridgeWithoutIPAssociation(c *testing
 	s.d.Start(c)
 	s.d.Stop(c)
 
-	// now we will remove the ip from docker0 and then try starting the daemon
-	icmd.RunCommand("ip", "addr", "flush", "dev", "docker0").Assert(c, icmd.Success)
+	// now we will remove the ip from balena0 and then try starting the daemon
+	icmd.RunCommand("ip", "addr", "flush", "dev", "balena0").Assert(c, icmd.Success)
 
 	if err := s.d.StartWithError(); err != nil {
-		warning := "**WARNING: Docker bridge network in bad state--delete docker0 bridge interface to fix"
-		c.Fatalf("Could not start daemon when docker0 has no IP address: %v\n%s", err, warning)
+		warning := "**WARNING: Docker bridge network in bad state--delete balena0 bridge interface to fix"
+		c.Fatalf("Could not start daemon when balena0 has no IP address: %v\n%s", err, warning)
 	}
 }
 
@@ -358,7 +358,7 @@ func verifyIPTablesDoesNotContains(c *testing.T, ipTablesSearchString string) {
 	}
 }
 
-// TestDaemonIPv6Enabled checks that when the daemon is started with --ipv6=true that the docker0 bridge
+// TestDaemonIPv6Enabled checks that when the daemon is started with --ipv6=true that the balena0 bridge
 // has the fe80::1 address and that a container is assigned a link-local address
 func (s *DockerDaemonSuite) TestDaemonIPv6Enabled(c *testing.T) {
 	testRequires(c, IPv6)
@@ -368,14 +368,14 @@ func (s *DockerDaemonSuite) TestDaemonIPv6Enabled(c *testing.T) {
 
 	s.d.StartWithBusybox(c, "--ipv6")
 
-	iface, err := net.InterfaceByName("docker0")
+	iface, err := net.InterfaceByName("balena0")
 	if err != nil {
-		c.Fatalf("Error getting docker0 interface: %v", err)
+		c.Fatalf("Error getting balena0 interface: %v", err)
 	}
 
 	addrs, err := iface.Addrs()
 	if err != nil {
-		c.Fatalf("Error getting addresses for docker0 interface: %v", err)
+		c.Fatalf("Error getting addresses for balena0 interface: %v", err)
 	}
 
 	var found bool
@@ -424,7 +424,7 @@ func (s *DockerDaemonSuite) TestDaemonIPv6FixedCIDR(c *testing.T) {
 	testRequires(c, testEnv.IsLocalDaemon)
 	// Delete the docker0 bridge if its left around from previous daemon. It has to be recreated with
 	// ipv6 enabled
-	deleteInterface(c, "docker0")
+	deleteInterface(c, "balena0")
 
 	s.d.StartWithBusybox(c, "--ipv6", "--fixed-cidr-v6=2001:db8:2::/64", "--default-gateway-v6=2001:db8:2::100")
 
@@ -451,7 +451,7 @@ func (s *DockerDaemonSuite) TestDaemonIPv6FixedCIDRAndMac(c *testing.T) {
 	testRequires(c, testEnv.IsLocalDaemon)
 	// Delete the docker0 bridge if its left around from previous daemon. It has to be recreated with
 	// ipv6 enabled
-	deleteInterface(c, "docker0")
+	deleteInterface(c, "balena0")
 
 	s.d.StartWithBusybox(c, "--ipv6", "--fixed-cidr-v6=2001:db8:1::/64")
 
@@ -473,7 +473,7 @@ func (s *DockerDaemonSuite) TestDaemonIPv6HostMode(c *testing.T) {
 	out, err := s.d.Cmd("run", "-d", "--name=hostcnt", "--network=host", "busybox:latest", "top")
 	assert.NilError(c, err, "Could not run container: %s, %v", out, err)
 
-	out, err = s.d.Cmd("exec", "hostcnt", "ip", "-6", "addr", "show", "docker0")
+	out, err = s.d.Cmd("exec", "hostcnt", "ip", "-6", "addr", "show", "balena0")
 	assert.NilError(c, err, out)
 	assert.Assert(c, strings.Contains(strings.Trim(out, " \r\n'"), "2001:db8:2::1"))
 }
@@ -559,11 +559,11 @@ func (s *DockerDaemonSuite) TestDaemonAllocatesListeningPort(c *testing.T) {
 
 func (s *DockerDaemonSuite) TestDaemonKeyGeneration(c *testing.T) {
 	// TODO: skip or update for Windows daemon
-	os.Remove("/etc/docker/key.json")
+	os.Remove("/etc/balena/key.json")
 	s.d.Start(c)
 	s.d.Stop(c)
 
-	k, err := libtrust.LoadKeyFile("/etc/docker/key.json")
+	k, err := libtrust.LoadKeyFile("/etc/balena/key.json")
 	if err != nil {
 		c.Fatalf("Error opening key file")
 	}
@@ -626,8 +626,8 @@ func (s *DockerDaemonSuite) TestDaemonBridgeNone(c *testing.T) {
 	d.StartWithBusybox(c, "--bridge", "none")
 	defer d.Restart(c)
 
-	// verify docker0 iface is not there
-	icmd.RunCommand("ifconfig", "docker0").Assert(c, icmd.Expected{
+	// verify balena0 iface is not there
+	icmd.RunCommand("ifconfig", "balena0").Assert(c, icmd.Expected{
 		ExitCode: 1,
 		Error:    "exit status 1",
 		Err:      "Device not found",
@@ -652,15 +652,15 @@ func deleteInterface(c *testing.T, ifName string) {
 
 func (s *DockerDaemonSuite) TestDaemonBridgeIP(c *testing.T) {
 	// TestDaemonBridgeIP Steps
-	// 1. Delete the existing docker0 Bridge
+	// 1. Delete the existing balena0 Bridge
 	// 2. Set --bip daemon configuration and start the new Docker Daemon
 	// 3. Check if the bip config has taken effect using ifconfig and iptables commands
 	// 4. Launch a Container and make sure the IP-Address is in the expected subnet
-	// 5. Delete the docker0 Bridge
+	// 5. Delete the balena0 Bridge
 	// 6. Restart the Docker Daemon (via deferred action)
-	//    This Restart takes care of bringing docker0 interface back to auto-assigned IP
+	//    This Restart takes care of bringing balena0 interface back to auto-assigned IP
 
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	deleteInterface(c, defaultNetworkBridge)
 
 	d := s.d
@@ -695,11 +695,11 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithBridgeIPChange(c *testing.T) {
 	defer s.d.Restart(c)
 	s.d.Stop(c)
 
-	// now we will change the docker0's IP and then try starting the daemon
+	// now we will change the balena0's IP and then try starting the daemon
 	bridgeIP := "192.169.100.1/24"
 	_, bridgeIPNet, _ := net.ParseCIDR(bridgeIP)
 
-	icmd.RunCommand("ifconfig", "docker0", bridgeIP).Assert(c, icmd.Success)
+	icmd.RunCommand("ifconfig", "balena0", bridgeIP).Assert(c, icmd.Success)
 
 	s.d.Start(c, "--bip", bridgeIP)
 
@@ -776,7 +776,7 @@ func (s *DockerDaemonSuite) TestDaemonBridgeFixedCIDREqualBridgeNetwork(c *testi
 }
 
 func (s *DockerDaemonSuite) TestDaemonDefaultGatewayIPv4Implicit(c *testing.T) {
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	deleteInterface(c, defaultNetworkBridge)
 
 	d := s.d
@@ -795,7 +795,7 @@ func (s *DockerDaemonSuite) TestDaemonDefaultGatewayIPv4Implicit(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestDaemonDefaultGatewayIPv4Explicit(c *testing.T) {
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	deleteInterface(c, defaultNetworkBridge)
 
 	d := s.d
@@ -815,7 +815,7 @@ func (s *DockerDaemonSuite) TestDaemonDefaultGatewayIPv4Explicit(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestDaemonDefaultGatewayIPv4ExplicitOutsideContainerSubnet(c *testing.T) {
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	deleteInterface(c, defaultNetworkBridge)
 
 	// Program a custom default gateway outside of the container subnet, daemon should accept it and start
@@ -829,13 +829,13 @@ func (s *DockerDaemonSuite) TestDaemonDefaultNetworkInvalidClusterConfig(c *test
 	c.Skip("swarm isn't supported")
 
 	// Start daemon without docker0 bridge
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	deleteInterface(c, defaultNetworkBridge)
 
 	discoveryBackend := "consul://consuladdr:consulport/some/path"
 	s.d.Start(c, fmt.Sprintf("--cluster-store=%s", discoveryBackend))
 
-	// Start daemon with docker0 bridge
+	// Start daemon with balena0 bridge
 	result := icmd.RunCommand("ifconfig", defaultNetworkBridge)
 	result.Assert(c, icmd.Success)
 
@@ -1196,12 +1196,12 @@ func (s *DockerDaemonSuite) TestDaemonWithWrongkey(c *testing.T) {
 		Y   string `json:"y"`
 	}
 
-	os.Remove("/etc/docker/key.json")
+	os.Remove("/etc/balena/key.json")
 	s.d.Start(c)
 	s.d.Stop(c)
 
 	config := &Config{}
-	bytes, err := ioutil.ReadFile("/etc/docker/key.json")
+	bytes, err := ioutil.ReadFile("/etc/balena/key.json")
 	if err != nil {
 		c.Fatalf("Error reading key.json file: %s", err)
 	}
@@ -1221,11 +1221,11 @@ func (s *DockerDaemonSuite) TestDaemonWithWrongkey(c *testing.T) {
 	}
 
 	// write back
-	if err := ioutil.WriteFile("/etc/docker/key.json", newBytes, 0400); err != nil {
+	if err := ioutil.WriteFile("/etc/balena/key.json", newBytes, 0400); err != nil {
 		c.Fatalf("Error ioutil.WriteFile: %s", err)
 	}
 
-	defer os.Remove("/etc/docker/key.json")
+	defer os.Remove("/etc/balena/key.json")
 
 	if err := s.d.StartWithError(); err == nil {
 		c.Fatalf("It should not be successful to start daemon with wrong key: %v", err)
@@ -1549,12 +1549,12 @@ func (s *DockerDaemonSuite) TestDaemonTLSVerifyIssue13964(c *testing.T) {
 
 func setupV6(c *testing.T) {
 	// Hack to get the right IPv6 address on docker0, which has already been created
-	result := icmd.RunCommand("ip", "addr", "add", "fe80::1/64", "dev", "docker0")
+	result := icmd.RunCommand("ip", "addr", "add", "fe80::1/64", "dev", "balena0")
 	result.Assert(c, icmd.Success)
 }
 
 func teardownV6(c *testing.T) {
-	result := icmd.RunCommand("ip", "addr", "del", "fe80::1/64", "dev", "docker0")
+	result := icmd.RunCommand("ip", "addr", "del", "fe80::1/64", "dev", "balena0")
 	result.Assert(c, icmd.Success)
 }
 
@@ -1746,7 +1746,7 @@ func (s *DockerDaemonSuite) TestDaemonStartWithDefaultTLSHost(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestBridgeIPIsExcludedFromAllocatorPool(c *testing.T) {
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	deleteInterface(c, defaultNetworkBridge)
 
 	bridgeIP := "192.169.1.1"
@@ -2630,12 +2630,12 @@ func (s *DockerDaemonSuite) TestDaemonRestartSaveContainerExitCode(c *testing.T)
 func (s *DockerDaemonSuite) TestDaemonWithUserlandProxyPath(c *testing.T) {
 	testRequires(c, testEnv.IsLocalDaemon, DaemonIsLinux)
 
-	dockerProxyPath, err := exec.LookPath("docker-proxy")
+	dockerProxyPath, err := exec.LookPath("balena-proxy")
 	assert.NilError(c, err)
-	tmpDir, err := ioutil.TempDir("", "test-docker-proxy")
+	tmpDir, err := ioutil.TempDir("", "test-balena-proxy")
 	assert.NilError(c, err)
 
-	newProxyPath := filepath.Join(tmpDir, "docker-proxy")
+	newProxyPath := filepath.Join(tmpDir, "balena-proxy")
 	cmd := exec.Command("cp", dockerProxyPath, newProxyPath)
 	assert.NilError(c, cmd.Run())
 
