@@ -196,6 +196,14 @@ func (n *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWr
 
 	nw, err := n.backend.CreateNetwork(create)
 	if err != nil {
+		if _, ok := err.(libnetwork.NetworkNameError); ok {
+			// check if user defined CheckDuplicate, if set true, return err
+			// otherwise prepare a warning message
+			if create.CheckDuplicate {
+				return nameConflict(create.Name)
+			}
+		}
+
 		return err
 	}
 
