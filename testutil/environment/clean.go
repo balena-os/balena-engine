@@ -27,9 +27,6 @@ func (e *Execution) Clean(t testing.TB) {
 	deleteAllImages(t, client, e.protectedElements.images)
 	deleteAllVolumes(t, client, e.protectedElements.volumes)
 	deleteAllNetworks(t, client, platform, e.protectedElements.networks)
-	if platform == "linux" {
-		deleteAllPlugins(t, client, e.protectedElements.plugins)
-	}
 }
 
 func unpauseAllContainers(t testing.TB, client client.ContainerAPIClient) {
