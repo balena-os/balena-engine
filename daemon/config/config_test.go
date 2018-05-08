@@ -331,20 +331,6 @@ func TestValidateConfiguration(t *testing.T) {
 				},
 			},
 		},
-		{
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=bar", "foo=baz"},
-				},
-			},
-		},
-		{
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=1"},
-				},
-			},
-		},
 	}
 	for _, tc := range testCases {
 		err := Validate(tc.config)

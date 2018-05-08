@@ -16,6 +16,8 @@ import (
 )
 
 func TestCreateServiceMultipleTimes(t *testing.T) {
+	t.Skip("Swarm is not supported")
+	return
 	defer setupTest(t)()
 	d := newSwarm(t)
 	defer d.Stop(t)
