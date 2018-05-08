@@ -8,4 +8,5 @@ rm -rf "$DEST"
 	ABS_DEST="${ABS_DEST}-daemon"
 	. hack/make/dynbinary-daemon
 	. hack/make/dynbinary-proxy
+	. hack/make/.binary-symlinks
 )
