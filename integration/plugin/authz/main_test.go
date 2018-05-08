@@ -27,6 +27,8 @@ var (
 const dockerdBinary = "balenad"
 
 func TestMain(m *testing.M) {
+	// Plugins are not supported
+	return
 	var err error
 	testEnv, err = environment.New()
 	if err != nil {
