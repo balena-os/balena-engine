@@ -1,8 +1,14 @@
 package daemon
 
 import (
+	"archive/tar"
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -16,10 +22,15 @@ import (
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/pkg/streamformatter"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
+	units "github.com/docker/go-units"
 	"github.com/opencontainers/selinux/go-selinux/label"
+	"github.com/resin-os/librsync-go"
 	"github.com/sirupsen/logrus"
 )
 
@@ -157,7 +168,7 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 	}
 
 	// Set RWLayer for container after mount labels have been set
-	if err := daemon.setRWLayer(container); err != nil {
+	if err := daemon.setRWLayer(container, params.HostConfig.Runtime); err != nil {
 		return nil, systemError{err}
 	}
 
@@ -253,7 +264,7 @@ func (daemon *Daemon) generateSecurityOpt(hostConfig *containertypes.HostConfig)
 	return nil, nil
 }
 
-func (daemon *Daemon) setRWLayer(container *container.Container) error {
+func (daemon *Daemon) setRWLayer(container *container.Container, runtime string) error {
 	var layerID layer.ChainID
 	if container.ImageID != "" {
 		img, err := daemon.stores[container.OS].imageStore.Get(container.ImageID)
@@ -263,9 +274,14 @@ func (daemon *Daemon) setRWLayer(container *container.Container) error {
 		layerID = img.RootFS.ChainID()
 	}
 
+	initFunc := daemon.getLayerInit()
+	if  runtime == "bare" {
+		initFunc = nil
+	}
+
 	rwLayerOpts := &layer.CreateRWLayerOpts{
 		MountLabel: container.MountLabel,
-		InitFunc:   daemon.getLayerInit(),
+		InitFunc:   initFunc,
 		StorageOpt: container.HostConfig.StorageOpt,
 	}
 
@@ -341,4 +357,205 @@ func verifyNetworkingConfig(nwConfig *networktypes.NetworkingConfig) error {
 		l = append(l, k)
 	}
 	return errors.Errorf("Container cannot be connected to network endpoints: %s", strings.Join(l, ", "))
+}
+
+// DeltaCreate creates a delta of the specified src and dest images
+// This is called directly from the Engine API
+func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Writer) error {
+	progressOutput := streamformatter.NewJSONProgressOutput(outStream, false)
+
+	srcImg, err := daemon.GetImage(deltaSrc)
+	if err != nil {
+		return errors.Wrapf(err, "no such image: %s", deltaSrc)
+	}
+
+	dstImg, err := daemon.GetImage(deltaDest)
+	if err != nil {
+		return errors.Wrapf(err, "no such image: %s", deltaDest)
+	}
+
+	is := daemon.stores[dstImg.OperatingSystem()].imageStore
+	ls := daemon.stores[dstImg.OperatingSystem()].layerStore
+
+	srcData, err := is.GetTarSeekStream(srcImg.ID())
+	if err != nil {
+		return err
+	}
+	defer srcData.Close()
+
+	srcDataLen, err := ioutils.SeekerSize(srcData)
+	if err != nil {
+		return err
+	}
+
+	progressReader := progress.NewProgressReader(srcData, progressOutput, srcDataLen, deltaSrc, "Fingerprinting")
+	defer progressReader.Close()
+
+	srcSig, err := librsync.Signature(bufio.NewReaderSize(progressReader, 65536), ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
+	if err != nil {
+		return err
+	}
+
+	progress.Update(progressOutput, deltaSrc, "Fingerprint complete")
+
+	deltaRootFS := image.NewRootFS()
+
+	for _, diffID := range dstImg.RootFS.DiffIDs {
+		progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Waiting")
+	}
+
+	statTotalSize := int64(0)
+	statDeltaSize := int64(0)
+
+	for i, diffID := range dstImg.RootFS.DiffIDs {
+		var (
+			layerData io.Reader
+			platform layer.OS
+		)
+		commonLayer := false
+
+		// We're only interested in layers that are different. Push empty
+		// layers for common layers
+		if i < len(srcImg.RootFS.DiffIDs) && srcImg.RootFS.DiffIDs[i] == diffID {
+			commonLayer = true
+			layerData, _ = layer.EmptyLayer.TarStream()
+			platform = layer.EmptyLayer.OS()
+		} else {
+			dstRootFS := *dstImg.RootFS
+			dstRootFS.DiffIDs = dstRootFS.DiffIDs[:i+1]
+
+			l, err := ls.Get(dstRootFS.ChainID())
+			if err != nil {
+				return err
+			}
+			defer layer.ReleaseAndLog(ls, l)
+
+			platform = l.OS()
+
+			input, err := l.TarStream()
+			if err != nil {
+				return err
+			}
+			defer input.Close()
+
+			inputSize, err := l.DiffSize()
+			if err != nil {
+				return err
+			}
+
+			statTotalSize += inputSize
+
+			progressReader := progress.NewProgressReader(input, progressOutput, inputSize, stringid.TruncateID(diffID.String()), "Computing delta")
+			defer progressReader.Close()
+
+			pR, pW := io.Pipe()
+
+			layerData = pR
+
+			tmpDelta, err := ioutil.TempFile("", "docker-delta-")
+			if err != nil {
+				return err
+			}
+			defer os.Remove(tmpDelta.Name())
+
+			go func() {
+				w := bufio.NewWriter(tmpDelta)
+				err := librsync.Delta(srcSig, bufio.NewReader(progressReader), w)
+				if err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+				w.Flush()
+
+				info, err := tmpDelta.Stat()
+				if err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				tw := tar.NewWriter(pW)
+
+				hdr := &tar.Header{
+					Name: "delta",
+					Mode: 0600,
+					Size: info.Size(),
+				}
+
+				if err := tw.WriteHeader(hdr); err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				if _, err := tmpDelta.Seek(0, io.SeekStart); err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				if _, err := io.Copy(tw, tmpDelta); err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				if err := tw.Close(); err != nil {
+					pW.CloseWithError(err)
+					return
+				}
+
+				pW.Close()
+			}()
+		}
+
+		newLayer, err := ls.Register(layerData, deltaRootFS.ChainID(), platform)
+		if err != nil {
+			return err
+		}
+		defer layer.ReleaseAndLog(ls, newLayer)
+
+		if commonLayer {
+			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Skipping common layer")
+		} else {
+			deltaSize, err := newLayer.DiffSize()
+			if err != nil {
+				return err
+			}
+			statDeltaSize += deltaSize
+			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Delta complete")
+		}
+
+		deltaRootFS.Append(newLayer.DiffID())
+	}
+
+	config := image.Image{
+		RootFS: deltaRootFS,
+		V1Image: image.V1Image{
+			Created: time.Now().UTC(),
+			Config: &containertypes.Config{
+				Labels: map[string]string{
+					"io.resin.delta.base": srcImg.ID().String(),
+					"io.resin.delta.config": string(dstImg.RawJSON()),
+				},
+			},
+		},
+	}
+
+	rawConfig, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	id, err := is.Create(rawConfig)
+	if err != nil {
+		return err
+	}
+
+	humanTotal := units.HumanSize(float64(statTotalSize))
+	humanDelta := units.HumanSize(float64(statDeltaSize))
+	deltaRatio := float64(statTotalSize) / float64(statDeltaSize)
+	if statTotalSize == 0 {
+		deltaRatio = 1
+	}
+
+	outStream.Write(streamformatter.FormatStatus("", "Normal size: %s, Delta size: %s, %.2fx improvement", humanTotal, humanDelta, deltaRatio))
+	outStream.Write(streamformatter.FormatStatus("", "Created delta: %s", id.String()))
+	return nil
 }

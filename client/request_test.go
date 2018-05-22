@@ -22,9 +22,9 @@ func TestSetHostHeader(t *testing.T) {
 		expectedURLHost string
 	}{
 		{
-			"unix:///var/run/docker.sock",
+			"unix:///var/run/balena.sock",
 			"docker",
-			"/var/run/docker.sock",
+			"/var/run/balena.sock",
 		},
 		{
 			"npipe:////./pipe/docker_engine",

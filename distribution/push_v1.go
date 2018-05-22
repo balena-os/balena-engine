@@ -209,6 +209,7 @@ func (p *v1Pusher) imageListForTag(imgID image.ID, dependenciesSeen map[layer.Ch
 	}
 
 	topLayerID := img.RootFS.ChainID()
+	topLayer := layer.Layer(layer.EmptyLayer)
 
 	pl, err := p.config.LayerStore.Get(topLayerID)
 	*referencedLayers = append(*referencedLayers, pl)
@@ -223,9 +224,14 @@ func (p *v1Pusher) imageListForTag(imgID image.ID, dependenciesSeen map[layer.Ch
 	}
 	l := lsl.Layer
 
-	dependencyImages, parent := generateDependencyImages(l.Parent(), dependenciesSeen)
+	if l.DiffID() == layer.EmptyLayer.DiffID() {
+		topLayer = l
+		l = l.Parent()
+	}
 
-	topImage, err := newV1TopImage(imgID, img, l, parent)
+	dependencyImages, parent := generateDependencyImages(l, dependenciesSeen)
+
+	topImage, err := newV1TopImage(imgID, img, topLayer, parent)
 	if err != nil {
 		return nil, err
 	}

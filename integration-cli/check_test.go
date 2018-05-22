@@ -33,10 +33,10 @@ const (
 	privateRegistryURL = "127.0.0.1:5000"
 
 	// path to containerd's ctr binary
-	ctrBinary = "docker-containerd-ctr"
+	ctrBinary = "balena-containerd-ctr"
 
 	// the docker daemon binary to use
-	dockerdBinary = "dockerd"
+	dockerdBinary = "balenad"
 )
 
 var (
@@ -303,9 +303,6 @@ func (s *DockerDaemonSuite) TearDownSuite(c *check.C) {
 const defaultSwarmPort = 2477
 
 func init() {
-	check.Suite(&DockerSwarmSuite{
-		ds: &DockerSuite{},
-	})
 }
 
 type DockerSwarmSuite struct {
@@ -422,15 +419,6 @@ func (s *DockerTrustSuite) TearDownTest(c *check.C) {
 }
 
 func init() {
-	ds := &DockerSuite{}
-	check.Suite(&DockerTrustedSwarmSuite{
-		trustSuite: DockerTrustSuite{
-			ds: ds,
-		},
-		swarmSuite: DockerSwarmSuite{
-			ds: ds,
-		},
-	})
 }
 
 type DockerTrustedSwarmSuite struct {

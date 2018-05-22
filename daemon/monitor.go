@@ -43,6 +43,8 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
 		c.Lock()
 		defer c.Unlock()
 		daemon.updateHealthMonitor(c)
+		c.Lock()
+		defer c.Unlock()
 		if err := c.CheckpointTo(daemon.containersReplica); err != nil {
 			return err
 		}
@@ -59,12 +61,17 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
 			c.StreamConfig.Wait()
 			c.Reset(false)
 
+			var health types.Health
+			if c.Health != nil {
+				health = c.Health.Health
+			}
+
 			exitStatus := container.ExitStatus{
 				ExitCode:  int(ei.ExitCode),
 				ExitedAt:  ei.ExitedAt,
 				OOMKilled: ei.OOMKilled,
 			}
-			restart, wait, err := c.RestartManager().ShouldRestart(ei.ExitCode, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt))
+			restart, wait, err := c.RestartManager().ShouldRestart(ei.ExitCode, daemon.IsShuttingDown() || c.HasBeenManuallyStopped, time.Since(c.StartedAt), health)
 			if err == nil && restart {
 				c.RestartCount++
 				c.SetRestarting(&exitStatus)

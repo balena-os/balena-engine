@@ -288,6 +288,8 @@ func (s *DockerSuite) TestEventsImageLoad(c *check.C) {
 }
 
 func (s *DockerSuite) TestEventsPluginOps(c *check.C) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 
 	since := daemonUnixTime(c)

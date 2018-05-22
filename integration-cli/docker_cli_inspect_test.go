@@ -421,6 +421,8 @@ func (s *DockerSuite) TestInspectAmpersand(c *check.C) {
 }
 
 func (s *DockerSuite) TestInspectPlugin(c *check.C) {
+	c.Skip("Plugin isn't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 	_, _, err := dockerCmdWithError("plugin", "install", "--grant-all-permissions", pNameWithTag)
 	c.Assert(err, checker.IsNil)

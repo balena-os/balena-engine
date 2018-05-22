@@ -10,7 +10,7 @@ import (
 
 var testEnv *environment.Execution
 
-const dockerdBinary = "dockerd"
+const dockerdBinary = "balenad"
 
 func TestMain(m *testing.M) {
 	var err error

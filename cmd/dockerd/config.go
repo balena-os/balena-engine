@@ -1,4 +1,4 @@
-package main
+package dockerd
 
 import (
 	"runtime"
@@ -23,10 +23,11 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
 	installRegistryServiceFlags(&conf.ServiceOptions, flags)
 
 	flags.Var(opts.NewNamedListOptsRef("storage-opts", &conf.GraphOptions, nil), "storage-opt", "Storage driver options")
+	flags.Var(opts.NewNamedListOptsRef("delta-storage-opts", &conf.DeltaGraphOptions, nil), "delta-storage-opt", "Delta torage driver options")
 	flags.Var(opts.NewNamedListOptsRef("authorization-plugins", &conf.AuthorizationPlugins, nil), "authorization-plugin", "Authorization plugins to load")
 	flags.Var(opts.NewNamedListOptsRef("exec-opts", &conf.ExecOptions, nil), "exec-opt", "Runtime execution options")
 	flags.StringVarP(&conf.Pidfile, "pidfile", "p", defaultPidFile, "Path to use for daemon PID file")
-	flags.StringVarP(&conf.Root, "graph", "g", defaultDataRoot, "Root of the Docker runtime")
+	flags.StringVarP(&conf.Root, "graph", "g", defaultDataRoot, "Root of the balena runtime")
 	flags.StringVar(&conf.ExecRoot, "exec-root", defaultExecRoot, "Root directory for execution state files")
 	flags.StringVar(&conf.ContainerdAddr, "containerd", "", "containerd grpc address")
 
@@ -34,14 +35,16 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
 	// before Docker 1.0, so won't be removed, only hidden, to discourage its usage.
 	flags.MarkHidden("graph")
 
-	flags.StringVar(&conf.Root, "data-root", defaultDataRoot, "Root directory of persistent Docker state")
+	flags.StringVar(&conf.Root, "data-root", defaultDataRoot, "Root directory of persistent balena state")
+	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only balena state used for deltas")
 
-	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on docker run")
-	flags.MarkDeprecated("restart", "Please use a restart policy on docker run")
+	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on balena run")
+	flags.MarkDeprecated("restart", "Please use a restart policy on balena run")
 
 	// Windows doesn't support setting the storage driver - there is no choice as to which ones to use.
 	if runtime.GOOS != "windows" {
 		flags.StringVarP(&conf.GraphDriver, "storage-driver", "s", "", "Storage driver to use")
+		flags.StringVar(&conf.DeltaGraphDriver, "delta-storage-driver", "", "Storage driver to use")
 	}
 
 	flags.IntVar(&conf.Mtu, "mtu", 0, "Set the containers network MTU")

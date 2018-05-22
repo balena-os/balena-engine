@@ -20,6 +20,8 @@ import (
 )
 
 func TestInspect(t *testing.T) {
+	t.Skip("Swarm is not supported")
+	return
 	skip.IfCondition(t, !testEnv.IsLocalDaemon())
 	defer setupTest(t)()
 	d := newSwarm(t)

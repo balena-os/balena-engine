@@ -8,8 +8,8 @@ binary_extension() {
 	fi
 }
 
-GO_PACKAGE='github.com/docker/docker/cmd/dockerd'
-BINARY_SHORT_NAME='dockerd'
+GO_PACKAGE=${GO_PACKAGE:-github.com/docker/docker/cmd/dockerd}
+BINARY_SHORT_NAME=${BINARY_SHORT_NAME:-balenad}
 BINARY_NAME="$BINARY_SHORT_NAME-$VERSION"
 BINARY_EXTENSION="$(binary_extension)"
 BINARY_FULLNAME="$BINARY_NAME$BINARY_EXTENSION"
@@ -50,6 +50,9 @@ if [ "$(go env GOOS)/$(go env GOARCH)" != "$(go env GOHOSTOS)/$(go env GOHOSTARC
 	esac
 fi
 
+COMMIT_RUNC="$RUNC_COMMIT"
+VERSION_RUNC="1.0.0-rc4+dev"
+
 echo "Building: $DEST/$BINARY_FULLNAME"
 go build \
 	-o "$DEST/$BINARY_FULLNAME" \
@@ -58,6 +61,8 @@ go build \
 		$LDFLAGS
 		$LDFLAGS_STATIC_DOCKER
 		$DOCKER_LDFLAGS
+        -X github.com/docker/docker/vendor/github.com/opencontainers/runc.gitCommit=${COMMIT_RUNC}
+        -X github.com/docker/docker/vendor/github.com/opencontainers/runc.version=${VERSION_RUNC}
 	" \
 	$GO_PACKAGE
 )

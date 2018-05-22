@@ -25,6 +25,29 @@ func NewReadCloserWrapper(r io.Reader, closer func() error) io.ReadCloser {
 	}
 }
 
+// ReadSeekCloser combines io.ReadSeeker with io.Closer.
+type ReadSeekCloser interface {
+    io.ReadSeeker
+    io.Closer
+}
+
+type readSeekCloserWrapper struct {
+	io.ReadSeeker
+	closer func() error
+}
+
+func (r *readSeekCloserWrapper) Close() error {
+	return r.closer()
+}
+
+// NewReadCloserWrapper returns a new io.ReadCloser.
+func NewReadSeekCloserWrapper(r io.ReadSeeker, closer func() error) ReadSeekCloser {
+	return &readSeekCloserWrapper{
+		ReadSeeker: r,
+		closer: closer,
+	}
+}
+
 type readerErrWrapper struct {
 	reader io.Reader
 	closer func()
@@ -151,4 +174,24 @@ func (p *cancelReadCloser) closeWithError(err error) {
 func (p *cancelReadCloser) Close() error {
 	p.closeWithError(io.EOF)
 	return nil
+}
+
+type teeReadCloser struct {
+	rc io.ReadCloser
+	r  io.Reader
+}
+
+// TeeReadCloser returns a ReadCloser that writes to w what it reads from rc.
+// It utilizes io.TeeReader to copy the data read and has the same behavior when reading.
+// Further, when it is closed, it ensures that rc is closed as well.
+func TeeReadCloser(rc io.ReadCloser, w io.Writer) io.ReadCloser {
+	return &teeReadCloser{rc, io.TeeReader(rc, w)}
+}
+
+func (t *teeReadCloser) Read(p []byte) (int, error) {
+	return t.r.Read(p)
+}
+
+func (t *teeReadCloser) Close() error {
+	return t.rc.Close()
 }

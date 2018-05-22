@@ -153,10 +153,10 @@ RUN git clone https://github.com/go-swagger/go-swagger.git /go/src/github.com/go
 RUN git config --global user.email 'docker-dummy@example.com'
 
 # Add an unprivileged user to be used for tests which need it
-RUN groupadd -r docker
-RUN useradd --create-home --gid docker unprivilegeduser
+RUN groupadd -r balena
+RUN useradd --create-home --gid balena unprivilegeduser
 
-VOLUME /var/lib/docker
+VOLUME /var/lib/balena
 WORKDIR /go/src/github.com/docker/docker
 ENV DOCKER_BUILDTAGS apparmor seccomp selinux
 
@@ -178,7 +178,7 @@ RUN ./contrib/download-frozen-image-v2.sh /docker-frozen-images \
 # Please edit hack/dockerfile/install-binaries.sh to update them.
 COPY hack/dockerfile/binaries-commits /tmp/binaries-commits
 COPY hack/dockerfile/install-binaries.sh /tmp/install-binaries.sh
-RUN /tmp/install-binaries.sh tomlv vndr runc containerd tini proxy dockercli gometalinter
+RUN /tmp/install-binaries.sh tomlv vndr tini gometalinter
 ENV PATH=/usr/local/cli:$PATH
 
 # Activate bash completion and include Docker's completion if mounted with DOCKER_BASH_COMPLETION_PATH

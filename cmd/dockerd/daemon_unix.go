@@ -1,6 +1,6 @@
 // +build !windows
 
-package main
+package dockerd
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const defaultDaemonConfigFile = "/etc/docker/daemon.json"
+const defaultDaemonConfigFile = "/etc/balena/daemon.json"
 
 // setDefaultUmask sets the umask to 0022 to avoid problems
 // caused by custom umask
@@ -33,7 +33,7 @@ func setDefaultUmask() error {
 }
 
 func getDaemonConfDir(_ string) string {
-	return "/etc/docker"
+	return "/etc/balena"
 }
 
 func (cli *DaemonCli) getPlatformRemoteOptions() ([]libcontainerd.RemoteOption, error) {

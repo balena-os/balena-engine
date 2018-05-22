@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/cio"
+	dockertypes "github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
 	mounttypes "github.com/docker/docker/api/types/mount"
 	networktypes "github.com/docker/docker/api/types/network"
@@ -44,7 +45,6 @@ import (
 	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/options"
 	"github.com/docker/libnetwork/types"
-	agentexec "github.com/docker/swarmkit/agent/exec"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
@@ -98,7 +98,7 @@ type Container struct {
 	MountPoints            map[string]*volume.MountPoint
 	HostConfig             *containertypes.HostConfig `json:"-"` // do not serialize the host config in the json, otherwise we'll make the container unportable
 	ExecCommands           *exec.Store                `json:"-"`
-	DependencyStore        agentexec.DependencyGetter `json:"-"`
+	DependencyStore        interface{}                `json:"-"`
 	SecretReferences       []*swarmtypes.SecretReference
 	ConfigReferences       []*swarmtypes.ConfigReference
 	// logDriver for closing
@@ -153,6 +153,10 @@ func (container *Container) FromDisk() error {
 	// Load container settings
 	if err := dec.Decode(container); err != nil {
 		return err
+	}
+
+	if container.Config == nil {
+		return fmt.Errorf("Invalid container config.json, missing Config property")
 	}
 
 	// Ensure the operating system is set if blank. Assume it is the OS of the
@@ -383,7 +387,7 @@ func (container *Container) StartLogger() (logger.Logger, error) {
 		ContainerCreated:    container.Created,
 		ContainerEnv:        container.Config.Env,
 		ContainerLabels:     container.Config.Labels,
-		DaemonName:          "docker",
+		DaemonName:          "balena",
 	}
 
 	// Set logging file for "json-logger"
@@ -436,7 +440,12 @@ func (container *Container) GetExecIDs() []string {
 // ShouldRestart decides whether the daemon should restart the container or not.
 // This is based on the container's restart policy.
 func (container *Container) ShouldRestart() bool {
-	shouldRestart, _, _ := container.RestartManager().ShouldRestart(uint32(container.ExitCode()), container.HasBeenManuallyStopped, container.FinishedAt.Sub(container.StartedAt))
+	var health dockertypes.Health
+	if container.Health != nil {
+		health = container.Health.Health
+	}
+
+	shouldRestart, _, _ := container.RestartManager().ShouldRestart(uint32(container.ExitCode()), container.HasBeenManuallyStopped, container.FinishedAt.Sub(container.StartedAt), health)
 	return shouldRestart
 }
 

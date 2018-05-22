@@ -209,7 +209,7 @@ func (s *DockerSuite) TestExecStateCleanup(c *check.C) {
 	cid, _ := dockerCmd(c, "run", "-d", "-t", "--name", name, "busybox", "/bin/sh")
 	cid = strings.TrimSpace(cid)
 
-	stateDir := "/var/run/docker/containerd/" + cid
+	stateDir := "/var/run/balena/containerd/" + cid
 
 	checkReadDir := func(c *check.C) (interface{}, check.CommentInterface) {
 		fi, err := ioutil.ReadDir(stateDir)

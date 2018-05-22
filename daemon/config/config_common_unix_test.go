@@ -72,7 +72,7 @@ func TestCommonUnixGetInitPath(t *testing.T) {
 		},
 		{
 			config:           &Config{},
-			expectedInitPath: "docker-init",
+			expectedInitPath: "balena-init",
 		},
 	}
 	for _, tc := range testCases {

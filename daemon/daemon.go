@@ -62,8 +62,8 @@ import (
 	"github.com/pkg/errors"
 )
 
-// MainNamespace is the name of the namespace used for users containers
-const MainNamespace = "moby"
+// ContainersNamespace is the name of the namespace used for users containers
+const ContainersNamespace = "moby"
 
 var (
 	errSystemNotSupported = errors.New("the Docker daemon is not supported on this platform")
@@ -104,6 +104,7 @@ type Daemon struct {
 	stores                map[string]daemonStore // By container target platform
 	referenceStore        refstore.Store
 	PluginStore           *plugin.Store // todo: remove
+	deltaStore            *daemonStore
 	pluginManager         *plugin.Manager
 	linkIndex             *linkIndex
 	containerd            libcontainerd.Client
@@ -247,6 +248,11 @@ func (daemon *Daemon) restore() error {
 					logrus.WithError(err).Errorf("Failed to delete container %s from containerd", c.ID)
 					return
 				}
+			} else if !daemon.configStore.LiveRestoreEnabled {
+				if err := daemon.kill(c, c.StopSignal()); err != nil && !errdefs.IsNotFound(err) {
+					logrus.WithError(err).WithField("container", c.ID).Error("error shutting down container")
+					return
+				}
 			}
 
 			if c.IsRunning() || c.IsPaused() {
@@ -317,24 +323,24 @@ func (daemon *Daemon) restore() error {
 					activeSandboxes[c.NetworkSettings.SandboxID] = options
 					mapLock.Unlock()
 				}
-			} else {
-				// get list of containers we need to restart
+			}
 
-				// Do not autostart containers which
-				// has endpoints in a swarm scope
-				// network yet since the cluster is
-				// not initialized yet. We will start
-				// it after the cluster is
-				// initialized.
-				if daemon.configStore.AutoRestart && c.ShouldRestart() && !c.NetworkSettings.HasSwarmEndpoint {
-					mapLock.Lock()
-					restartContainers[c] = make(chan struct{})
-					mapLock.Unlock()
-				} else if c.HostConfig != nil && c.HostConfig.AutoRemove {
-					mapLock.Lock()
-					removeContainers[c.ID] = c
-					mapLock.Unlock()
-				}
+			// get list of containers we need to restart
+
+			// Do not autostart containers which
+			// has endpoints in a swarm scope
+			// network yet since the cluster is
+			// not initialized yet. We will start
+			// it after the cluster is
+			// initialized.
+			if daemon.configStore.AutoRestart && c.ShouldRestart() && !c.NetworkSettings.HasSwarmEndpoint {
+				mapLock.Lock()
+				restartContainers[c] = make(chan struct{})
+				mapLock.Unlock()
+			} else if c.HostConfig != nil && c.HostConfig.AutoRemove {
+				mapLock.Lock()
+				removeContainers[c.ID] = c
+				mapLock.Unlock()
 			}
 
 			c.Lock()
@@ -365,9 +371,11 @@ func (daemon *Daemon) restore() error {
 
 	// Now that all the containers are registered, register the links
 	for _, c := range containers {
+		c.Lock()
 		if err := daemon.registerLinks(c, c.HostConfig); err != nil {
 			logrus.Errorf("failed to register link for container %s: %v", c.ID, err)
 		}
+		c.Unlock()
 	}
 
 	group := sync.WaitGroup{}
@@ -766,6 +774,42 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 		graphDrivers = append(graphDrivers, ls.DriverName())
 	}
 
+	if config.DeltaRoot != "" && config.DeltaGraphDriver != "" {
+		ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
+			StorePath:                 config.DeltaRoot,
+			MetadataStorePathTemplate: filepath.Join(config.DeltaRoot, "image", "%s", "layerdb"),
+			GraphDriver:               config.DeltaGraphDriver,
+			GraphDriverOptions:        config.DeltaGraphOptions,
+			IDMappings:                idMappings,
+			PluginGetter:              nil,
+			ExperimentalEnabled:       false,
+			OS:                        runtime.GOOS,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		imageRoot := filepath.Join(config.DeltaRoot, "image", ls.DriverName())
+		ifs, err := image.NewFSStoreBackend(filepath.Join(imageRoot, "imagedb"))
+		if err != nil {
+			return nil, err
+		}
+
+		var is image.Store
+		is, err = image.NewImageStore(ifs, runtime.GOOS, ls)
+		if err != nil {
+			return nil, err
+		}
+
+		d.deltaStore = &daemonStore{
+			graphDriver: ls.DriverName(),
+			imageRoot: imageRoot,
+			imageStore: is,
+			layerStore: ls,
+		}
+		graphDrivers = append(graphDrivers, ls.DriverName())
+	}
+
 	// Configure and validate the kernels security support
 	if err := configureKernelSecuritySupport(config, graphDrivers); err != nil {
 		return nil, err
@@ -890,7 +934,7 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 
 	go d.execCommandGC()
 
-	d.containerd, err = containerdRemote.NewClient(MainNamespace, d)
+	d.containerd, err = containerdRemote.NewClient(ContainersNamespace, d)
 	if err != nil {
 		return nil, err
 	}

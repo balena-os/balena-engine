@@ -20,7 +20,7 @@ RUNC_BUILDTAGS="${RUNC_BUILDTAGS:-"seccomp apparmor selinux"}"
 
 install_runc() {
 	echo "Install runc version $RUNC_COMMIT"
-	git clone https://github.com/opencontainers/runc.git "$GOPATH/src/github.com/opencontainers/runc"
+	git clone https://github.com/resin-os/runc.git "$GOPATH/src/github.com/opencontainers/runc"
 	cd "$GOPATH/src/github.com/opencontainers/runc"
 	git checkout -q "$RUNC_COMMIT"
 	make BUILDTAGS="$RUNC_BUILDTAGS" $1
@@ -138,7 +138,7 @@ do
 			git checkout -q "$TINI_COMMIT"
 			cmake .
 			make tini-static
-			cp tini-static /usr/local/bin/docker-init
+			cp tini-static /usr/local/bin/balena-init
 			;;
 
 		proxy)

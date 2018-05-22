@@ -3,23 +3,20 @@ package system
 import (
 	"github.com/docker/docker/api/server/router"
 	"github.com/docker/docker/builder/fscache"
-	"github.com/docker/docker/daemon/cluster"
 )
 
 // systemRouter provides information about the Docker system overall.
 // It gathers information about host, daemon and container events.
 type systemRouter struct {
 	backend Backend
-	cluster *cluster.Cluster
 	routes  []router.Route
 	builder *fscache.FSCache
 }
 
 // NewRouter initializes a new system router
-func NewRouter(b Backend, c *cluster.Cluster, fscache *fscache.FSCache) router.Router {
+func NewRouter(b Backend, fscache *fscache.FSCache) router.Router {
 	r := &systemRouter{
 		backend: b,
-		cluster: c,
 		builder: fscache,
 	}
 

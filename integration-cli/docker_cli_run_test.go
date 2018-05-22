@@ -2032,7 +2032,7 @@ func (s *DockerSuite) TestRunDeallocatePortOnMissingIptablesRule(c *check.C) {
 	id := strings.TrimSpace(out)
 	ip := inspectField(c, id, "NetworkSettings.Networks.bridge.IPAddress")
 	icmd.RunCommand("iptables", "-D", "DOCKER", "-d", fmt.Sprintf("%s/32", ip),
-		"!", "-i", "docker0", "-o", "docker0", "-p", "tcp", "-m", "tcp", "--dport", "23", "-j", "ACCEPT").Assert(c, icmd.Success)
+		"!", "-i", "balena0", "-o", "balena0", "-p", "tcp", "-m", "tcp", "--dport", "23", "-j", "ACCEPT").Assert(c, icmd.Success)
 
 	cli.DockerCmd(c, "rm", "-fv", id)
 
@@ -4238,6 +4238,8 @@ func (s *DockerDaemonSuite) TestRunWithUlimitAndDaemonDefault(c *check.C) {
 }
 
 func (s *DockerSuite) TestRunStoppedLoggingDriverNoLeak(c *check.C) {
+	c.Skip("Splunk log-driver isn't supported")
+
 	nroutines, err := getGoroutineNumber()
 	c.Assert(err, checker.IsNil)
 
