@@ -18,6 +18,9 @@ case "$(go env GOARCH)" in
 esac
 
 version=$(git describe --tags --always)
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+	version="$version-unsupported"
+fi
 
 AUTO_GOPATH=1 GOMAXPROCS=1 DOCKER_LDFLAGS="-s" ./hack/make.sh binary-balena
 
