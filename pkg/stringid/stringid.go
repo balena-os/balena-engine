@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"math"
-	"math/big"
 	"math/rand"
 	"regexp"
 	"strconv"
@@ -79,17 +77,7 @@ func ValidateID(id string) error {
 }
 
 func init() {
-	// safely set the seed globally so we generate random ids. Tries to use a
-	// crypto seed before falling back to time.
-	var seed int64
-	if cryptoseed, err := cryptorand.Int(cryptorand.Reader, big.NewInt(math.MaxInt64)); err != nil {
-		// This should not happen, but worst-case fallback to time-based seed.
-		seed = time.Now().UnixNano()
-	} else {
-		seed = cryptoseed.Int64()
-	}
-
-	rand.Seed(seed)
+	rand.Seed(time.Now().UnixNano())
 }
 
 type readerFunc func(p []byte) (int, error)
