@@ -6,9 +6,151 @@ import (
 	"strings"
 	"testing"
 
+	registrytypes "github.com/docker/docker/api/types/registry"
 	"gotest.tools/assert"
 	is "gotest.tools/assert/cmp"
 )
+
+func TestLoadValidRegistries(t *testing.T) {
+	var (
+		secReg   registrytypes.Registry
+		insecReg registrytypes.Registry
+		config   *serviceConfig
+		err      error
+	)
+	// secure with mirrors
+	secReg, err = registrytypes.NewRegistry("https://secure.registry.com")
+	secMirrors := []string{"https://secure.mirror1.com", "https://secure.mirror2.com"}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := secReg.AddMirror(secMirrors[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := secReg.AddMirror(secMirrors[1]); err != nil {
+		t.Fatal(err)
+	}
+
+	// insecure without mirrors
+	insecReg, err = registrytypes.NewRegistry("http://insecure.registry.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// docker.io mirrors to test backwards compatibility
+	officialMirrors := []string{"https://official.mirror1.com", "https://official.mirror2.com"}
+
+	// create serciveConfig
+	config, err = newServiceConfig(
+		ServiceOptions{
+			Mirrors:    officialMirrors,
+			Registries: []registrytypes.Registry{secReg, insecReg},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// now test if the config looks as expected
+	getMirrors := func(reg registrytypes.Registry) []string {
+		mirrors := []string{}
+		for _, mir := range reg.Mirrors {
+			mirrors = append(mirrors, mir.URL.String())
+		}
+		return mirrors
+	}
+
+	if reg, loaded := config.Registries["secure.registry.com"]; !loaded {
+		t.Fatalf("registry not loaded")
+	} else {
+		assert.Equal(t, true, reg.URL.IsSecure())
+		assert.Equal(t, false, reg.URL.IsOfficial())
+		mirrors := getMirrors(reg)
+		assert.Equal(t, len(secMirrors), len(mirrors))
+		sort.Strings(mirrors)
+		sort.Strings(secMirrors)
+		assert.Equal(t, secMirrors[0], mirrors[0])
+		assert.Equal(t, secMirrors[1], mirrors[1])
+	}
+
+	if reg, loaded := config.Registries["insecure.registry.com"]; !loaded {
+		t.Fatalf("registry not loaded")
+	} else {
+		assert.Equal(t, false, reg.URL.IsSecure())
+		assert.Equal(t, false, reg.URL.IsOfficial())
+		mirrors := getMirrors(reg)
+		assert.Equal(t, 0, len(mirrors))
+	}
+
+	// backwards compatibility: "docker.io" will be loaded due to the config.Mirrors
+	if reg, loaded := config.Registries["docker.io"]; !loaded {
+		t.Fatalf("registry not loaded")
+	} else {
+		assert.Equal(t, true, reg.URL.IsSecure())
+		assert.Equal(t, true, reg.URL.IsOfficial())
+		mirrors := getMirrors(reg)
+		assert.Equal(t, len(officialMirrors), len(mirrors))
+		sort.Strings(mirrors)
+		sort.Strings(officialMirrors)
+		// append '/' (see ValidateMirror())
+		assert.Equal(t, officialMirrors[0]+"/", mirrors[0])
+		assert.Equal(t, officialMirrors[1]+"/", mirrors[1])
+	}
+}
+
+//func TestLoadInvalidRegistries(t *testing.T) {
+// XXX: this has to be tested manually as the v17.09.X doesn't have a proper
+//	error handling for service configs (errors are silently ignored), so
+//	the backported patch panics() instead.
+//}
+
+func TestFindRegistry(t *testing.T) {
+	var (
+		regA   registrytypes.Registry
+		regB   registrytypes.Registry
+		config *serviceConfig
+		err    error
+	)
+
+	regA, err = registrytypes.NewRegistry("https://registry-a.com/my-prefix")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	regB, err = registrytypes.NewRegistry("http://registry-b.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// create serciveConfig
+	config, err = newServiceConfig(
+		ServiceOptions{
+			Registries: []registrytypes.Registry{regA, regB},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// no match -> nil
+	reg := config.FindRegistry("foo")
+	assert.Assert(t, is.Nil(reg))
+
+	// prefix match -> registry
+	reg = config.FindRegistry("registry-a.com/my-prefix/image:latest")
+	assert.Assert(t, reg != nil)
+	assert.Equal(t, "registry-a.com", reg.URL.Host())
+	// no prefix match -> nil
+	reg = config.FindRegistry("registry-a.com/not-my-prefix/image:42")
+	assert.Assert(t, is.Nil(reg))
+
+	// prefix match -> registry
+	reg = config.FindRegistry("registry-b.com/image:latest")
+	assert.Assert(t, reg != nil)
+	assert.Equal(t, "registry-b.com", reg.URL.Host())
+	// prefix match -> registry
+	reg = config.FindRegistry("registry-b.com/also-in-namespaces/image:latest")
+	assert.Assert(t, reg != nil)
+	assert.Equal(t, "registry-b.com", reg.URL.Host())
+}
 
 func TestLoadAllowNondistributableArtifacts(t *testing.T) {
 	testCases := []struct {
@@ -353,7 +495,6 @@ func TestValidateIndexName(t *testing.T) {
 		}
 
 	}
-
 }
 
 func TestValidateIndexNameWithError(t *testing.T) {

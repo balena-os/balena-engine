@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/daemon/images"
 	"github.com/docker/docker/pkg/discovery"
@@ -198,6 +199,100 @@ func TestDaemonReloadMirrors(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestDaemonReloadRegistries(t *testing.T) {
+	daemon := &Daemon{
+		imageService: images.NewImageService(images.ImageServiceConfig{}),
+	}
+
+	// create registries: note that this is done implicitly when loading
+	// daemon.json file.
+	var (
+		err  error
+		regA registrytypes.Registry // no change
+		regB registrytypes.Registry // will be changed
+		regC registrytypes.Registry // will be added
+	)
+
+	regA, err = registrytypes.NewRegistry("https://registry-a.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := regA.AddMirror("https://mirror-a.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// we'll add a 2nd mirror before reloading
+	regB, err = registrytypes.NewRegistry("https://registry-b.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := regB.AddMirror("https://mirror1-b.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// insecure regC will be added before reloading
+	regC, err = registrytypes.NewRegistry("http://registry-c.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	daemon.RegistryService, err = registry.NewService(registry.ServiceOptions{
+		Registries: []registrytypes.Registry{regA, regB},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	daemon.configStore = &config.Config{}
+
+	if err := regB.AddMirror("https://mirror2-b.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	registries := []registrytypes.Registry{regA, regB, regC}
+
+	valuesSets := make(map[string]interface{})
+	valuesSets["registries"] = registries
+
+	newConfig := &config.Config{
+		CommonConfig: config.CommonConfig{
+			ServiceOptions: registry.ServiceOptions{
+				Registries: registries,
+			},
+			ValuesSet: valuesSets,
+		},
+	}
+
+	if err := daemon.Reload(newConfig); err != nil {
+		t.Fatal(err)
+	}
+
+	registryService := daemon.RegistryService.ServiceConfig()
+
+	if reg, exists := registryService.Registries["registry-a.com"]; !exists {
+		t.Fatal("registry should exist but doesn't")
+	} else {
+		if !reg.ContainsMirror("https://mirror-a.com") {
+			t.Fatal("registry should contain mirror but doesn't")
+		}
+	}
+
+	if reg, exists := registryService.Registries["registry-b.com"]; !exists {
+		t.Fatal("registry should exist but doesn't")
+	} else {
+		if !reg.ContainsMirror("https://mirror1-b.com") {
+			t.Fatal("registry should contain mirror but doesn't")
+		}
+		if !reg.ContainsMirror("https://mirror2-b.com") {
+			t.Fatal("registry should contain mirror but doesn't")
+		}
+	}
+
+	if _, exists := registryService.Registries["registry-c.com"]; !exists {
+		t.Fatal("registry should exist but doesn't")
 	}
 }
 
