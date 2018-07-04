@@ -33,6 +33,7 @@ func applyLayer() {
 		err     error
 		options *archive.TarOptions
 	)
+	constrainMemory()
 	runtime.LockOSThread()
 	flag.Parse()
 
