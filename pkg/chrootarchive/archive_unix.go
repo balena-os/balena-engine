@@ -20,7 +20,6 @@ import (
 // Windows as it does not support chroot, hence no point sandboxing through
 // chroot and rexec.
 func untar() {
-	constrainMemory()
 	runtime.LockOSThread()
 	flag.Parse()
 
