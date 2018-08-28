@@ -70,6 +70,11 @@ else
 	echo >&2 '  future accountability in diagnosing build issues.  Thanks!'
 	exit 1
 fi
+LDFLAGS="\
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli/version.GitCommit=${GITCOMMIT}\" \
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli/version.BuildTime=${BUILDTIME}\" \
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli/version.Version=${VERSION}\" \
+"
 
 if [ "$AUTO_GOPATH" ]; then
 	rm -rf .gopath
@@ -107,7 +112,7 @@ fi
 # Use these flags when compiling the tests and final binary
 
 if [ -z "$DOCKER_DEBUG" ]; then
-	LDFLAGS='-w'
+	LDFLAGS="$LDFLAGS -w"
 fi
 
 BUILDFLAGS=(${BUILDFLAGS} -tags "netgo osusergo static_build $DOCKER_BUILDTAGS")
