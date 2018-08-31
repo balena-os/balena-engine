@@ -91,6 +91,11 @@ else
 	echo >&2 '  future accountability in diagnosing build issues.  Thanks!'
 	exit 1
 fi
+LDFLAGS="\
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli.GitCommit=${GITCOMMIT}\" \
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli.BuildTime=${BUILDTIME}\" \
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli.Version=${VERSION}\" \
+"
 
 if [ "$AUTO_GOPATH" ]; then
 	rm -rf .gopath
@@ -132,7 +137,7 @@ fi
 
 IAMSTATIC='true'
 if [ -z "$DOCKER_DEBUG" ]; then
-	LDFLAGS='-w'
+	LDFLAGS="$LDFLAGS -w"
 fi
 
 LDFLAGS_STATIC=''
