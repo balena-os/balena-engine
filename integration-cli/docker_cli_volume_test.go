@@ -211,7 +211,7 @@ func (s *DockerSuite) TestVolumeCLIRm(c *testing.T) {
 func (s *DockerSuite) TestVolumeCLINoArgs(c *testing.T) {
 	out, _ := dockerCmd(c, "volume")
 	// no args should produce the cmd usage output
-	usage := "Usage:	balena volume COMMAND"
+	usage := "Usage:	balena-engine volume COMMAND"
 	assert.Assert(c, strings.Contains(out, usage))
 	// invalid arg should error and show the command usage on stderr
 	icmd.RunCommand(dockerBinary, "volume", "somearg").Assert(c, icmd.Expected{

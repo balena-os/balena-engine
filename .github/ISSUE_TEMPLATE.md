@@ -9,7 +9,7 @@ include the BUG REPORT INFORMATION shown below. If you fail to provide this
 information within 7 days, we cannot debug your issue and will close it. We
 will, however, reopen it if you later provide the information.
 
-To report an issue please use https://github.com/resin-os/balena/issues
+To report an issue please use https://github.com/balena-os/balena-engine/issues
 
 ---------------------------------------------------
 GENERAL SUPPORT INFORMATION
@@ -52,13 +52,13 @@ Briefly describe the problem you are having in a few paragraphs.
 
 **Additional information you deem important (e.g. issue happens only occasionally):**
 
-**Output of `balena version`:**
+**Output of `balena-engine version`:**
 
 ```
 (paste your output here)
 ```
 
-**Output of `balena info`:**
+**Output of `balena-engine info`:**
 
 ```
 (paste your output here)

@@ -53,34 +53,34 @@ func TestParseHost(t *testing.T) {
 func TestParseDockerDaemonHost(t *testing.T) {
 	invalids := map[string]string{
 
-		"tcp:a.b.c.d":                   "",
-		"tcp:a.b.c.d/path":              "",
-		"udp://127.0.0.1":               "Invalid bind address format: udp://127.0.0.1",
-		"udp://127.0.0.1:2375":          "Invalid bind address format: udp://127.0.0.1:2375",
-		"tcp://unix:///run/balena.sock": "Invalid proto, expected tcp: unix:///run/balena.sock",
-		" tcp://:7777/path ":            "Invalid bind address format:  tcp://:7777/path ",
-		"":                              "Invalid bind address format: ",
+		"tcp:a.b.c.d":                          "",
+		"tcp:a.b.c.d/path":                     "",
+		"udp://127.0.0.1":                      "Invalid bind address format: udp://127.0.0.1",
+		"udp://127.0.0.1:2375":                 "Invalid bind address format: udp://127.0.0.1:2375",
+		"tcp://unix:///run/balena-engine.sock": "Invalid proto, expected tcp: unix:///run/balena-engine.sock",
+		" tcp://:7777/path ":                   "Invalid bind address format:  tcp://:7777/path ",
+		"":                                     "Invalid bind address format: ",
 	}
 	valids := map[string]string{
-		"0.0.0.1:":                    "tcp://0.0.0.1:2375",
-		"0.0.0.1:5555":                "tcp://0.0.0.1:5555",
-		"0.0.0.1:5555/path":           "tcp://0.0.0.1:5555/path",
-		"[::1]:":                      "tcp://[::1]:2375",
-		"[::1]:5555/path":             "tcp://[::1]:5555/path",
-		"[0:0:0:0:0:0:0:1]:":          "tcp://[0:0:0:0:0:0:0:1]:2375",
-		"[0:0:0:0:0:0:0:1]:5555/path": "tcp://[0:0:0:0:0:0:0:1]:5555/path",
-		":6666":                       fmt.Sprintf("tcp://%s:6666", DefaultHTTPHost),
-		":6666/path":                  fmt.Sprintf("tcp://%s:6666/path", DefaultHTTPHost),
-		"tcp://":                      DefaultTCPHost,
-		"tcp://:7777":                 fmt.Sprintf("tcp://%s:7777", DefaultHTTPHost),
-		"tcp://:7777/path":            fmt.Sprintf("tcp://%s:7777/path", DefaultHTTPHost),
-		"unix:///run/docker.sock":     "unix:///run/balena.sock",
-		"unix://":                     "unix://" + DefaultUnixSocket,
-		"fd://":                       "fd://",
-		"fd://something":              "fd://something",
-		"localhost:":                  "tcp://localhost:2375",
-		"localhost:5555":              "tcp://localhost:5555",
-		"localhost:5555/path":         "tcp://localhost:5555/path",
+		"0.0.0.1:":                       "tcp://0.0.0.1:2375",
+		"0.0.0.1:5555":                   "tcp://0.0.0.1:5555",
+		"0.0.0.1:5555/path":              "tcp://0.0.0.1:5555/path",
+		"[::1]:":                         "tcp://[::1]:2375",
+		"[::1]:5555/path":                "tcp://[::1]:5555/path",
+		"[0:0:0:0:0:0:0:1]:":             "tcp://[0:0:0:0:0:0:0:1]:2375",
+		"[0:0:0:0:0:0:0:1]:5555/path":    "tcp://[0:0:0:0:0:0:0:1]:5555/path",
+		":6666":                          fmt.Sprintf("tcp://%s:6666", DefaultHTTPHost),
+		":6666/path":                     fmt.Sprintf("tcp://%s:6666/path", DefaultHTTPHost),
+		"tcp://":                         DefaultTCPHost,
+		"tcp://:7777":                    fmt.Sprintf("tcp://%s:7777", DefaultHTTPHost),
+		"tcp://:7777/path":               fmt.Sprintf("tcp://%s:7777/path", DefaultHTTPHost),
+		"unix:///run/balena-engine.sock": "unix:///run/balena-engine.sock",
+		"unix://":                        "unix://" + DefaultUnixSocket,
+		"fd://":                          "fd://",
+		"fd://something":                 "fd://something",
+		"localhost:":                     "tcp://localhost:2375",
+		"localhost:5555":                 "tcp://localhost:5555",
+		"localhost:5555/path":            "tcp://localhost:5555/path",
 	}
 	for invalidAddr, expectedError := range invalids {
 		if addr, err := parseDaemonHost(invalidAddr); err == nil || expectedError != "" && err.Error() != expectedError {
@@ -137,14 +137,14 @@ func TestParseTCP(t *testing.T) {
 }
 
 func TestParseInvalidUnixAddrInvalid(t *testing.T) {
-	if _, err := parseSimpleProtoAddr("unix", "tcp://127.0.0.1", "unix:///var/run/balena.sock"); err == nil || err.Error() != "Invalid proto, expected unix: tcp://127.0.0.1" {
+	if _, err := parseSimpleProtoAddr("unix", "tcp://127.0.0.1", "unix:///var/run/balena-engine.sock"); err == nil || err.Error() != "Invalid proto, expected unix: tcp://127.0.0.1" {
 		t.Fatalf("Expected an error, got %v", err)
 	}
-	if _, err := parseSimpleProtoAddr("unix", "unix://tcp://127.0.0.1", "/var/run/balena.sock"); err == nil || err.Error() != "Invalid proto, expected unix: tcp://127.0.0.1" {
+	if _, err := parseSimpleProtoAddr("unix", "unix://tcp://127.0.0.1", "/var/run/balena-engine.sock"); err == nil || err.Error() != "Invalid proto, expected unix: tcp://127.0.0.1" {
 		t.Fatalf("Expected an error, got %v", err)
 	}
-	if v, err := parseSimpleProtoAddr("unix", "", "/var/run/balena.sock"); err != nil || v != "unix:///var/run/balena.sock" {
-		t.Fatalf("Expected an %v, got %v", v, "unix:///var/run/balena.sock")
+	if v, err := parseSimpleProtoAddr("unix", "", "/var/run/balena-engine.sock"); err != nil || v != "unix:///var/run/balena-engine.sock" {
+		t.Fatalf("Expected an %v, got %v", v, "unix:///var/run/balena-engine.sock")
 	}
 }
 

@@ -254,9 +254,9 @@ COPY --from=vpnkit-arm64 /vpnkit /build/vpnkit.aarch64
 # TODO: Some of this is only really needed for testing, it would be nice to split this up
 FROM runtime-dev AS dev-systemd-false
 ARG DEBIAN_FRONTEND
-RUN groupadd -r balena
-RUN useradd --create-home --gid balena unprivilegeduser
- && mkdir -p /home/unprivilegeduser/.local/share/docker \
+RUN groupadd -r balena-engine
+RUN useradd --create-home --gid balena-engine unprivilegeduser \
+ && mkdir -p /home/unprivilegeduser/.local/share/balena-engine \
  && chown -R unprivilegeduser /home/unprivilegeduser
 # Let us use a .bashrc file
 RUN ln -sfv /go/src/github.com/docker/docker/.bashrc ~/.bashrc
@@ -323,8 +323,8 @@ ENV PATH=/usr/local/cli:$PATH
 ARG DOCKER_BUILDTAGS
 ENV DOCKER_BUILDTAGS="${DOCKER_BUILDTAGS}"
 WORKDIR /go/src/github.com/docker/docker
-VOLUME /var/lib/balena
-VOLUME /home/unprivilegeduser/.local/share/docker
+VOLUME /var/lib/balena-engine
+VOLUME /home/unprivilegeduser/.local/share/balena-engine
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
 

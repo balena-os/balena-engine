@@ -2,17 +2,17 @@
 set -e
 
 docker-version-osarch() {
-	if ! type balena &> /dev/null; then
+	if ! type balena-engine &> /dev/null; then
 		# docker is not installed
 		return
 	fi
 	local target="$1" # "Client" or "Server"
 	local fmtStr="{{.${target}.Os}}/{{.${target}.Arch}}"
-	if balena version -f "$fmtStr" 2> /dev/null; then
+	if balena-engine version -f "$fmtStr" 2> /dev/null; then
 		# if "docker version -f" works, let's just use that!
 		return
 	fi
-	balena version | awk '
+	balena-engine version | awk '
 		$1 ~ /^(Client|Server):$/ { section = 0 }
 		$1 == "'"$target"':" { section = 1; next }
 		section && $1 == "OS/Arch:" { print $2 }

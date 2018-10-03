@@ -10,7 +10,7 @@ import (
 	"github.com/docker/docker/pkg/idtools"
 )
 
-const defaultSocketGroup = "balena"
+const defaultSocketGroup = "balena-engine"
 
 func lookupGID(name string) (int, error) {
 	group, err := idtools.LookupGroup(name)

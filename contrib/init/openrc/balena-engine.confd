@@ -1,20 +1,20 @@
-# /etc/conf.d/balena: config file for /etc/init.d/balena
+# /etc/conf.d/balena-engine: config file for /etc/init.d/balena-engine
 
 # where the docker daemon output gets piped
 # this contains both stdout and stderr. If  you need to separate them,
 # see the settings below
-#DOCKER_LOGFILE="/var/log/balena.log"
+#DOCKER_LOGFILE="/var/log/balena-engine.log"
 
 # where the docker daemon stdout gets piped
 # if this is not set, DOCKER_LOGFILE is used
-#DOCKER_OUTFILE="/var/log/balena-out.log"
+#DOCKER_OUTFILE="/var/log/balena-engine-out.log"
 
 # where the docker daemon stderr gets piped
 # if this is not set, DOCKER_LOGFILE is used
-#DOCKER_ERRFILE="/var/log/balena-err.log"
+#DOCKER_ERRFILE="/var/log/balena-engine-err.log"
 
 # where docker's pid get stored
-#DOCKER_PIDFILE="/run/balena.pid"
+#DOCKER_PIDFILE="/run/balena-engine.pid"
 
 # Settings for process limits (ulimit)
 #DOCKER_ULIMIT="-c unlimited -n 1048576 -u unlimited"
@@ -23,7 +23,7 @@
 #DOCKER_RETRY="TERM/60/KILL/10"
 
 # where the docker daemon itself is run from
-#DOCKERD_BINARY="/usr/bin/balenad"
+#DOCKERD_BINARY="/usr/bin/balena-engine-daemon"
 
 # any other random options you want to pass to docker
 DOCKER_OPTS=""

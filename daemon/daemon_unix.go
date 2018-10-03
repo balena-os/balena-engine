@@ -59,11 +59,11 @@ const (
 
 	// DefaultShimBinary is the default shim to be used by containerd if none
 	// is specified
-	DefaultShimBinary = "balena-containerd-shim"
+	DefaultShimBinary = "balena-engine-containerd-shim"
 
 	// DefaultRuntimeBinary is the default runtime to be used by
 	// containerd if none is specified
-	DefaultRuntimeBinary = "balena-runc"
+	DefaultRuntimeBinary = "balena-engine-runc"
 
 	// See https://git.kernel.org/cgit/linux/kernel/git/tip/tip.git/tree/kernel/sched/sched.h?id=8cd9234c64c584432f6992fe944ca9e46ca8ea76#n269
 	linuxMinCPUShares = 2

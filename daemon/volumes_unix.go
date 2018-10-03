@@ -40,7 +40,7 @@ func (daemon *Daemon) setupMounts(c *container.Container) ([]container.Mount, er
 		}
 		// If the daemon is being shutdown, we should not let a container start if it is trying to
 		// mount the socket the daemon is listening on. During daemon shutdown, the socket
-		// (/var/run/balena.sock by default) doesn't exist anymore causing the call to m.Setup to
+		// (/var/run/balena-engine.sock by default) doesn't exist anymore causing the call to m.Setup to
 		// create at directory instead. This in turn will prevent the daemon to restart.
 		checkfunc := func(m *volumemounts.MountPoint) error {
 			if _, exist := daemon.hosts[m.Source]; exist && daemon.IsShuttingDown() {
