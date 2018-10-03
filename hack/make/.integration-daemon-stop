@@ -3,7 +3,7 @@
 if [ ! "$(go env GOOS)" = 'windows' ]; then
 	trap - EXIT # reset EXIT trap applied in .integration-daemon-start
 
-	for pidFile in $(find "$DEST" -name balena.pid); do
+	for pidFile in $(find "$DEST" -name balena-engine.pid); do
 		pid=$(set -x; cat "$pidFile")
 		( set -x; kill "$pid" )
 		if ! wait "$pid"; then

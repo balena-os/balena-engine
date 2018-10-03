@@ -123,7 +123,7 @@ func TestGetAPIPath(t *testing.T) {
 	}
 
 	for _, cs := range cases {
-		c, err := NewClient("unix:///var/run/balena.sock", cs.v, nil, nil)
+		c, err := NewClient("unix:///var/run/balena-engine.sock", cs.v, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

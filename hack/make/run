@@ -34,7 +34,7 @@ if [ "$DOCKER_REMAP_ROOT" ]; then
 fi
 
 args="--debug \
-	--host tcp://0.0.0.0:${listen_port} --host unix:///var/run/balena.sock \
+	--host tcp://0.0.0.0:${listen_port} --host unix:///var/run/balena-engine.sock \
 	--storage-driver "$DOCKER_GRAPHDRIVER" \
 	--userland-proxy="$DOCKER_USERLANDPROXY" \
 	$storage_params \

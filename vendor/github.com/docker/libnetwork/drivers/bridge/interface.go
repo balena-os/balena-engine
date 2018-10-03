@@ -11,7 +11,7 @@ import (
 const (
 	// DefaultBridgeName is the default name for the bridge interface managed
 	// by the driver when unspecified by the caller.
-	DefaultBridgeName = "balena0"
+	DefaultBridgeName = "balena0[RENAME_THIS?]"
 )
 
 // Interface models the bridge network device.

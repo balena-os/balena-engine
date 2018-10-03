@@ -202,9 +202,9 @@ func (d *Daemon) Start(t testingT, args ...string) {
 // StartWithError starts the daemon and return once it is ready to receive requests.
 // It returns an error in case it couldn't start.
 func (d *Daemon) StartWithError(args ...string) error {
-	logFile, err := os.OpenFile(filepath.Join(d.Folder, "balena.log"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+	logFile, err := os.OpenFile(filepath.Join(d.Folder, "balena-engine.log"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 	if err != nil {
-		return errors.Wrapf(err, "[%s] Could not create %s/balena.log", d.id, d.Folder)
+		return errors.Wrapf(err, "[%s] Could not create %s/balena-engine.log", d.id, d.Folder)
 	}
 
 	return d.StartWithLogFile(logFile, args...)
@@ -217,10 +217,10 @@ func (d *Daemon) StartWithLogFile(out *os.File, providedArgs ...string) error {
 		return errors.Wrapf(err, "[%s] could not find docker binary in $PATH", d.id)
 	}
 	args := append(d.GlobalFlags,
-		"--containerd", "/var/run/balena/libcontainerd/balena-containerd.sock",
+		"--containerd", "/var/run/balena-engine/libcontainerd/balena-containerd.sock",
 		"--data-root", d.Root,
 		"--exec-root", d.execRoot,
-		"--pidfile", fmt.Sprintf("%s/balena.pid", d.Folder),
+		"--pidfile", fmt.Sprintf("%s/balena-engine.pid", d.Folder),
 		fmt.Sprintf("--userland-proxy=%t", d.userlandProxy),
 	)
 	if d.experimental {
@@ -345,7 +345,7 @@ func (d *Daemon) Kill() error {
 		return err
 	}
 
-	if err := os.Remove(fmt.Sprintf("%s/balena.pid", d.Folder)); err != nil {
+	if err := os.Remove(fmt.Sprintf("%s/balena-engine.pid", d.Folder)); err != nil {
 		return err
 	}
 
@@ -454,7 +454,7 @@ out2:
 		return err
 	}
 
-	if err := os.Remove(fmt.Sprintf("%s/balena.pid", d.Folder)); err != nil {
+	if err := os.Remove(fmt.Sprintf("%s/balena-engine.pid", d.Folder)); err != nil {
 		return err
 	}
 

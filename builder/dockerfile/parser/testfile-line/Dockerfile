@@ -5,7 +5,7 @@
 FROM brimstone/ubuntu:14.04
 
 
-# TORUN -v /var/run/balena.sock:/var/run/balena.sock
+# TORUN -v /var/run/balena-engine.sock:/var/run/balena-engine.sock
 
 
 ENV GOPATH \

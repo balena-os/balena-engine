@@ -106,7 +106,7 @@ all: build ## validate all checks, build linux binaries, run all tests\ncross bu
 binary: build ## build the linux binaries
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary
 
-balena: build ## build the linux consolidate binary
+balena[RENAME_THIS?]: build ## build the linux consolidate binary
 	$(DOCKER_RUN_DOCKER) hack/make.sh binary-balena
 
 build: bundles init-go-pkg-cache

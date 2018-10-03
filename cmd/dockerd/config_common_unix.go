@@ -10,9 +10,9 @@ import (
 )
 
 var (
-	defaultPidFile  = "/var/run/balena.pid"
-	defaultDataRoot = "/var/lib/balena"
-	defaultExecRoot = "/var/run/balena"
+	defaultPidFile  = "/var/run/balena-engine.pid"
+	defaultDataRoot = "/var/lib/balena-engine"
+	defaultExecRoot = "/var/run/balena-engine"
 )
 
 // installUnixConfigFlags adds command-line options to the top-level flag parser for
@@ -20,7 +20,7 @@ var (
 func installUnixConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
 	conf.Runtimes = make(map[string]types.Runtime)
 
-	flags.StringVarP(&conf.SocketGroup, "group", "G", "balena", "Group for the unix socket")
+	flags.StringVarP(&conf.SocketGroup, "group", "G", "balena-engine", "Group for the unix socket")
 	flags.StringVar(&conf.BridgeConfig.IP, "bip", "", "Specify network bridge IP")
 	flags.StringVarP(&conf.BridgeConfig.Iface, "bridge", "b", "", "Attach containers to a network bridge")
 	flags.StringVar(&conf.BridgeConfig.FixedCIDR, "fixed-cidr", "", "IPv4 subnet for fixed IPs")

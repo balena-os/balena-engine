@@ -141,7 +141,7 @@ func (p metricsPlugin) sock() string {
 }
 
 func (p metricsPlugin) sockBase() string {
-	return filepath.Join(p.BasePath(), "run", "balena")
+	return filepath.Join(p.BasePath(), "run", "balena[RENAME_THIS?]")
 }
 
 func pluginStartMetricsCollection(p plugingetter.CompatPlugin) error {

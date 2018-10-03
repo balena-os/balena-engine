@@ -51,7 +51,7 @@ install_dockercli() {
 	git clone "$DOCKERCLI_REPO" "$GOPATH/src/github.com/docker/cli"
 	cd "$GOPATH/src/github.com/docker/cli"
 	git checkout -q "$DOCKERCLI_COMMIT"
-	go build -o /usr/local/bin/balena github.com/docker/cli/cmd/docker
+	go build -o /usr/local/bin/balenadctl github.com/docker/cli/cmd/docker
 }
 
 for prog in "$@"

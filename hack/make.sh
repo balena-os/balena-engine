@@ -57,9 +57,9 @@ echo
 # List of bundles to create when no argument is passed
 DEFAULT_BUNDLES=(
 	binary-daemon
-	binary-balena
+	binary-balena[RENAME_THIS?]
 	dynbinary
-	dynbinary-balena
+	dynbinary-balena[RENAME_THIS?]
 
 	test-unit
 	test-integration-cli

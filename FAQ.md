@@ -12,9 +12,9 @@ We think that containers are essential to bringing modern development and deploy
 
 Docker was primarily designed for datacenters with large, homogenous, well-networked servers. As such it makes tradeoffs that in some cases come in conflict with the need of small, heterogenous, remotely distributed, and differentiated devices, as found in IoT and embedded Linux use cases.
 
-With its small footprint and purpose-built features, balena was made specifically for IoT devices, or any scenario where footprint, bandwidth, power, storage, etc. are a concern.
+With its small footprint and purpose-built features, balenaEngine was made specifically for IoT devices, or any scenario where footprint, bandwidth, power, storage, etc. are a concern.
 
-## What specific Docker features are excluded from balena?
+## What specific Docker features are excluded from balenaEngine?
 
 We left out Docker features that we saw as most needed in cloud deployments and therefore not warranting inclusion in a lightweight IoT-focused container engine. Specifically, we’ve excluded:
 - Docker Swarm
