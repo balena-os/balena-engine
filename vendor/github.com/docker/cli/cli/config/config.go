@@ -14,7 +14,7 @@ import (
 const (
 	// ConfigFileName is the name of config file
 	ConfigFileName = "config.json"
-	configFileDir  = ".balena"
+	configFileDir  = ".balena-engine"
 	oldConfigfile  = ".balenacfg"
 )
 

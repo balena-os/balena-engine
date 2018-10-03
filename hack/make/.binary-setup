@@ -8,4 +8,4 @@ DOCKER_CONTAINERD_SHIM_BINARY_NAME='balena-containerd-shim'
 DOCKER_PROXY_BINARY_NAME='balena-proxy'
 DOCKER_INIT_BINARY_NAME='balena-init'
 
-balena_BINARY_NAME='balena'
+balena_BINARY_NAME='balenadctl'

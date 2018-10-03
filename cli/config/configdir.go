@@ -9,7 +9,7 @@ import (
 
 var (
 	configDir     = os.Getenv("DOCKER_CONFIG")
-	configFileDir = ".balena"
+	configFileDir = ".balena-engine"
 )
 
 // Dir returns the path to the configuration directory as specified by the DOCKER_CONFIG environment variable.

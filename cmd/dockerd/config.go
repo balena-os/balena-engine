@@ -26,17 +26,17 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
 	flags.Var(opts.NewNamedListOptsRef("authorization-plugins", &conf.AuthorizationPlugins, nil), "authorization-plugin", "Authorization plugins to load")
 	flags.Var(opts.NewNamedListOptsRef("exec-opts", &conf.ExecOptions, nil), "exec-opt", "Runtime execution options")
 	flags.StringVarP(&conf.Pidfile, "pidfile", "p", defaultPidFile, "Path to use for daemon PID file")
-	flags.StringVarP(&conf.Root, "graph", "g", defaultDataRoot, "Root of the balena runtime")
+	flags.StringVarP(&conf.Root, "graph", "g", defaultDataRoot, "Root of the balena engine runtime")
 
 	// "--graph" is "soft-deprecated" in favor of "data-root". This flag was added
 	// before Docker 1.0, so won't be removed, only hidden, to discourage its usage.
 	flags.MarkHidden("graph")
 
-	flags.StringVar(&conf.Root, "data-root", defaultDataRoot, "Root directory of persistent balena state")
-	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only balena state used for deltas")
+	flags.StringVar(&conf.Root, "data-root", defaultDataRoot, "Root directory of persistent balena engine state")
+	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only balena engine state used for deltas")
 
-	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on balena run")
-	flags.MarkDeprecated("restart", "Please use a restart policy on balena run")
+	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on balenadctl run")
+	flags.MarkDeprecated("restart", "Please use a restart policy on balenadctl run")
 
 	// Windows doesn't support setting the storage driver - there is no choice as to which ones to use.
 	if runtime.GOOS != "windows" {

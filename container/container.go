@@ -373,7 +373,7 @@ func (container *Container) StartLogger() (logger.Logger, error) {
 		ContainerCreated:    container.Created,
 		ContainerEnv:        container.Config.Env,
 		ContainerLabels:     container.Config.Labels,
-		DaemonName:          "balena",
+		DaemonName:          "balenadctl",
 	}
 
 	// Set logging file for "json-logger"

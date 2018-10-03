@@ -22,13 +22,13 @@ version=$(git describe --tags --always)
 AUTO_GOPATH=1 ./hack/make.sh dynbinary-balena
 
 src="bundles/latest/dynbinary-balena"
-dst="balena"
+dst="balena-engine"
 
 rm -rf "$dst"
 mkdir "$dst"
 
-cp -L "$src/balena" "$dst/balena"
-strip "$dst/balena"
+cp -L "$src/balenadctl" "$dst/balenadctl"
+strip "$dst/balenadctl"
 
 ln -s balena "$dst/balenad"
 ln -s balena "$dst/balena-containerd"
@@ -37,4 +37,4 @@ ln -s balena "$dst/balena-containerd-shim"
 ln -s balena "$dst/balena-proxy"
 ln -s balena "$dst/balena-runc"
 
-tar czfv "balena-$version-$arch.tar.gz" "$dst"
+tar czfv "balena-engine-$version-$arch.tar.gz" "$dst"

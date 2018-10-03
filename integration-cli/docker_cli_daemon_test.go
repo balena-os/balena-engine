@@ -1156,7 +1156,7 @@ func (s *DockerDaemonSuite) TestDaemonUnixSockCleanedUp(c *check.C) {
 	}
 	defer os.RemoveAll(dir)
 
-	sockPath := filepath.Join(dir, "balena.sock")
+	sockPath := filepath.Join(dir, "balena-engine.sock")
 	s.d.Start(c, "--host", "unix://"+sockPath)
 
 	if _, err := os.Stat(sockPath); err != nil {
@@ -1402,7 +1402,7 @@ func pingContainers(c *check.C, d *daemon.Daemon, expectFailure bool) {
 func (s *DockerDaemonSuite) TestDaemonRestartWithSocketAsVolume(c *check.C) {
 	s.d.StartWithBusybox(c)
 
-	socket := filepath.Join(s.d.Folder, "balena.sock")
+	socket := filepath.Join(s.d.Folder, "balena-engine.sock")
 
 	out, err := s.d.Cmd("run", "--restart=always", "-v", socket+":/sock", "busybox")
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s", out))
@@ -1429,7 +1429,7 @@ func (s *DockerDaemonSuite) TestCleanupMountsAfterDaemonAndContainerKill(c *chec
 	c.Assert(strings.Contains(string(mountOut), id), check.Equals, true, comment)
 
 	// kill the container
-	icmd.RunCommand(ctrBinary, "--address", "unix:///var/run/balena/libcontainerd/balena-containerd.sock", "containers", "kill", id).Assert(c, icmd.Success)
+	icmd.RunCommand(ctrBinary, "--address", "unix:///var/run/balena-engine/libcontainerd/balena-containerd.sock", "containers", "kill", id).Assert(c, icmd.Success)
 
 	// restart daemon.
 	d.Restart(c)
@@ -1993,7 +1993,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithKilledRunningContainer(t *check
 	}
 
 	// kill the container
-	icmd.RunCommand(ctrBinary, "--address", "unix:///var/run/balena/libcontainerd/balena-containerd.sock", "containers", "kill", cid).Assert(t, icmd.Success)
+	icmd.RunCommand(ctrBinary, "--address", "unix:///var/run/balena-engine/libcontainerd/balena-containerd.sock", "containers", "kill", cid).Assert(t, icmd.Success)
 
 	// Give time to containerd to process the command if we don't
 	// the exit event might be received after we do the inspect
@@ -2088,7 +2088,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithUnpausedRunningContainer(t *che
 	// resume the container
 	result := icmd.RunCommand(
 		ctrBinary,
-		"--address", "unix:///var/run/balena/libcontainerd/balena-containerd.sock",
+		"--address", "unix:///var/run/balena-engine/libcontainerd/balena-containerd.sock",
 		"containers", "resume", cid)
 	t.Assert(result, icmd.Matches, icmd.Success)
 

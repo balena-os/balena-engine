@@ -12,7 +12,7 @@ start_stop_daemon_args="--background \
 	--stderr \"${DOCKER_ERRFILE}\" --stdout \"${DOCKER_OUTFILE}\""
 
 start_pre() {
-	checkpath -f -m 0644 -o root:balena "$DOCKER_LOGFILE"
+	checkpath -f -m 0644 -o root:balena-engine "$DOCKER_LOGFILE"
 
 	ulimit -n 1048576
 

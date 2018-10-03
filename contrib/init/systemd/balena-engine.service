@@ -3,7 +3,7 @@ Description=Docker Application Container Engine
 Documentation=https://docs.docker.com
 After=network-online.target docker.socket firewalld.service
 Wants=network-online.target
-Requires=balena.socket
+Requires=balena-engine.socket
 
 [Service]
 Type=notify

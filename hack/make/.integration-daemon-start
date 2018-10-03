@@ -5,7 +5,7 @@
 base="$ABS_DEST/.."
 export PATH="$base/dynbinary-balena:$PATH"
 
-export TEST_CLIENT_BINARY=balena
+export TEST_CLIENT_BINARY=balenadctl
 export TEST_DOCKER_RUNC_BINARY=balena-runc
 
 # Do not bump this version! Integration tests should no longer rely on the docker cli, they should be
@@ -32,7 +32,7 @@ if [ "$(go env GOOS)" = 'windows' ]; then
 fi
 
 if [ -z "$DOCKER_TEST_HOST" ]; then
-	if balena version &> /dev/null; then
+	if balenadctl version &> /dev/null; then
 		echo >&2 'skipping daemon start, since daemon appears to be already started'
 		return
 	fi
@@ -83,16 +83,16 @@ if [ -z "$DOCKER_TEST_HOST" ]; then
 		)
 	fi
 
-	export DOCKER_HOST="unix://$(cd "$DEST" && pwd)/balena.sock" # "pwd" tricks to make sure $DEST is an absolute path, not a relative one
+	export DOCKER_HOST="unix://$(cd "$DEST" && pwd)/balena-engine.sock" # "pwd" tricks to make sure $DEST is an absolute path, not a relative one
 	( set -x; exec \
 		balenad --debug \
 		--host "$DOCKER_HOST" \
 		--storage-driver "$DOCKER_GRAPHDRIVER" \
-		--pidfile "$DEST/balena.pid" \
+		--pidfile "$DEST/balena-engine.pid" \
 		--userland-proxy="$DOCKER_USERLANDPROXY" \
 		$storage_params \
 		$extra_params \
-			&> "$DEST/balena.log"
+			&> "$DEST/balena-engine.log"
 	) &
 	# make sure that if the script exits unexpectedly, we stop this daemon we just started
 	trap 'bundle .integration-daemon-stop' EXIT
@@ -109,7 +109,7 @@ while ! $TEST_CLIENT_BINARY version &> /dev/null; do
 		printf "\n"
 		if [ -z "$DOCKER_HOST" ]; then
 			echo >&2 "error: daemon failed to start"
-			echo >&2 "  check $DEST/balena.log for details"
+			echo >&2 "  check $DEST/balena-engine.log for details"
 		else
 			echo >&2 "error: daemon at $DOCKER_HOST fails to '$TEST_CLIENT_BINARY version':"
 			$TEST_CLIENT_BINARY version >&2 || true
@@ -120,7 +120,7 @@ while ! $TEST_CLIENT_BINARY version &> /dev/null; do
 				echo >&2 "---"
 				# Important - use the docker on the CI host, not the one built locally
 				# which is currently in our path.
-				! /c/bin/balena -H=$MAIN_DOCKER_HOST logs docker-$COMMITHASH
+				! /c/bin/balenadctl -H=$MAIN_DOCKER_HOST logs docker-$COMMITHASH
 				echo >&2 "---"
 			fi
 		fi

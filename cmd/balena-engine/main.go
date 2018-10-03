@@ -20,7 +20,7 @@ func main() {
 		return
 	}
 	switch filepath.Base(os.Args[0]) {
-	case "balena":
+	case "balenadctl":
 		docker.Main()
 	case "balenad":
 		dockerd.Main()

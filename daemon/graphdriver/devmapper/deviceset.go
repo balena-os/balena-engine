@@ -1178,7 +1178,7 @@ func (devices *DeviceSet) growFS(info *devInfo) error {
 
 	defer devices.deactivateDevice(info)
 
-	fsMountPoint := "/run/balena/mnt"
+	fsMountPoint := "/run/balena-engine/mnt"
 	if _, err := os.Stat(fsMountPoint); os.IsNotExist(err) {
 		if err := os.MkdirAll(fsMountPoint, 0700); err != nil {
 			return err
@@ -1748,7 +1748,7 @@ func (devices *DeviceSet) initDevmapper(doInit bool) (retErr error) {
 				return err
 			}
 		}
-		devices.thinPoolDevice = "balena-thinpool"
+		devices.thinPoolDevice = "balena[RENAME_THIS?]-thinpool"
 		logrus.WithField("storage-driver", "devicemapper").Debugf("Setting dm.thinpooldev to %q", devices.thinPoolDevice)
 	}
 
@@ -1760,11 +1760,11 @@ func (devices *DeviceSet) initDevmapper(doInit bool) (retErr error) {
 	sysSt := st.Sys().(*syscall.Stat_t)
 	// "reg-" stands for "regular file".
 	// In the future we might use "dev-" for "device file", etc.
-	// balena-maj,min[-inode] stands for:
-	//	- Managed by balena
+	// balena[RENAME_THIS?]-maj,min[-inode] stands for:
+	//	- Managed by balenaEngine
 	//	- The target of this device is at major <maj> and minor <min>
 	//	- If <inode> is defined, use that file inside the device as a loopback image. Otherwise use the device itself.
-	devices.devicePrefix = fmt.Sprintf("balena-%d:%d-%d", major(sysSt.Dev), minor(sysSt.Dev), sysSt.Ino)
+	devices.devicePrefix = fmt.Sprintf("balena[RENAME_THIS?]-%d:%d-%d", major(sysSt.Dev), minor(sysSt.Dev), sysSt.Ino)
 	logrus.Debugf("devmapper: Generated prefix: %s", devices.devicePrefix)
 
 	// Check for the existence of the thin-pool device
