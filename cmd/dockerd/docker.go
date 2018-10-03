@@ -24,7 +24,7 @@ func newDaemonCommand() (*cobra.Command, error) {
 	opts := newDaemonOptions(config.New())
 
 	cmd := &cobra.Command{
-		Use:           "balena [OPTIONS]",
+		Use:           "balena-engine [OPTIONS]",
 		Short:         "A self-sufficient runtime for containers.",
 		SilenceUsage:  true,
 		SilenceErrors: true,

@@ -3,7 +3,7 @@
 set -e
 rm -rf "$DEST"
 
-if ! command -v balenad &> /dev/null; then
+if ! command -v balena-engine-daemon &>/dev/null; then
 	echo >&2 'error: binary-daemon or dynbinary-daemon must be run before run'
 	false
 fi
@@ -23,7 +23,7 @@ fi
 
 listen_port=2375
 if [ -n "$DOCKER_PORT" ]; then
-	IFS=':' read -r -a ports <<< "$DOCKER_PORT"
+	IFS=':' read -r -a ports <<<"$DOCKER_PORT"
 	listen_port="${ports[-1]}"
 fi
 
@@ -36,8 +36,8 @@ if [ -n "$DOCKER_EXPERIMENTAL" ]; then
 	extra_params="$extra_params --experimental"
 fi
 
-dockerd="balenad"
-socket=/var/run/balena.sock
+dockerd="balena-engine-daemon"
+socket=/var/run/balena-engine.sock
 if [ -n "$DOCKER_ROOTLESS" ]; then
 	user="unprivilegeduser"
 	uid=$(id -u $user)
@@ -45,7 +45,7 @@ if [ -n "$DOCKER_ROOTLESS" ]; then
 	mkdir -p -m 700 "/tmp/docker-${uid}"
 	chown $user "/tmp/docker-${uid}"
 	dockerd="sudo -u $user -E XDG_RUNTIME_DIR=/tmp/docker-${uid} -E HOME=/home/${user} -- dockerd-rootless.sh"
-	socket=/tmp/docker-${uid}/docker.sock
+	socket=/tmp/docker-${uid}/balena-engine.sock
 fi
 
 args="--debug \

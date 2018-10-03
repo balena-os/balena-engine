@@ -1191,7 +1191,7 @@ func (devices *DeviceSet) growFS(info *devInfo) error {
 
 	defer devices.deactivateDevice(info)
 
-	fsMountPoint := "/run/balena/mnt"
+	fsMountPoint := "/run/balena-engine/mnt"
 	if _, err := os.Stat(fsMountPoint); os.IsNotExist(err) {
 		if err := os.MkdirAll(fsMountPoint, 0700); err != nil {
 			return err
@@ -1743,7 +1743,7 @@ func (devices *DeviceSet) initDevmapper(doInit bool) (retErr error) {
 	// "reg-" stands for "regular file".
 	// In the future we might use "dev-" for "device file", etc.
 	// balena-maj,min[-inode] stands for:
-	//	- Managed by docker
+	//	- Managed by balenaEngine
 	//	- The target of this device is at major <maj> and minor <min>
 	//	- If <inode> is defined, use that file inside the device as a loopback image. Otherwise use the device itself.
 	// The type Dev in Stat_t is 32bit on mips.

@@ -12,12 +12,12 @@ import (
 
 // CertsDir is the directory where certificates are stored
 func CertsDir() string {
-	d := "/etc/balena/certs.d"
+	d := "/etc/balena-engine/certs.d"
 
 	if rootless.RunningWithRootlessKit() {
 		configHome, err := homedir.GetConfigHome()
 		if err == nil {
-			d = filepath.Join(configHome, "docker/certs.d")
+			d = filepath.Join(configHome, "balena-engine/certs.d")
 		}
 	}
 	return d

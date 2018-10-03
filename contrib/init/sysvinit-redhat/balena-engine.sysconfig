@@ -1,4 +1,4 @@
-# /etc/sysconfig/balena
+# /etc/sysconfig/balena-engine
 #
 # Other arguments to pass to the docker daemon process
 # These will be parsed by the sysv initscript and appended

@@ -15,7 +15,7 @@ const MEMORY_LIMIT = 20 * 1024 * 1024 // 20MB
 func constrainMemory() {
 	// constrain the unpacking process using a memory cgroup controller to avoid thrashing the page cache
 	memoryLimit := int64(MEMORY_LIMIT)
-	control, err := cgroups.New(cgroups.V1, cgroups.StaticPath("/balena/apply-layer"), &specs.LinuxResources{
+	control, err := cgroups.New(cgroups.V1, cgroups.StaticPath("/balena-engine/apply-layer"), &specs.LinuxResources{
 		Memory: &specs.LinuxMemory{
 			Limit: &memoryLimit,
 		},
