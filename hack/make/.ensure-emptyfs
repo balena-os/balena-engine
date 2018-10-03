@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-if ! balena image inspect emptyfs > /dev/null; then
+if ! balena-engine image inspect emptyfs > /dev/null; then
 	# build a "docker save" tarball for "emptyfs"
 	# see https://github.com/docker/docker/pull/5262
 	# and also https://github.com/docker/docker/issues/4242
@@ -17,7 +17,7 @@ if ! balena image inspect emptyfs > /dev/null; then
 	)
 	(
 		[ -n "$TESTDEBUG" ] && set -x
-		tar -cC "$dir" . | balena load
+		tar -cC "$dir" . | balena-engine load
 	)
 	rm -rf "$dir"
 fi

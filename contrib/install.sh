@@ -35,7 +35,7 @@ case "$machine" in
 		exit 1
 esac
 
-url="https://github.com/resin-os/balena/releases/download/${tag}/balena-${tag}-${arch}.tar.gz"
+url="https://github.com/balena-os/balena-engine/releases/download/${tag}/balena-engine-${tag}-${arch}.tar.gz"
 
 curl -sL "$url" | sudo tar xzv -C /usr/local/bin --strip-components=1
 

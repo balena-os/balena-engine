@@ -22,18 +22,18 @@ version=$(git describe --tags --always)
 AUTO_GOPATH=1 GOMAXPROCS=1 DOCKER_LDFLAGS="-s" VERSION="$version" ./hack/make.sh binary-balena
 
 src="bundles/latest/binary-balena"
-dst="balena"
+dst="balena-engine"
 
 rm -rf "$dst"
 mkdir "$dst"
 
-cp -L "$src/balena" "$dst/balena"
+cp -L "$src/balena-engine" "$dst/balena-engine"
 
-ln -s balena "$dst/balenad"
-ln -s balena "$dst/balena-containerd"
-ln -s balena "$dst/balena-containerd-ctr"
-ln -s balena "$dst/balena-containerd-shim"
-ln -s balena "$dst/balena-proxy"
-ln -s balena "$dst/balena-runc"
+ln -s balena-engine "$dst/balena-engine-daemon"
+ln -s balena-engine "$dst/balena-engine-containerd"
+ln -s balena-engine "$dst/balena-engine-containerd-ctr"
+ln -s balena-engine "$dst/balena-engine-containerd-shim"
+ln -s balena-engine "$dst/balena-engine-proxy"
+ln -s balena-engine "$dst/balena-engine-runc"
 
-tar czfv "balena-$version-$arch.tar.gz" "$dst"
+tar czfv "balena-engine-$version-$arch.tar.gz" "$dst"

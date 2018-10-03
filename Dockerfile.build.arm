@@ -14,6 +14,6 @@ RUN apt-get update \
 		libsystemd-journal-dev \
 		libudev-dev
 
-COPY . /balena
+COPY . /balena-engine
 
-WORKDIR /balena
+WORKDIR /balena-engine

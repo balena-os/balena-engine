@@ -1,12 +1,12 @@
-Balena: Moby-based container engine for IoT
-===========================================
+balenaEngine: Moby-based container engine for IoT
+=================================================
 
-<img src="docs/static_files/balena-logo-black.svg" alt="Balena" width="50%" />
+<img src="docs/static_files/balena-logo-black.svg" alt="balenaEngine" width="50%" />
 
 ## Overview
 
-Balena is a new container engine purpose-built for embedded and IoT use cases
-and compatible with Docker containers. Based on Docker’s Moby Project, balena
+balenaEngine is a new container engine purpose-built for embedded and IoT use cases
+and compatible with Docker containers. Based on Docker’s Moby Project, balenaEngine
 supports container deltas for 10-70x more efficient bandwidth usage, has 3x
 smaller binaries, uses RAM and storage more conservatively, and focuses on
 atomicity and durability of container pulling.
@@ -38,11 +38,11 @@ engine. Specifically, we’ve excluded:
 - Overlay networking drivers
 - Non-boltdb discovery backends (consul, zookeeper, etcd, etc.)
 
-Unless you depend on one of the features in Docker that balena omits, using
-balena should be a drop-in replacement
+Unless you depend on one of the features in Docker that balenaEngine omits, using
+balenaEngine should be a drop-in replacement.
 
 Licensing
 =========
-Balena is licensed under the Apache License, Version 2.0. See
-[LICENSE](https://github.com/resin-os/balena/blob/master/LICENSE) for the full
+balenaEngine is licensed under the Apache License, Version 2.0. See
+[LICENSE](https://github.com/balena-os/balena-engine/blob/master/LICENSE) for the full
 license text.

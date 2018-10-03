@@ -17,9 +17,9 @@ type errConnectionFailed struct {
 // Error returns a string representation of an errConnectionFailed
 func (err errConnectionFailed) Error() string {
 	if err.host == "" {
-		return "Cannot connect to the balena daemon. Is the balena daemon running on this host?"
+		return "Cannot connect to the balenaEngine daemon. Is the balenaEngine daemon running on this host?"
 	}
-	return fmt.Sprintf("Cannot connect to the balena daemon at %s. Is the balena daemon running?", err.host)
+	return fmt.Sprintf("Cannot connect to the balenaEngine daemon at %s. Is the balenaEngine daemon running?", err.host)
 }
 
 // IsErrConnectionFailed returns true if the error is caused by connection failed.

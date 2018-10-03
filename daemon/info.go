@@ -104,7 +104,7 @@ func (daemon *Daemon) SystemVersion() types.Version {
 		},
 
 		// Populate deprecated fields for older clients
-		Engine:        "balena",
+		Engine:        "balena-engine",
 		Version:       dockerversion.Version,
 		GitCommit:     dockerversion.GitCommit,
 		APIVersion:    api.DefaultVersion,

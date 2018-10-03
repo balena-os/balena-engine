@@ -2,7 +2,7 @@
 # Copyright 1999-2013 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 
-command="${DOCKERD_BINARY:-/usr/bin/balenad}"
+command="${DOCKERD_BINARY:-/usr/bin/balena-engine-daemon}"
 pidfile="${DOCKER_PIDFILE:-/run/${RC_SVCNAME}.pid}"
 command_args="-p \"${pidfile}\" ${DOCKER_OPTS}"
 DOCKER_LOGFILE="${DOCKER_LOGFILE:-/var/log/${RC_SVCNAME}.log}"
@@ -18,7 +18,7 @@ rc_ulimit="${DOCKER_ULIMIT:--c unlimited -n 1048576 -u unlimited}"
 retry="${DOCKER_RETRY:-TERM/60/KILL/10}"
 
 start_pre() {
-	checkpath -f -m 0644 -o root:balena "$DOCKER_LOGFILE"
+	checkpath -f -m 0644 -o root:balena-engine "$DOCKER_LOGFILE"
 }
 
 reload() {

@@ -22,24 +22,24 @@ func (bc *bufConn) Read(b []byte) (int, error) {
 func TestHeaderOverrideHack(t *testing.T) {
 	tests := [][2][]byte{
 		{
-			[]byte("GET /foo\nHost: /var/run/balena.sock\nUser-Agent: Docker\r\n\r\n"),
+			[]byte("GET /foo\nHost: /var/run/balena-engine.sock\nUser-Agent: Docker\r\n\r\n"),
 			[]byte("GET /foo\nHost: \r\nConnection: close\r\nUser-Agent: Docker\r\n\r\n"),
 		},
 		{
-			[]byte("GET /foo\nHost: /var/run/balena.sock\nUser-Agent: Docker\nFoo: Bar\r\n"),
+			[]byte("GET /foo\nHost: /var/run/balena-engine.sock\nUser-Agent: Docker\nFoo: Bar\r\n"),
 			[]byte("GET /foo\nHost: \r\nConnection: close\r\nUser-Agent: Docker\nFoo: Bar\r\n"),
 		},
 		{
-			[]byte("GET /foo\nHost: /var/run/balena.sock\nUser-Agent: Docker\r\n\r\ntest something!"),
+			[]byte("GET /foo\nHost: /var/run/balena-engine.sock\nUser-Agent: Docker\r\n\r\ntest something!"),
 			[]byte("GET /foo\nHost: \r\nConnection: close\r\nUser-Agent: Docker\r\n\r\ntest something!"),
 		},
 		{
-			[]byte("GET /foo\nHost: /var/run/balena.sock\nUser-Agent: Docker\r\n\r\ntest something! " + strings.Repeat("test", 15000)),
+			[]byte("GET /foo\nHost: /var/run/balena-engine.sock\nUser-Agent: Docker\r\n\r\ntest something! " + strings.Repeat("test", 15000)),
 			[]byte("GET /foo\nHost: \r\nConnection: close\r\nUser-Agent: Docker\r\n\r\ntest something! " + strings.Repeat("test", 15000)),
 		},
 		{
-			[]byte("GET /foo\nFoo: Bar\nHost: /var/run/balena.sock\nUser-Agent: Docker\r\n\r\n"),
-			[]byte("GET /foo\nFoo: Bar\nHost: /var/run/balena.sock\nUser-Agent: Docker\r\n\r\n"),
+			[]byte("GET /foo\nFoo: Bar\nHost: /var/run/balena-engine.sock\nUser-Agent: Docker\r\n\r\n"),
+			[]byte("GET /foo\nFoo: Bar\nHost: /var/run/balena-engine.sock\nUser-Agent: Docker\r\n\r\n"),
 		},
 	}
 
@@ -68,7 +68,7 @@ func TestHeaderOverrideHack(t *testing.T) {
 func BenchmarkWithHack(b *testing.B) {
 	client, srv := net.Pipe()
 	done := make(chan struct{})
-	req := []byte("GET /foo\nHost: /var/run/balena.sock\nUser-Agent: Docker\n")
+	req := []byte("GET /foo\nHost: /var/run/balena-engine.sock\nUser-Agent: Docker\n")
 	read := make([]byte, 4096)
 	b.SetBytes(int64(len(req) * 30))
 
@@ -98,7 +98,7 @@ func BenchmarkWithHack(b *testing.B) {
 func BenchmarkNoHack(b *testing.B) {
 	client, srv := net.Pipe()
 	done := make(chan struct{})
-	req := []byte("GET /foo\nHost: /var/run/balena.sock\nUser-Agent: Docker\n")
+	req := []byte("GET /foo\nHost: /var/run/balena-engine.sock\nUser-Agent: Docker\n")
 	read := make([]byte, 4096)
 	b.SetBytes(int64(len(req) * 30))
 

@@ -3,7 +3,7 @@
 set -e
 rm -rf "$DEST"
 
-if ! command -v balenad &> /dev/null; then
+if ! command -v balena-engine-daemon &> /dev/null; then
 	echo >&2 'error: binary-daemon or dynbinary-daemon must be run before run'
 	false
 fi
@@ -34,11 +34,12 @@ if [ "$DOCKER_REMAP_ROOT" ]; then
 fi
 
 args="--debug \
-	--host tcp://0.0.0.0:${listen_port} --host unix:///var/run/balena.sock \
+<<<<<<< HEAD
+	--host tcp://0.0.0.0:${listen_port} --host unix:///var/run/balena-engine.sock \
 	--storage-driver "${DOCKER_GRAPHDRIVER}" \
 	--userland-proxy="${DOCKER_USERLANDPROXY}" \
 	$storage_params \
 	$extra_params"
 
-echo balenad ${args}
-exec balenad ${args}
+echo balena-engine-daemon ${args}
+exec balena-engine-daemon ${args}

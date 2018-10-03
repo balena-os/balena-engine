@@ -193,8 +193,8 @@ COPY ./contrib/dockerd-rootless.sh /build
 # TODO: Some of this is only really needed for testing, it would be nice to split this up
 FROM runtime-dev AS dev
 ARG DEBIAN_FRONTEND
-RUN groupadd -r balena
-RUN useradd --create-home --gid balena unprivilegeduser
+RUN groupadd -r balena-engine
+RUN useradd --create-home --gid balena-engine unprivilegeduser
 # Let us use a .bashrc file
 RUN ln -sfv /go/src/github.com/docker/docker/.bashrc ~/.bashrc
 # Activate bash completion and include Docker's completion if mounted with DOCKER_BASH_COMPLETION_PATH
@@ -254,7 +254,7 @@ COPY --from=djs55/vpnkit@sha256:e508a17cfacc8fd39261d5b4e397df2b953690da577e2c98
 ENV PATH=/usr/local/cli:$PATH
 ENV DOCKER_BUILDTAGS apparmor seccomp selinux
 WORKDIR /go/src/github.com/docker/docker
-VOLUME /var/lib/balena
+VOLUME /var/lib/balena-engine
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
 
