@@ -487,7 +487,7 @@ func (s *DockerDaemonSuite) TestDaemonIPv6FixedCIDRAndMac(c *testing.T) {
 func (s *DockerDaemonSuite) TestDaemonIPv6HostMode(c *testing.T) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 	testRequires(c, testEnv.IsLocalDaemon)
-	deleteInterface(c, "docker0")
+	deleteInterface(c, "balena0")
 
 	s.d.StartWithBusybox(c, "--ipv6", "--fixed-cidr-v6=2001:db8:2::/64")
 	out, err := s.d.Cmd("run", "-d", "--name=hostcnt", "--network=host", "busybox:latest", "top")
@@ -592,11 +592,11 @@ func (s *DockerDaemonSuite) TestDaemonKeyGeneration(c *testing.T) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 
 	// TODO: skip or update for Windows daemon
-	os.Remove("/etc/balena/key.json")
+	os.Remove("/etc/balena-engine/key.json")
 	s.d.Start(c)
 	s.d.Stop(c)
 
-	k, err := libtrust.LoadKeyFile("/etc/balena/key.json")
+	k, err := libtrust.LoadKeyFile("/etc/balena-engine/key.json")
 	if err != nil {
 		c.Fatalf("Error opening key file")
 	}
@@ -1248,7 +1248,7 @@ func (s *DockerDaemonSuite) TestDaemonUnixSockCleanedUp(c *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	sockPath := filepath.Join(dir, "balena.sock")
+	sockPath := filepath.Join(dir, "balena-engine.sock")
 	s.d.Start(c, "--host", "unix://"+sockPath)
 
 	if _, err := os.Stat(sockPath); err != nil {
@@ -1274,12 +1274,12 @@ func (s *DockerDaemonSuite) TestDaemonWithWrongkey(c *testing.T) {
 		Y   string `json:"y"`
 	}
 
-	os.Remove("/etc/balena/key.json")
+	os.Remove("/etc/balena-engine/key.json")
 	s.d.Start(c)
 	s.d.Stop(c)
 
 	config := &Config{}
-	bytes, err := os.ReadFile("/etc/balena/key.json")
+	bytes, err := os.ReadFile("/etc/balena-engine/key.json")
 	if err != nil {
 		c.Fatalf("Error reading key.json file: %s", err)
 	}
@@ -1299,11 +1299,11 @@ func (s *DockerDaemonSuite) TestDaemonWithWrongkey(c *testing.T) {
 	}
 
 	// write back
-	if err := os.WriteFile("/etc/balena/key.json", newBytes, 0400); err != nil {
+	if err := os.WriteFile("/etc/balena-engine/key.json", newBytes, 0400); err != nil {
 		c.Fatalf("Error ioutil.WriteFile: %s", err)
 	}
 
-	defer os.Remove("/etc/balena/key.json")
+	defer os.Remove("/etc/balena-engine/key.json")
 
 	if err := s.d.StartWithError(); err == nil {
 		c.Fatalf("It should not be successful to start daemon with wrong key: %v", err)
@@ -1508,7 +1508,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithSocketAsVolume(c *testing.T) {
 
 	s.d.StartWithBusybox(c)
 
-	socket := filepath.Join(s.d.Folder, "balena.sock")
+	socket := filepath.Join(s.d.Folder, "balena-engine.sock")
 
 	out, err := s.d.Cmd("run", "--restart=always", "-v", socket+":/sock", "busybox")
 	assert.NilError(c, err, "Output: %s", out)
@@ -2558,7 +2558,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromConfigFile(c *testing.T) {
 {
     "runtimes": {
         "oci": {
-            "path": "balena-runc"
+            "path": "balena-engine-runc"
         },
         "vm": {
             "path": "/usr/local/bin/vm-manager",
@@ -2636,7 +2636,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromConfigFile(c *testing.T) {
     "default-runtime": "vm",
     "runtimes": {
         "oci": {
-            "path": "balena-runc"
+            "path": "balena-engine-runc"
         },
         "vm": {
             "path": "/usr/local/bin/vm-manager",
@@ -2663,7 +2663,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromConfigFile(c *testing.T) {
 func (s *DockerDaemonSuite) TestRunWithRuntimeFromCommandLine(c *testing.T) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 
-	s.d.StartWithBusybox(c, "--add-runtime", "oci=balena-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
+	s.d.StartWithBusybox(c, "--add-runtime", "oci=balena-engine-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
 
 	// Run with default runtime
 	out, err := s.d.Cmd("run", "--rm", "busybox", "ls")
@@ -2706,7 +2706,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromCommandLine(c *testing.T) {
 	assert.Assert(c, strings.Contains(string(content), `runtime name 'runc' is reserved`))
 	// Check that we can select a default runtime
 	s.d.Stop(c)
-	s.d.StartWithBusybox(c, "--default-runtime=vm", "--add-runtime", "oci=balena-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
+	s.d.StartWithBusybox(c, "--default-runtime=vm", "--add-runtime", "oci=balena-engine-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
 
 	out, err = s.d.Cmd("run", "--rm", "busybox", "ls")
 	assert.ErrorContains(c, err, "", out)
@@ -2788,12 +2788,12 @@ func (s *DockerDaemonSuite) TestDaemonWithUserlandProxyPath(c *testing.T) {
 
 	testRequires(c, testEnv.IsLocalDaemon, DaemonIsLinux)
 
-	dockerProxyPath, err := exec.LookPath("balena-proxy")
+	dockerProxyPath, err := exec.LookPath("balena-engine-proxy")
 	assert.NilError(c, err)
-	tmpDir, err := os.MkdirTemp("", "test-balena-proxy")
+	tmpDir, err := os.MkdirTemp("", "test-balena-engine-proxy")
 	assert.NilError(c, err)
 
-	newProxyPath := filepath.Join(tmpDir, "balena-proxy")
+	newProxyPath := filepath.Join(tmpDir, "balena-engine-proxy")
 	cmd := exec.Command("cp", dockerProxyPath, newProxyPath)
 	assert.NilError(c, cmd.Run())
 
