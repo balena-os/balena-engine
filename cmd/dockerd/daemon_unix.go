@@ -18,7 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const defaultDaemonConfigFile = "/etc/balena/daemon.json"
+const defaultDaemonConfigFile = "/etc/balena-engine/daemon.json"
 
 // setDefaultUmask sets the umask to 0022 to avoid problems
 // caused by custom umask
@@ -33,7 +33,7 @@ func setDefaultUmask() error {
 }
 
 func getDaemonConfDir(_ string) string {
-	return "/etc/balena"
+	return "/etc/balena-engine"
 }
 
 func (cli *DaemonCli) getPlatformRemoteOptions() ([]libcontainerd.RemoteOption, error) {

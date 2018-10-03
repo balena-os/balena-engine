@@ -29,8 +29,8 @@ const (
 	healthCheckTimeout      = 3 * time.Second
 	shutdownTimeout         = 15 * time.Second
 	configFile              = "containerd.toml"
-	binaryName              = "balena-containerd"
-	pidFile                 = "balena-containerd.pid"
+	binaryName              = "balena-engine-containerd"
+	pidFile                 = "balena-engine-containerd.pid"
 )
 
 type pluginConfigs struct {

@@ -25,7 +25,7 @@ func newDockerCommand(dockerCli *command.DockerCli) *cobra.Command {
 	var flags *pflag.FlagSet
 
 	cmd := &cobra.Command{
-		Use:              "balena [OPTIONS] COMMAND [ARG...]",
+		Use:              "balena-engine [OPTIONS] COMMAND [ARG...]",
 		Short:            "A self-sufficient runtime for containers",
 		SilenceUsage:     true,
 		SilenceErrors:    true,
@@ -147,7 +147,7 @@ func noArgs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	return fmt.Errorf(
-		"balena: '%s' is not a balena command.\nSee 'balena --help'", args[0])
+		"balena-engine: '%s' is not a balenaEngine command.\nSee 'balena-engine --help'", args[0])
 }
 
 func Main() {
@@ -176,7 +176,7 @@ func Main() {
 }
 
 func showVersion() {
-	fmt.Printf("balena version %s, build %s\n", cli.Version, cli.GitCommit)
+	fmt.Printf("balena-engine version %s, build %s\n", cli.Version, cli.GitCommit)
 }
 
 func dockerPreRun(opts *cliflags.ClientOptions) {
@@ -269,15 +269,15 @@ func areFlagsSupported(cmd *cobra.Command, details versionDetails) error {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if f.Changed {
 			if !isVersionSupported(f, clientVersion) {
-				errs = append(errs, fmt.Sprintf("\"--%s\" requires API version %s, but the balena daemon API version is %s", f.Name, getFlagAnnotation(f, "version"), clientVersion))
+				errs = append(errs, fmt.Sprintf("\"--%s\" requires API version %s, but the balenaEngine daemon API version is %s", f.Name, getFlagAnnotation(f, "version"), clientVersion))
 				return
 			}
 			if !isOSTypeSupported(f, osType) {
-				errs = append(errs, fmt.Sprintf("\"--%s\" requires the balena daemon to run on %s, but the balena daemon is running on %s", f.Name, getFlagAnnotation(f, "ostype"), osType))
+				errs = append(errs, fmt.Sprintf("\"--%s\" requires the balenaEngine daemon to run on %s, but the balenaEngine daemon is running on %s", f.Name, getFlagAnnotation(f, "ostype"), osType))
 				return
 			}
 			if _, ok := f.Annotations["experimental"]; ok && !hasExperimental {
-				errs = append(errs, fmt.Sprintf("\"--%s\" is only supported on a balena daemon with experimental features enabled", f.Name))
+				errs = append(errs, fmt.Sprintf("\"--%s\" is only supported on a balenaEngine daemon with experimental features enabled", f.Name))
 			}
 			if _, ok := f.Annotations["experimentalCLI"]; ok && !hasExperimentalCLI {
 				errs = append(errs, fmt.Sprintf("\"--%s\" is only supported when experimental cli features are enabled", f.Name))

@@ -10,7 +10,7 @@ import (
 
 var testEnv *environment.Execution
 
-const dockerdBinary = "balenad"
+const dockerdBinary = "balena-engine-daemon"
 
 func TestMain(m *testing.M) {
 	var err error
