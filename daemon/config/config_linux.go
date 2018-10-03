@@ -200,13 +200,13 @@ func setPlatformDefaults(cfg *Config) error {
 			return err
 		}
 
-		cfg.Root = filepath.Join(dataHome, "balena")
-		cfg.ExecRoot = filepath.Join(runtimeDir, "balena")
-		cfg.Pidfile = filepath.Join(runtimeDir, "balena.pid")
+		cfg.Root = filepath.Join(dataHome, "balena-engine")
+		cfg.ExecRoot = filepath.Join(runtimeDir, "balena-engine")
+		cfg.Pidfile = filepath.Join(runtimeDir, "balena-engine.pid")
 	} else {
-		cfg.Root = "/var/lib/balena"
-		cfg.ExecRoot = "/var/run/balena"
-		cfg.Pidfile = "/var/run/balena.pid"
+		cfg.Root = "/var/lib/balena-engine"
+		cfg.ExecRoot = "/var/run/balena-engine"
+		cfg.Pidfile = "/var/run/balena-engine.pid"
 	}
 
 	return nil

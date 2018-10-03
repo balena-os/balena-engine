@@ -24,7 +24,7 @@ import (
 
 func getDefaultDaemonConfigDir() (string, error) {
 	if !honorXDG {
-		return "/etc/balena", nil
+		return "/etc/balena-engine", nil
 	}
 	// NOTE: CLI uses ~/.docker while the daemon uses ~/.config/docker, because
 	// ~/.docker was not designed to store daemon configurations.
@@ -33,7 +33,7 @@ func getDefaultDaemonConfigDir() (string, error) {
 	if err != nil {
 		return "", nil
 	}
-	return filepath.Join(configHome, "balena"), nil
+	return filepath.Join(configHome, "balena-engine"), nil
 }
 
 func getDefaultDaemonConfigFile() (string, error) {

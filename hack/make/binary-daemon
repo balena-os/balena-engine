@@ -29,7 +29,7 @@ copy_binaries() {
 (
 	DOCKER_STATIC=1
 	GO_PACKAGE='github.com/docker/docker/cmd/dockerd'
-	BINARY_NAME='balenad'
+	BINARY_NAME='balena-engine-daemon'
 	source "${MAKEDIR}/.binary"
 	copy_binaries "$DEST"
 )

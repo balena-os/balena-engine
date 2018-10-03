@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 if [ ! "$(go env GOOS)" = 'windows' ]; then
-	for pidFile in $(find "$DEST" -name balena.pid); do
+	for pidFile in $(find "$DEST" -name balena-engine.pid); do
 		pid=$(
 			[ -n "$TESTDEBUG" ] && set -x
 			cat "$pidFile"

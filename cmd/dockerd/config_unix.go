@@ -24,7 +24,7 @@ func installConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 
 	// Then platform-specific install flags
 	flags.Var(opts.NewNamedRuntimeOpt("runtimes", &conf.Runtimes, config.StockRuntimeName), "add-runtime", "Register an additional OCI compatible runtime")
-	flags.StringVarP(&conf.SocketGroup, "group", "G", "balena", "Group for the unix socket")
+	flags.StringVarP(&conf.SocketGroup, "group", "G", "balena-engine", "Group for the unix socket")
 	flags.StringVarP(&conf.GraphDriver, "storage-driver", "s", "", "Storage driver to use")
 	flags.StringVarP(&conf.DeltaGraphDriver, "delta-storage-driver", "", "Delta storage driver to use")
 	flags.BoolVar(&conf.EnableSelinuxSupport, "selinux-enabled", false, "Enable selinux support")
@@ -46,10 +46,10 @@ func installConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	flags.StringVar(&conf.BridgeConfig.UserlandProxyPath, "userland-proxy-path", conf.BridgeConfig.UserlandProxyPath, "Path to the userland proxy binary")
 	flags.StringVar(&conf.CgroupParent, "cgroup-parent", "", "Set parent cgroup for all containers")
 	flags.StringVar(&conf.RemappedRoot, "userns-remap", "", "User/Group setting for user namespaces")
-	flags.BoolVar(&conf.LiveRestoreEnabled, "live-restore", false, "Enable live restore of balena when containers are still running")
+	flags.BoolVar(&conf.LiveRestoreEnabled, "live-restore", false, "Enable live restore of balenaEngine when containers are still running")
 	flags.IntVar(&conf.OOMScoreAdjust, "oom-score-adjust", 0, "Set the oom_score_adj for the daemon")
 	flags.BoolVar(&conf.Init, "init", false, "Run an init in the container to forward signals and reap processes")
-	flags.StringVar(&conf.InitPath, "init-path", "", "Path to the balena-init binary")
+	flags.StringVar(&conf.InitPath, "init-path", "", "Path to the balena-engine-init binary")
 	flags.Int64Var(&conf.CPURealtimePeriod, "cpu-rt-period", 0, "Limit the CPU real-time period in microseconds for the parent cgroup for all containers (not supported with cgroups v2)")
 	flags.Int64Var(&conf.CPURealtimeRuntime, "cpu-rt-runtime", 0, "Limit the CPU real-time runtime in microseconds for the parent cgroup for all containers (not supported with cgroups v2)")
 	flags.StringVar(&conf.SeccompProfile, "seccomp-profile", conf.SeccompProfile, `Path to seccomp profile. Use "unconfined" to disable the default seccomp profile`)

@@ -166,7 +166,7 @@ func TestUnixGetInitPath(t *testing.T) {
 		},
 		{
 			config:           &Config{},
-			expectedInitPath: "balena-init",
+			expectedInitPath: "balena-engine-init",
 		},
 	}
 	for _, tc := range testCases {

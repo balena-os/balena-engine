@@ -3,12 +3,12 @@
 set -e
 rm -rf "$DEST"
 
-if ! command -v balenad &> /dev/null; then
+if ! command -v balena-engine-daemon &>/dev/null; then
 	echo >&2 'error: binary-daemon or dynbinary-daemon must be run before run'
 	false
 fi
 
-DOCKER_COMMAND="$(command -v balenad)"
+DOCKER_COMMAND="$(command -v balena-engine-daemon)"
 
 DOCKER_GRAPHDRIVER=${DOCKER_GRAPHDRIVER:-vfs}
 DOCKER_USERLANDPROXY=${DOCKER_USERLANDPROXY:-true}
@@ -41,14 +41,14 @@ if [ -n "$DOCKER_EXPERIMENTAL" ]; then
 	extra_params="$extra_params --experimental"
 fi
 
-socket=/var/run/balena.sock
+socket=/var/run/balena-engine.sock
 if [ -n "$DOCKER_ROOTLESS" ]; then
 	user="unprivilegeduser"
 	uid=$(id -u $user)
 	# shellcheck disable=SC2174
 	mkdir -p -m 700 "/tmp/docker-${uid}"
 	chown $user "/tmp/docker-${uid}"
-	socket=/tmp/docker-${uid}/balena.sock
+	socket=/tmp/docker-${uid}/balena-engine.sock
 fi
 
 # shellcheck disable=SC2206

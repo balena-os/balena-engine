@@ -26,8 +26,8 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	flags.Var(opts.NewNamedListOptsRef("authorization-plugins", &conf.AuthorizationPlugins, nil), "authorization-plugin", "Authorization plugins to load")
 	flags.Var(opts.NewNamedListOptsRef("exec-opts", &conf.ExecOptions, nil), "exec-opt", "Runtime execution options")
 	flags.StringVarP(&conf.Pidfile, "pidfile", "p", conf.Pidfile, "Path to use for daemon PID file")
-	flags.StringVar(&conf.Root, "data-root", conf.Root, "Root directory of persistent balena state")
-	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only balena state used for deltas")
+	flags.StringVar(&conf.Root, "data-root", conf.Root, "Root directory of persistent balenaEngine state")
+	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only balenaEngine state used for deltas")
 	flags.StringVar(&conf.ExecRoot, "exec-root", conf.ExecRoot, "Root directory for execution state files")
 	flags.StringVar(&conf.ContainerdAddr, "containerd", "", "containerd grpc address")
 	flags.BoolVar(&conf.CriContainerd, "cri-containerd", false, "start containerd with cri")
@@ -68,10 +68,10 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	// Deprecated flags / options
 
 	//nolint:staticcheck // TODO(thaJeztah): remove in next release.
-	flags.StringVarP(&conf.RootDeprecated, "graph", "g", conf.RootDeprecated, "Root of the balena runtime")
+	flags.StringVarP(&conf.RootDeprecated, "graph", "g", conf.RootDeprecated, "Root of the balenaEngine runtime")
 	_ = flags.MarkDeprecated("graph", "Use --data-root instead")
-	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on balena run")
-	_ = flags.MarkDeprecated("restart", "Please use a restart policy on balena run")
+	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on balena-engine run")
+	_ = flags.MarkDeprecated("restart", "Please use a restart policy on balena-engine run")
 	flags.StringVar(&conf.ClusterAdvertise, "cluster-advertise", "", "Address or interface name to advertise")
 	_ = flags.MarkDeprecated("cluster-advertise", "Swarm classic is deprecated. Please use Swarm-mode (docker swarm init)")
 	flags.StringVar(&conf.ClusterStore, "cluster-store", "", "URL of the distributed storage backend")
