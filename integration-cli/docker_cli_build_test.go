@@ -5828,6 +5828,8 @@ func (s *DockerSuite) TestBuildMultiStageNameVariants(c *testing.T) {
 }
 
 func (s *DockerSuite) TestBuildMultiStageMultipleBuildsWindows(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, DaemonIsWindows)
 	dockerfile := `
 		FROM ` + testEnv.PlatformDefaults.BaseImage + `

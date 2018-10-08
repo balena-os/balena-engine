@@ -49,6 +49,7 @@ func (s *DockerSuite) TestEventsRedirectStdout(c *testing.T) {
 }
 
 func (s *DockerSuite) TestEventsOOMDisableFalse(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
 	testRequires(c, DaemonIsLinux, oomControl, memoryLimitSupport, swapMemorySupport, NotPpc64le)
 
 	errChan := make(chan error, 1)
@@ -79,6 +80,7 @@ func (s *DockerSuite) TestEventsOOMDisableFalse(c *testing.T) {
 }
 
 func (s *DockerSuite) TestEventsOOMDisableTrue(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
 	testRequires(c, DaemonIsLinux, oomControl, memoryLimitSupport, NotArm, swapMemorySupport, NotPpc64le)
 
 	errChan := make(chan error, 1)
@@ -389,6 +391,7 @@ func (s *DockerSuite) TestEventsFilterNetworkID(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestDaemonEvents(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
 
 	// daemon config file
 	configFilePath := "test.json"
@@ -440,6 +443,7 @@ func (s *DockerDaemonSuite) TestDaemonEvents(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestDaemonEventsWithFilters(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
 
 	// daemon config file
 	configFilePath := "test.json"
