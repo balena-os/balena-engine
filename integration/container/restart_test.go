@@ -12,6 +12,9 @@ import (
 )
 
 func TestDaemonRestartKillContainers(t *testing.T) {
+
+	t.Skip("Pending balenaEngine compatibility investigation")
+
 	type testCase struct {
 		desc       string
 		config     *container.Config

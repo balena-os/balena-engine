@@ -77,6 +77,9 @@ func (s *DockerSwarmSuite) TestPruneNetwork(c *check.C) {
 }
 
 func (s *DockerDaemonSuite) TestPruneImageDangling(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c)
 
 	out, _, err := s.d.BuildImageWithOut("test",
@@ -266,6 +269,9 @@ func (s *DockerSuite) TestPruneNetworkLabel(c *check.C) {
 }
 
 func (s *DockerDaemonSuite) TestPruneImageLabel(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c)
 
 	out, _, err := s.d.BuildImageWithOut("test1",

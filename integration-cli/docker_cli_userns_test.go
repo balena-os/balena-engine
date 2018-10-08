@@ -22,6 +22,9 @@ import (
 // 1. validate uid/gid maps are set properly
 // 2. verify that files created are owned by remapped root
 func (s *DockerDaemonSuite) TestDaemonUserNamespaceRootSetting(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, DaemonIsLinux, SameHostDaemon, UserNamespaceInKernel)
 
 	s.d.StartWithBusybox(c, "--userns-remap", "default")
