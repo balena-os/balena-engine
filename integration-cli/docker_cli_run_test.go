@@ -2994,6 +2994,8 @@ func (s *DockerSuite) TestRunPublishPort(c *testing.T) {
 
 // Issue #10184.
 func (s *DockerSuite) TestDevicePermissions(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// Not applicable on Windows as uses Unix specific functionality
 	testRequires(c, DaemonIsLinux)
 	const permissions = "crw-rw-rw-"
@@ -3143,6 +3145,8 @@ func (s *DockerSuite) TestRunNetworkFilesBindMountROFilesystem(c *testing.T) {
 }
 
 func (s *DockerSuite) TestPtraceContainerProcsFromHost(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// Not applicable on Windows as uses Unix specific functionality
 	testRequires(c, DaemonIsLinux, testEnv.IsLocalDaemon)
 
@@ -3530,6 +3534,8 @@ func (s *DockerSuite) TestNetworkRmWithActiveContainers(c *testing.T) {
 }
 
 func (s *DockerSuite) TestContainerRestartInMultipleNetworks(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, DaemonIsLinux, NotUserNamespace, NotArm)
 	// Create 2 networks using bridge driver
 	dockerCmd(c, "network", "create", "-d", "bridge", "testnetwork1")
@@ -4108,6 +4114,8 @@ exec "$@"`,
 }
 
 func (s *DockerDaemonSuite) TestRunWithUlimitAndDaemonDefault(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c, "--debug", "--default-ulimit=nofile=65535")
 
 	name := "test-A"

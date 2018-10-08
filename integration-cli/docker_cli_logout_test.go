@@ -14,6 +14,8 @@ import (
 )
 
 func (s *DockerRegistryAuthHtpasswdSuite) TestLogoutWithExternalAuth(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c)
 
 	osPath := os.Getenv("PATH")

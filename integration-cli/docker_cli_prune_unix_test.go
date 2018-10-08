@@ -82,6 +82,8 @@ func (s *DockerSwarmSuite) TestPruneNetwork(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestPruneImageDangling(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c)
 
 	result := cli.BuildCmd(c, "test", cli.Daemon(s.d),
@@ -254,6 +256,8 @@ func (s *DockerSuite) TestPruneNetworkLabel(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestPruneImageLabel(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c)
 
 	result := cli.BuildCmd(c, "test1", cli.Daemon(s.d),
