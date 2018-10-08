@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -89,7 +88,6 @@ func (ps *DockerPluginSuite) TestPluginForceRemove(c *testing.T) {
 	assert.Check(c, is.Contains(out, pluginName))
 }
 
-
 func (s *DockerCLIPluginsSuite) TestPluginActive(c *testing.T) {
 	c.Skip("Plugins aren't supported")
 
@@ -113,7 +111,6 @@ func (s *DockerCLIPluginsSuite) TestPluginActive(c *testing.T) {
 	assert.NilError(c, err)
 	assert.Check(c, is.Contains(out, pNameWithTag))
 }
-
 
 func (s *DockerCLIPluginsSuite) TestPluginActiveNetwork(c *testing.T) {
 	c.Skip("Plugins aren't supported")
@@ -163,7 +160,6 @@ func (ps *DockerPluginSuite) TestPluginInstallDisable(c *testing.T) {
 	assert.NilError(c, err)
 	assert.Check(c, is.Contains(out, pluginName))
 }
-
 
 func (s *DockerCLIPluginsSuite) TestPluginInstallDisableVolumeLs(c *testing.T) {
 	c.Skip("Plugins aren't supported")
@@ -430,7 +426,7 @@ func (ps *DockerPluginSuite) TestPluginIDPrefix(c *testing.T) {
 func (ps *DockerPluginSuite) TestPluginListDefaultFormat(c *testing.T) {
 	c.Skip("Plugins aren't supported")
 
-	config, err := ioutil.TempDir("", "config-file-")
+	config, err := os.MkdirTemp("", "config-file-")
 	assert.NilError(c, err)
 	defer os.RemoveAll(config)
 
@@ -459,7 +455,6 @@ enabled: false`, id, name)
 	out := cli.DockerCmd(c, "--config", config, "plugin", "ls", "--no-trunc").Combined()
 	assert.Check(c, is.Contains(out, expectedOutput))
 }
-
 
 func (s *DockerCLIPluginsSuite) TestPluginUpgrade(c *testing.T) {
 	c.Skip("Plugins aren't supported")
@@ -493,7 +488,6 @@ func (s *DockerCLIPluginsSuite) TestPluginUpgrade(c *testing.T) {
 	cli.DockerCmd(c, "volume", "inspect", "bananas")
 	cli.DockerCmd(c, "run", "--rm", "-v", "bananas:/apple", "busybox", "sh", "-c", "ls -lh /apple/core")
 }
-
 
 func (s *DockerCLIPluginsSuite) TestPluginMetricsCollector(c *testing.T) {
 	c.Skip("Plugins aren't supported")

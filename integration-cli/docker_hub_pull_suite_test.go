@@ -32,6 +32,7 @@ func newDockerHubPullSuite() *DockerHubPullSuite {
 
 // SetUpSuite starts the suite daemon.
 func (s *DockerHubPullSuite) SetUpSuite(ctx context.Context, c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
 	testRequires(c, DaemonIsLinux, testEnv.IsLocalDaemon)
 	s.d = daemon.New(c, dockerBinary, dockerdBinary, testdaemon.WithEnvironment(testEnv.Execution))
 	s.d.Start(c)

@@ -50,6 +50,7 @@ func (s *DockerCLIEventSuite) TestEventsRedirectStdout(c *testing.T) {
 }
 
 func (s *DockerCLIEventSuite) TestEventsOOMDisableFalse(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
 	testRequires(c, DaemonIsLinux, oomControl, memoryLimitSupport, swapMemorySupport, NotPpc64le)
 	skip.If(c, GitHubActions, "FIXME: https://github.com/moby/moby/pull/36541")
 
@@ -81,6 +82,8 @@ func (s *DockerCLIEventSuite) TestEventsOOMDisableFalse(c *testing.T) {
 }
 
 func (s *DockerCLIEventSuite) TestEventsOOMDisableTrue(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, DaemonIsLinux, oomControl, memoryLimitSupport, swapMemorySupport, NotPpc64le)
 	skip.If(c, GitHubActions, "FIXME: https://github.com/moby/moby/pull/36541")
 
@@ -389,6 +392,8 @@ func (s *DockerCLIEventSuite) TestEventsFilterNetworkID(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestDaemonEvents(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// daemon config file
 	configFilePath := "test.json"
 	defer os.Remove(configFilePath)
@@ -436,6 +441,8 @@ func (s *DockerDaemonSuite) TestDaemonEvents(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestDaemonEventsWithFilters(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// daemon config file
 	configFilePath := "test.json"
 	defer os.Remove(configFilePath)

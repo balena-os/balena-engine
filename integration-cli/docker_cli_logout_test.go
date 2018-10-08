@@ -15,6 +15,8 @@ import (
 )
 
 func (s *DockerRegistryAuthHtpasswdSuite) TestLogoutWithExternalAuth(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	ctx := testutil.GetContext(c)
 	s.d.StartWithBusybox(ctx, c)
 

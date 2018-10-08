@@ -2959,6 +2959,7 @@ func (s *DockerCLIRunSuite) TestRunPublishPort(c *testing.T) {
 
 // Issue #10184.
 func (s *DockerCLIRunSuite) TestDevicePermissions(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
 	// Not applicable on Windows as uses Unix specific functionality
 	testRequires(c, DaemonIsLinux)
 	const permissions = "crw-rw-rw-"
@@ -3109,6 +3110,8 @@ func (s *DockerCLIRunSuite) TestRunNetworkFilesBindMountROFilesystem(c *testing.
 }
 
 func (s *DockerCLIRunSuite) TestPtraceContainerProcsFromHost(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// Not applicable on Windows as uses Unix specific functionality
 	testRequires(c, DaemonIsLinux, testEnv.IsLocalDaemon)
 
@@ -3494,6 +3497,8 @@ func (s *DockerCLIRunSuite) TestNetworkRmWithActiveContainers(c *testing.T) {
 }
 
 func (s *DockerCLIRunSuite) TestContainerRestartInMultipleNetworks(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, DaemonIsLinux, NotUserNamespace)
 	// Create 2 networks using bridge driver
 	cli.DockerCmd(c, "network", "create", "-d", "bridge", "testnetwork1")
@@ -4002,6 +4007,8 @@ exec "$@"`,
 }
 
 func (s *DockerDaemonSuite) TestRunWithUlimitAndDaemonDefault(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	ctx := testutil.GetContext(c)
 	d := daemon.New(c, dockerBinary, dockerdBinary, testdaemon.WithEnvVars("OTEL_SDK_DISABLED=1"))
 	defer func() {
@@ -4029,6 +4036,7 @@ func (s *DockerDaemonSuite) TestRunWithUlimitAndDaemonDefault(c *testing.T) {
 }
 
 func (s *DockerCLIRunSuite) TestRunStoppedLoggingDriverNoLeak(c *testing.T) {
+	c.Skip("splunk log-driver isn't supported")
 	client := testEnv.APIClient()
 	ctx := testutil.GetContext(c)
 	nroutines, err := getGoroutineNumber(ctx, client)
