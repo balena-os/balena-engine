@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +30,6 @@ func pruneNetworkAndVerify(c *testing.T, d *daemon.Daemon, kept, pruned []string
 			assert.NilError(c, err)
 			return out, ""
 		}, checker.Contains(s)), poll.WithTimeout(defaultReconciliationTimeout))
-
 	}
 
 	for _, s := range pruned {
@@ -43,46 +41,9 @@ func pruneNetworkAndVerify(c *testing.T, d *daemon.Daemon, kept, pruned []string
 	}
 }
 
-func (s *DockerSwarmSuite) TestPruneNetwork(c *testing.T) {
-	d := s.AddDaemon(c, true, true)
-	_, err := d.Cmd("network", "create", "n1") // used by container (testprune)
-	assert.NilError(c, err)
-	_, err = d.Cmd("network", "create", "n2")
-	assert.NilError(c, err)
-	_, err = d.Cmd("network", "create", "n3", "--driver", "overlay") // used by service (testprunesvc)
-	assert.NilError(c, err)
-	_, err = d.Cmd("network", "create", "n4", "--driver", "overlay")
-	assert.NilError(c, err)
-
-	cName := "testprune"
-	_, err = d.Cmd("run", "-d", "--name", cName, "--net", "n1", "busybox", "top")
-	assert.NilError(c, err)
-
-	serviceName := "testprunesvc"
-	replicas := 1
-	out, err := d.Cmd("service", "create", "--detach", "--no-resolve-image",
-		"--name", serviceName,
-		"--replicas", strconv.Itoa(replicas),
-		"--network", "n3",
-		"busybox", "top")
-	assert.NilError(c, err)
-	assert.Assert(c, strings.TrimSpace(out) != "")
-	poll.WaitOn(c, pollCheck(c, d.CheckActiveContainerCount, checker.Equals(replicas+1)), poll.WithTimeout(defaultReconciliationTimeout))
-
-	// prune and verify
-	pruneNetworkAndVerify(c, d, []string{"n1", "n3"}, []string{"n2", "n4"})
-
-	// remove containers, then prune and verify again
-	_, err = d.Cmd("rm", "-f", cName)
-	assert.NilError(c, err)
-	_, err = d.Cmd("service", "rm", serviceName)
-	assert.NilError(c, err)
-	poll.WaitOn(c, pollCheck(c, d.CheckActiveContainerCount, checker.Equals(0)), poll.WithTimeout(defaultReconciliationTimeout))
-
-	pruneNetworkAndVerify(c, d, []string{}, []string{"n1", "n3"})
-}
-
 func (s *DockerDaemonSuite) TestPruneImageDangling(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c)
 
 	result := cli.BuildCmd(c, "test", cli.Daemon(s.d),
@@ -255,6 +216,8 @@ func (s *DockerSuite) TestPruneNetworkLabel(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestPruneImageLabel(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c)
 
 	result := cli.BuildCmd(c, "test1", cli.Daemon(s.d),
