@@ -26,6 +26,7 @@ func makefile(path string, contents string) (string, error) {
 // TestV2Only ensures that a daemon does not
 // attempt to contact any v1 registry endpoints.
 func (s *DockerRegistrySuite) TestV2Only(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
 	reg, err := registry.NewMock(c)
 	assert.NilError(c, err)
 	defer reg.Close()

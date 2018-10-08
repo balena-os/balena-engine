@@ -72,6 +72,8 @@ func registerUserAgentHandler(reg *registry.Mock, result *string) {
 // a registry, the registry should see a User-Agent string of the form
 // [docker engine UA] UpstreamClientSTREAM-CLIENT([client UA])
 func (s *DockerRegistrySuite) TestUserAgentPassThrough(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	var ua string
 
 	reg, err := registry.NewMock(c)
