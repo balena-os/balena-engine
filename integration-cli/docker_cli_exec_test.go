@@ -90,6 +90,8 @@ func (s *DockerCLIExecSuite) TestExecAfterContainerRestart(c *testing.T) {
 }
 
 func (s *DockerDaemonSuite) TestExecAfterDaemonRestart(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// TODO Windows CI: DockerDaemonSuite doesn't run on Windows, and requires a little work to get this ported.
 	s.d.StartWithBusybox(c)
 
