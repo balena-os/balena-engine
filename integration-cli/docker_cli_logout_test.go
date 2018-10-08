@@ -13,6 +13,8 @@ import (
 )
 
 func (s *DockerRegistryAuthHtpasswdSuite) TestLogoutWithExternalAuth(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c)
 
 	workingDir, err := os.Getwd()
