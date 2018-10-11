@@ -56,7 +56,7 @@ func TestDaemonRestartKillContainers(t *testing.T) {
 
 					t.Parallel()
 
-					d := daemon.New(t, "", "balenad", daemon.Config{})
+					d := daemon.New(t, "", "balena-engine-daemon", daemon.Config{})
 					client, err := d.NewClient()
 					if err != nil {
 						t.Fatal(err)

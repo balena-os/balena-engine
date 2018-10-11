@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var userlandProxyCommandName = "balena-proxy"
+var userlandProxyCommandName = "balena-engine-proxy"
 
 type userlandProxy interface {
 	Start() error

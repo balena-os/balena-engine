@@ -602,11 +602,11 @@ func (s *DockerDaemonSuite) TestDaemonKeyGeneration(c *check.C) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 
 	// TODO: skip or update for Windows daemon
-	os.Remove("/etc/balena/key.json")
+	os.Remove("/etc/balena-engine/key.json")
 	s.d.Start(c)
 	s.d.Stop(c)
 
-	k, err := libtrust.LoadKeyFile("/etc/balena/key.json")
+	k, err := libtrust.LoadKeyFile("/etc/balena-engine/key.json")
 	if err != nil {
 		c.Fatalf("Error opening key file")
 	}
@@ -1299,7 +1299,7 @@ func (s *DockerDaemonSuite) TestDaemonUnixSockCleanedUp(c *check.C) {
 	}
 	defer os.RemoveAll(dir)
 
-	sockPath := filepath.Join(dir, "balena.sock")
+	sockPath := filepath.Join(dir, "balena-engine.sock")
 	s.d.Start(c, "--host", "unix://"+sockPath)
 
 	if _, err := os.Stat(sockPath); err != nil {
@@ -1326,12 +1326,12 @@ func (s *DockerDaemonSuite) TestDaemonWithWrongkey(c *check.C) {
 		Y   string `json:"y"`
 	}
 
-	os.Remove("/etc/balena/key.json")
+	os.Remove("/etc/balena-engine/key.json")
 	s.d.Start(c)
 	s.d.Stop(c)
 
 	config := &Config{}
-	bytes, err := ioutil.ReadFile("/etc/balena/key.json")
+	bytes, err := ioutil.ReadFile("/etc/balena-engine/key.json")
 	if err != nil {
 		c.Fatalf("Error reading key.json file: %s", err)
 	}
@@ -1351,11 +1351,11 @@ func (s *DockerDaemonSuite) TestDaemonWithWrongkey(c *check.C) {
 	}
 
 	// write back
-	if err := ioutil.WriteFile("/etc/balena/key.json", newBytes, 0400); err != nil {
+	if err := ioutil.WriteFile("/etc/balena-engine/key.json", newBytes, 0400); err != nil {
 		c.Fatalf("Error ioutil.WriteFile: %s", err)
 	}
 
-	defer os.Remove("/etc/balena/key.json")
+	defer os.Remove("/etc/balena-engine/key.json")
 
 	if err := s.d.StartWithError(); err == nil {
 		c.Fatalf("It should not be successful to start daemon with wrong key: %v", err)
@@ -1566,7 +1566,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithSocketAsVolume(c *check.C) {
 
 	s.d.StartWithBusybox(c)
 
-	socket := filepath.Join(s.d.Folder, "balena.sock")
+	socket := filepath.Join(s.d.Folder, "balena-engine.sock")
 
 	out, err := s.d.Cmd("run", "--restart=always", "-v", socket+":/sock", "busybox")
 	c.Assert(err, check.IsNil, check.Commentf("Output: %s", out))
@@ -1596,7 +1596,7 @@ func (s *DockerDaemonSuite) TestCleanupMountsAfterDaemonAndContainerKill(c *chec
 	c.Assert(strings.Contains(string(mountOut), id), check.Equals, true, comment)
 
 	// kill the container
-	icmd.RunCommand(ctrBinary, "--address", "/var/run/balena/containerd/balena-containerd.sock",
+	icmd.RunCommand(ctrBinary, "--address", "/var/run/balena-engine/containerd/balena-engine-containerd.sock",
 		"--namespace", moby_daemon.ContainersNamespace, "tasks", "kill", id).Assert(c, icmd.Success)
 
 	// restart daemon.
@@ -2217,7 +2217,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithKilledRunningContainer(t *check
 	}
 
 	// kill the container
-	icmd.RunCommand(ctrBinary, "--address", "/var/run/balena/containerd/balena-containerd.sock",
+	icmd.RunCommand(ctrBinary, "--address", "/var/run/balena-engine/containerd/balena-engine-containerd.sock",
 		"--namespace", moby_daemon.ContainersNamespace, "tasks", "kill", cid).Assert(t, icmd.Success)
 
 	// Give time to containerd to process the command if we don't
@@ -2318,7 +2318,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithUnpausedRunningContainer(t *che
 	// resume the container
 	result := icmd.RunCommand(
 		ctrBinary,
-		"--address", "/var/run/balena/containerd/balena-containerd.sock",
+		"--address", "/var/run/balena-engine/containerd/balena-engine-containerd.sock",
 		"--namespace", moby_daemon.ContainersNamespace,
 		"tasks", "resume", cid)
 	result.Assert(t, icmd.Success)
@@ -2674,7 +2674,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromConfigFile(c *check.C) {
 {
     "runtimes": {
         "oci": {
-            "path": "balena-runc"
+            "path": "balena-engine-runc"
         },
         "vm": {
             "path": "/usr/local/bin/vm-manager",
@@ -2756,7 +2756,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromConfigFile(c *check.C) {
     "default-runtime": "vm",
     "runtimes": {
         "oci": {
-            "path": "balena-runc"
+            "path": "balena-engine-runc"
         },
         "vm": {
             "path": "/usr/local/bin/vm-manager",
@@ -2785,7 +2785,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromCommandLine(c *check.C) {
 
 	c.Skip("Pending balenaEngine compatibility investigation")
 
-	s.d.StartWithBusybox(c, "--add-runtime", "oci=balena-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
+	s.d.StartWithBusybox(c, "--add-runtime", "oci=balena-engine-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
 
 	// Run with default runtime
 	out, err := s.d.Cmd("run", "--rm", "busybox", "ls")
@@ -2832,7 +2832,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromCommandLine(c *check.C) {
 
 	// Check that we can select a default runtime
 	s.d.Stop(c)
-	s.d.StartWithBusybox(c, "--default-runtime=vm", "--add-runtime", "oci=balena-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
+	s.d.StartWithBusybox(c, "--default-runtime=vm", "--add-runtime", "oci=balena-engine-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
 
 	out, err = s.d.Cmd("run", "--rm", "busybox", "ls")
 	c.Assert(err, check.NotNil, check.Commentf(out))
@@ -3000,12 +3000,12 @@ func (s *DockerDaemonSuite) TestDaemonWithUserlandProxyPath(c *check.C) {
 
 	testRequires(c, SameHostDaemon, DaemonIsLinux)
 
-	dockerProxyPath, err := exec.LookPath("balena-proxy")
+	dockerProxyPath, err := exec.LookPath("balena-engine-proxy")
 	c.Assert(err, checker.IsNil)
-	tmpDir, err := ioutil.TempDir("", "test-balena-proxy")
+	tmpDir, err := ioutil.TempDir("", "test-balena-engine-proxy")
 	c.Assert(err, checker.IsNil)
 
-	newProxyPath := filepath.Join(tmpDir, "balena-proxy")
+	newProxyPath := filepath.Join(tmpDir, "balena-engine-proxy")
 	cmd := exec.Command("cp", dockerProxyPath, newProxyPath)
 	c.Assert(cmd.Run(), checker.IsNil)
 

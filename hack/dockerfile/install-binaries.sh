@@ -138,7 +138,7 @@ do
 			git checkout -q "$TINI_COMMIT"
 			cmake .
 			make tini-static
-			cp tini-static /usr/local/bin/balena-init
+			cp tini-static /usr/local/bin/balena-engine-init
 			;;
 
 		proxy)

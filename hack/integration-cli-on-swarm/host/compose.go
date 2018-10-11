@@ -21,7 +21,7 @@ services:
       - net
     volumes:
 # Bind-mount the API socket so that we can invoke "docker run --privileged" within the service containers
-      - /var/run/balena.sock:/var/run/balena.sock
+      - /var/run/balena-engine.sock:/var/run/balena-engine.sock
     environment:
       - DOCKER_GRAPHDRIVER={{.EnvDockerGraphDriver}}
       - DOCKER_EXPERIMENTAL={{.EnvDockerExperimental}}

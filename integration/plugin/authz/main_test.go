@@ -24,7 +24,7 @@ var (
 	server  *httptest.Server
 )
 
-const dockerdBinary = "balenad"
+const dockerdBinary = "balena-engine-daemon"
 
 func TestMain(m *testing.M) {
 	// Plugins are not supported

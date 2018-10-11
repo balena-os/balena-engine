@@ -1,30 +1,30 @@
-# Getting started with Balena
+# Getting started with balenaEngine
 
-Using balena should feel very natural to docker users since it shares the same
-command structure.
+Using balenaEngine (`balena-engine`) should feel very natural to docker users
+since it shares the same command structure.
 
 **Pulling images**
 
 ```bash
-balena pull resin/rpi-raspbian:jessie
+balena-engine pull resin/rpi-raspbian:jessie
 ```
 
 **Running containers**
 
 ```bash
-balena run -it --rm resin/rpi-raspbian:jessie /bin/bash
+balena-engine run -it --rm resin/rpi-raspbian:jessie /bin/bash
 ```
 
 ## Container deltas
 
-Balena comes with support for container deltas, a way of computing a binary
+balenaEngine comes with support for container deltas, a way of computing a binary
 description of what changed between two images. A delta can be pushed to the
 standard docker registry, it has the same format as a docker image! Let's see
 how this works.
 
 Deltas are computed for a **target** image against a **base** image. For a
-balena instance to be able pull the **target** using deltas it must have the
-**base** already. Balena will make sure this is the case and bail out if it
+balenaEngine instance to be able pull the **target** using deltas it must have the
+**base** already. balenaEngine will make sure this is the case and bail out if it
 doesn't have the appropriate data to apply the delta.
 
 Unlike layer based pulling, with container deltas if any part of any file of
@@ -37,7 +37,7 @@ being transferred. This amount to huge bandwidth savings that range between
 **Creating a container delta**
 
 ```bash
-balena image delta resin/raspberrypi3-node:6 resin/raspberrypi3-node:7
+balena-engine image delta resin/raspberrypi3-node:6 resin/raspberrypi3-node:7
 ```
 
 The image ID of the delta will be printed at the end of the command. You can
@@ -46,13 +46,13 @@ able to run it since it doesn't contain a complete filesystem. Let's push our
 delta to the registry! But first, let's give a name to our delta.
 
 ```bash
-balena tag <delta image id> resin/raspberrypi3-node:delta-6-7
+balena-engine tag <delta image id> resin/raspberrypi3-node:delta-6-7
 ```
 
 **Pushing with deltas**
 
 ```bash
-balena push resin/raspberrypi3-node:delta-6-7
+balena-engine push resin/raspberrypi3-node:delta-6-7
 ```
 That's it! Deltas are like normal images as far as the registry is concerned.
 
@@ -60,14 +60,14 @@ That's it! Deltas are like normal images as far as the registry is concerned.
 
 Now, let's delete the delta and target from the local daemon and try to pull using deltas.
 ```bash
-balena rmi -f resin/raspberrypi3-node:delta-6-7 resin/raspberrypi3-node:7
+balena-engine rmi -f resin/raspberrypi3-node:delta-6-7 resin/raspberrypi3-node:7
 ```
 And now let's pull the delta.
 ```bash
-balena pull resin/raspberrypi3-node:delta-6-7
+balena-engine pull resin/raspberrypi3-node:delta-6-7
 ```
 
-That's it! Balena understands that the image it tries to download is a delta
+That's it! balenaEngine understands that the image it tries to download is a delta
 image and switches to delta application mode automatically.
 
 After pulling is complete you should end up with an image with the same image
@@ -75,5 +75,5 @@ id as `resin/raspberrypi3-node:7`. Let's verify that by also pulling
 `resin/raspberrypi3-node:7`. It should be a no-op.
 
 ```bash
-balena pull resin/raspberrypi3-node:7
+balena-engine pull resin/raspberrypi3-node:7
 ```

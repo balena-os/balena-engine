@@ -241,7 +241,7 @@ func (s *DockerSuite) TestVolumeCLIRm(c *check.C) {
 func (s *DockerSuite) TestVolumeCLINoArgs(c *check.C) {
 	out, _ := dockerCmd(c, "volume")
 	// no args should produce the cmd usage output
-	usage := "Usage:	balena volume COMMAND"
+	usage := "Usage:	balena-engine volume COMMAND"
 	c.Assert(out, checker.Contains, usage)
 
 	// invalid arg should error and show the command usage on stderr

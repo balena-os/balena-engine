@@ -140,7 +140,7 @@ func (p metricsPlugin) sock() string {
 }
 
 func (p metricsPlugin) sockBase() string {
-	return filepath.Join(p.BasePath(), "run", "balena")
+	return filepath.Join(p.BasePath(), "run", "balena-engine")
 }
 
 func pluginStartMetricsCollection(p plugingetter.CompatPlugin) error {

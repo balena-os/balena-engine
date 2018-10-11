@@ -3,6 +3,6 @@
 package plugin
 
 func loadPlugins(path string) error {
-	// no plugin support to avoid binary size costs in balena
+	// no plugin support to avoid binary size costs in balena-engine
 	return nil
 }
