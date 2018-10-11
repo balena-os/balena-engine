@@ -312,10 +312,6 @@ func (c *containerAdapter) create(ctx context.Context) error {
 		return errors.New("unable to get container from task spec")
 	}
 
-	if err := c.backend.SetContainerDependencyStore(cr.ID, c.dependencies); err != nil {
-		return err
-	}
-
 	// configure secrets
 	secretRefs := convert.SecretReferencesFromGRPC(container.Secrets)
 	if err := c.backend.SetContainerSecretReferences(cr.ID, secretRefs); err != nil {
