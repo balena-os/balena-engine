@@ -192,11 +192,11 @@ test-integration:
 	@echo Both integrations suites skipped per environment variables
 else
 test-integration: build ## run the integration tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary test-integration
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena test-integration
 endif
 
 test-integration-flaky: build ## run the stress test for all new integration tests
-	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary test-integration-flaky
+	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary-balena test-integration-flaky
 
 test-unit: build ## run the unit tests
 	$(DOCKER_RUN_DOCKER) hack/test/unit
