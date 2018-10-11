@@ -12,6 +12,9 @@ import (
 )
 
 func (s *DockerTrustSuite) TestTrustedPull(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	repoName := s.setupTrustedImage(c, "trusted-pull")
 
 	// Try pull
@@ -23,6 +26,9 @@ func (s *DockerTrustSuite) TestTrustedPull(c *check.C) {
 }
 
 func (s *DockerTrustSuite) TestTrustedIsolatedPull(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	repoName := s.setupTrustedImage(c, "trusted-isolated-pull")
 
 	// Try pull (run from isolated directory without trust information)
@@ -46,6 +52,9 @@ func (s *DockerTrustSuite) TestUntrustedPull(c *check.C) {
 }
 
 func (s *DockerTrustSuite) TestTrustedPullFromBadTrustServer(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	repoName := fmt.Sprintf("%v/dockerclievilpull/trusted:latest", privateRegistryURL)
 	evilLocalConfigDir, err := ioutil.TempDir("", "evil-local-config-dir")
 	if err != nil {
@@ -83,6 +92,9 @@ func (s *DockerTrustSuite) TestTrustedPullFromBadTrustServer(c *check.C) {
 }
 
 func (s *DockerTrustSuite) TestTrustedOfflinePull(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	repoName := s.setupTrustedImage(c, "trusted-offline-pull")
 
 	cli.Docker(cli.Args("pull", repoName), trustedCmdWithServer("https://invalidnotaryserver")).Assert(c, icmd.Expected{
@@ -133,6 +145,9 @@ func (s *DockerTrustSuite) TestTrustedPullDelete(c *check.C) {
 }
 
 func (s *DockerTrustSuite) TestTrustedPullReadsFromReleasesRole(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, NotaryHosting)
 	repoName := fmt.Sprintf("%v/dockerclireleasesdelegationpulling/trusted", privateRegistryURL)
 	targetName := fmt.Sprintf("%s:latest", repoName)

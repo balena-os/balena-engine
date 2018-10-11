@@ -3033,6 +3033,9 @@ func (s *DockerSuite) TestRunPublishPort(c *check.C) {
 
 // Issue #10184.
 func (s *DockerSuite) TestDevicePermissions(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// Not applicable on Windows as uses Unix specific functionality
 	testRequires(c, DaemonIsLinux)
 	const permissions = "crw-rw-rw-"
@@ -3182,6 +3185,9 @@ func (s *DockerSuite) TestRunNetworkFilesBindMountROFilesystem(c *check.C) {
 }
 
 func (s *DockerTrustSuite) TestTrustedRun(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// Windows does not support this functionality
 	testRequires(c, DaemonIsLinux)
 	repoName := s.setupTrustedImage(c, "trusted-run")
@@ -3211,6 +3217,9 @@ func (s *DockerTrustSuite) TestUntrustedRun(c *check.C) {
 }
 
 func (s *DockerTrustSuite) TestTrustedRunFromBadTrustServer(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// Windows does not support this functionality
 	testRequires(c, DaemonIsLinux)
 	repoName := fmt.Sprintf("%v/dockerclievilrun/trusted:latest", privateRegistryURL)
@@ -3638,6 +3647,9 @@ func (s *DockerSuite) TestNetworkRmWithActiveContainers(c *check.C) {
 }
 
 func (s *DockerSuite) TestContainerRestartInMultipleNetworks(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, DaemonIsLinux, NotUserNamespace, NotArm)
 	// Create 2 networks using bridge driver
 	dockerCmd(c, "network", "create", "-d", "bridge", "testnetwork1")
@@ -4216,6 +4228,9 @@ exec "$@"`,
 }
 
 func (s *DockerDaemonSuite) TestRunWithUlimitAndDaemonDefault(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(c, "--debug", "--default-ulimit=nofile=65535")
 
 	name := "test-A"

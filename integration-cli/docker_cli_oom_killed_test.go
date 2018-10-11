@@ -8,6 +8,9 @@ import (
 )
 
 func (s *DockerSuite) TestInspectOomKilledTrue(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, DaemonIsLinux, memoryLimitSupport, swapMemorySupport)
 
 	name := "testoomkilled"
@@ -20,6 +23,9 @@ func (s *DockerSuite) TestInspectOomKilledTrue(c *check.C) {
 }
 
 func (s *DockerSuite) TestInspectOomKilledFalse(c *check.C) {
+
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	testRequires(c, DaemonIsLinux, memoryLimitSupport, swapMemorySupport)
 
 	name := "testoomkilled"

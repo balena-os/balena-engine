@@ -14,6 +14,8 @@ import (
 
 func (s *DockerRegistryAuthHtpasswdSuite) TestLogoutWithExternalAuth(c *check.C) {
 
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	// @TODO TestLogoutWithExternalAuth expects docker to fall back to a v1 registry, so has to be updated for v17.12, when v1 registries are no longer supported
 	s.d.StartWithBusybox(c, "--disable-legacy-registry=false")
 
