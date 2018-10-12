@@ -4,7 +4,7 @@
   "description": "Moby-based container engine for IoT",
   "main": "landr.conf.js",
   "devDependencies": {
-    "landr": "2.0.0-beta0.0.5"
+    "landr": "2.3.0"
   },
   "scripts": {
     "start": "landr",
