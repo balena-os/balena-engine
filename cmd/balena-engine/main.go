@@ -30,7 +30,7 @@ func main() {
 		dockerd.Main()
 	case "balena-containerd", "balena-engine-containerd":
 		containerd.Main()
-	case "balena-containerd-shim-runc-v2":
+	case "balena-containerd-shim-runc-v2", "balena-engine-containerd-shim-runc-v2":
 		containerdShimRuncV2.Main()
 	case "balena-containerd-ctr", "balena-engine-containerd-ctr":
 		ctr.Main()
