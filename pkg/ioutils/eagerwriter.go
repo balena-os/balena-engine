@@ -3,7 +3,8 @@ package ioutils
 import (
 	"io"
 	"os"
-	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 const STEP = 2 * 1024 * 1024 // 2MB
@@ -38,14 +39,14 @@ func (e *eagerFileWriter) Write(b []byte) (int, error) {
 	n, err := e.f.Write(b)
 	e.written += int64(n)
 	if e.written-e.synced > STEP {
-		syscall.SyncFileRange(int(e.f.Fd()), e.synced, STEP, SYNC_FILE_RANGE_WRITE)
+		unix.SyncFileRange(int(e.f.Fd()), e.synced, STEP, SYNC_FILE_RANGE_WRITE)
 		e.synced += STEP
 	}
 	return n, err
 }
 
 func (e *eagerFileWriter) Close() error {
-	syscall.SyncFileRange(int(e.f.Fd()), 0, 0, SYNC_FILE_RANGE_WRITE)
+	unix.SyncFileRange(int(e.f.Fd()), 0, 0, SYNC_FILE_RANGE_WRITE)
 	return e.f.Close()
 }
 
