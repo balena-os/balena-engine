@@ -23,19 +23,19 @@ func main() {
 	command := filepath.Base(os.Args[0])
 
 	switch command {
-	case "balena-engine":
+	case "balena", "balena-engine":
 		docker.Main()
-	case "balena-engine-daemon":
+	case "balenad", "balena-engine-daemon":
 		dockerd.Main()
-	case "balena-engine-containerd":
+	case "balena-containerd", "balena-engine-containerd":
 		containerd.Main()
-	case "balena-engine-containerd-shim":
+	case "balena-containerd-shim", "balena-engine-containerd-shim":
 		containerdShim.Main()
-	case "balena-engine-containerd-ctr":
+	case "balena-containerd-ctr", "balena-engine-containerd-ctr":
 		ctr.Main()
-	case "balena-engine-runc":
+	case "balena-runc", "balena-engine-runc":
 		runc.Main()
-	case "balena-engine-proxy":
+	case "balena-proxy", "balena-engine-proxy":
 		proxy.Main()
 	default:
 		fmt.Fprintf(os.Stderr, "error: unkown command: %v\n", command)
