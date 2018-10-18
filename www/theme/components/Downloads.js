@@ -66,7 +66,7 @@ const TableWrapper = styled(Flex)`
 const Table = styled.table`
   width: 100%;
 
-  > tr {
+  tr {
     > th,
     td {
       text-align: left;
