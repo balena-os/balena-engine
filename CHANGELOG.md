@@ -1,5 +1,72 @@
 # Changelog
 
+## v17.12.0 (2018-10-17)
+
+Release highlights:
+
+* Project rebranding: `balena` is now known as `balenaEngine` and all the executables now have the `balena-engine` prefix in the file name. This was a result of `resin.io` open sourcing its platform backend and renaming itself `balena.io`. The old `balena.io` landing page will shortly relocate to `balena.io/engine`.
+* This release branches off the Docker CE 17.12.0-ce release and brings along all its [new features and bug fixes](https://docs.docker.com/release-notes/docker-ce/#17120-ce-2017-12-27).
+* Build environment: Go compiler updated from version 1.9 to 1.10.
+* Several additional bug fixes and reliability improvements listed below - the first column is the commit hash prefix.
+
+`25755b0` Use Balena's fork of golang.org/x/sys/unix (ARM SyncFileRange syscall)  
+`40c33e3` Fix daemon/cluster/executor/container/ unit tests  
+`b40c26d` Rename balena to balena-engine (executables) or balenaEngine (project)  
+`3e2973d` mobynit: Add support to mount rootfs from a custom location  
+`9f4cd6a` update containerd/console to fix race: lock Cond before Signal  
+`deba4bb` delta: use chain ids to decide whether to skip a layer  
+`c87589c` version: Fix balena CLI version string  
+`9d1d910` version: Fix balena server version string  
+`3685c83` pkg/chrootarchive: disable memory cgroups until pending issues are fixed  
+`85b036b` vendor: update libnetwork to include stale default bridge fix  
+`b706f5d` pkg/ioutils: implement eager writer  
+`08b01ef` Revert "vendor: update golang/x/sys to support fadvise for arm64"  
+`60f2a21` pull: rely on memory cgroups to avoid page cache thrashing  
+`38b223b` pkg/stringid: don't bother seeding math/random with crypto grade seed  
+`f08057b` vendor: update btrfs dependency  
+`ca0ecfc` Upgrade balena to 17.12 (upstream docker)  
+`519ed00` container: remove extraneous lock leading to deadlocks  
+`2e2f9df` tests: more integration test fixes  
+`276ee9d` cmd/mobynit: adapt to new internal API  
+`8e47b09` build: switch the default build to be the dynamically linked binary  
+`137b066` tests: remove plugin support in tests  
+`64f52ee` tests: skip swarm tests  
+`e0e5db3` fix regression of DockerSuite.TestAPINetworkCreateCheckDuplicate  
+`5955d38` build: do not install embedded binaries separately  
+`a466c05` cmd/balena: exit with non-zero code if called with unknown command  
+`3a1be7a` a lot of balena rename fixes for integration tests  
+`f3b6b8a` vendor: update containerd  
+`b64eefe` build: switch to statically linked builds  
+`9ed4298` build: let the go compiler do the stripping  
+`bd23724` build: limit max go procs to avoid qemu hangs  
+`5ead292` vendor: update golang/x/sys to support fadvise for arm64  
+`0386158` build: add libudev dependency  
+`fd78fe4` vendor: update containerd to non-plugin version  
+`a1191cb` daemon/config: remove swarm support  
+`ddaa8c1` daemon: add appropriate container locks to avoid races  
+`c24bda9` healthcheck: fix docker segfaulting  
+`1cf563e` vendor: revendor everything  
+`97505a4` vendor: update vendor.conf with all required dependencies  
+`8c12415` restartmanager: fixed the unit test  
+`8af842e` tests: renamed runc to balena-runc  
+`55f4379` fixed balena version error  
+`24b643b` daemon: experimental: restart container when they become unhealthy  
+`b430038` daemon: only attempt to prune local networks since swarm is disabled  
+`eac6aa0` Updated init scripts for Balena  
+`062cf0e` Updated github hooks for balena  
+`07e8c0a` Update website copy  
+`5d81d5a` Issue template should refer to balena throughout  
+`a8846e2` updated the mock of xfer to pass unit test  
+`8f898bb` fixed integration with balena  
+`60cb5cb` Renaming target to support balena  
+`bce9bc7` Fixed the runc version test  
+`add016d` skip tests of unsopported components  
+`5d30454` fix addidental mention of balaena name instead of balena  
+`5c46120` landr: add correct feature descriptions  
+`189482e` build: temporary switch to other base images  
+`fcf3865` pkg/archive: sync files before issuing the fadvise syscall
+
+
 ## 17.06+rev1 (2017-10-13)
 
 ### Builder
