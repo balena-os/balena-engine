@@ -1,7 +1,7 @@
 balenaEngine: Moby-based container engine for IoT
 =================================================
 
-<img src="docs/static_files/balena-logo-black.svg" alt="balenaEngine" width="50%" />
+<img src="docs/static_files/balena-engine.svg" alt="balenaEngine" width="50%" />
 
 ## Overview
 
