@@ -1,6 +1,6 @@
 # Getting started with balenaEngine
 
-Using balenaEngine (`balena-engine`) should feel very natural to docker users
+Using balenaEngine should feel very natural to Docker users
 since it shares the same command structure.
 
 **Pulling images**
@@ -19,7 +19,7 @@ balena-engine run -it --rm resin/rpi-raspbian:jessie /bin/bash
 
 balenaEngine comes with support for container deltas, a way of computing a binary
 description of what changed between two images. A delta can be pushed to the
-standard docker registry, it has the same format as a docker image! Let's see
+standard Docker registry, it has the same format as a Docker image! Let's see
 how this works.
 
 Deltas are computed for a **target** image against a **base** image. For a
