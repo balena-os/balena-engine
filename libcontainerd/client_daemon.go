@@ -264,6 +264,7 @@ func (c *client) Start(ctx context.Context, id, checkpointDir string, withStdin 
 			info.Options = &runctypes.CreateOptions{
 				IoUid: uint32(uid),
 				IoGid: uint32(gid),
+				NoPivotRoot: os.Getenv("BALENA_ENGINE_RAMDISK") != "",
 			}
 			return nil
 		})
