@@ -807,7 +807,6 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 			imageStore: is,
 			layerStore: ls,
 		}
-		d.stores[runtime.GOOS] = *d.deltaStore
 		graphDrivers = append(graphDrivers, ls.DriverName())
 	}
 
