@@ -26,6 +26,7 @@ const maxDownloadAttempts = 5
 // layers.
 type LayerDownloadManager struct {
 	layerStores  map[string]layer.Store
+	deltaStore   layer.Store
 	tm           TransferManager
 	waitDuration time.Duration
 }
@@ -36,9 +37,10 @@ func (ldm *LayerDownloadManager) SetConcurrency(concurrency int) {
 }
 
 // NewLayerDownloadManager returns a new LayerDownloadManager.
-func NewLayerDownloadManager(layerStores map[string]layer.Store, concurrencyLimit int, options ...func(*LayerDownloadManager)) *LayerDownloadManager {
+func NewLayerDownloadManager(layerStores map[string]layer.Store, deltaStore layer.Store, concurrencyLimit int, options ...func(*LayerDownloadManager)) *LayerDownloadManager {
 	manager := LayerDownloadManager{
 		layerStores:  layerStores,
+		deltaStore:   deltaStore,
 		tm:           NewTransferManager(concurrencyLimit),
 		waitDuration: time.Second,
 	}
@@ -128,8 +130,39 @@ func (ldm *LayerDownloadManager) Download(ctx context.Context, initialRootFS ima
 			if err == nil {
 				getRootFS := rootFS
 				getRootFS.Append(diffID)
+				layerExists := false
 				l, err := ldm.layerStores[string(os)].Get(getRootFS.ChainID())
 				if err == nil {
+					layerExists = true
+				}
+				if err != nil && ldm.deltaStore != nil {
+					// try delta store
+					logrus.Debug("Trying delta store")
+					progress.Update(progressOutput, descriptor.ID(), "Trying delta store")
+					dl, err := ldm.deltaStore.Get(getRootFS.ChainID())
+					if err == nil {
+						// Layer exists in delta store
+						rc, err := dl.TarStream()
+						if err != nil {
+							logrus.Error("Error getting layer tar stream: %s", err)
+							continue
+						}
+						logrus.Debugf("Found layer in delta store: %s", dl.DiffID())
+						var parentChainID layer.ChainID
+						if parent := dl.Parent(); parent != nil {
+							parentChainID = parent.ChainID()
+						}
+						nl, err := ldm.layerStores[string(os)].Register(rc, parentChainID, os)
+						if err != nil {
+							logrus.Error("Error registering layer: %s", err)
+							continue
+						}
+						rc.Close()
+						l = nl
+						layerExists = true
+					}
+				}
+				if layerExists {
 					// Layer already exists.
 					logrus.Debugf("Layer already exists: %s", descriptor.ID())
 					progress.Update(progressOutput, descriptor.ID(), "Already exists")

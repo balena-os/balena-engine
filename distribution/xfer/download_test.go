@@ -289,7 +289,7 @@ func TestSuccessfulDownload(t *testing.T) {
 	layerStore := &mockLayerStore{make(map[layer.ChainID]*mockLayer)}
 	lsMap := make(map[string]layer.Store)
 	lsMap[runtime.GOOS] = layerStore
-	ldm := NewLayerDownloadManager(lsMap, maxDownloadConcurrency, func(m *LayerDownloadManager) { m.waitDuration = time.Millisecond })
+	ldm := NewLayerDownloadManager(lsMap, nil, maxDownloadConcurrency, func(m *LayerDownloadManager) { m.waitDuration = time.Millisecond })
 
 	progressChan := make(chan progress.Progress)
 	progressDone := make(chan struct{})
@@ -353,7 +353,7 @@ func TestCancelledDownload(t *testing.T) {
 	layerStore := &mockLayerStore{make(map[layer.ChainID]*mockLayer)}
 	lsMap := make(map[string]layer.Store)
 	lsMap[runtime.GOOS] = layerStore
-	ldm := NewLayerDownloadManager(lsMap, maxDownloadConcurrency, func(m *LayerDownloadManager) { m.waitDuration = time.Millisecond })
+	ldm := NewLayerDownloadManager(lsMap, nil, maxDownloadConcurrency, func(m *LayerDownloadManager) { m.waitDuration = time.Millisecond })
 
 	progressChan := make(chan progress.Progress)
 	progressDone := make(chan struct{})

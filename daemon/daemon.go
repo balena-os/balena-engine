@@ -774,6 +774,7 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 		graphDrivers = append(graphDrivers, ls.DriverName())
 	}
 
+	var deltaLayerStore layer.Store
 	if config.DeltaRoot != "" && config.DeltaGraphDriver != "" {
 		ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
 			StorePath:                 config.DeltaRoot,
@@ -808,6 +809,7 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 			layerStore: ls,
 		}
 		graphDrivers = append(graphDrivers, ls.DriverName())
+		deltaLayerStore = d.deltaStore.layerStore
 	}
 
 	// Configure and validate the kernels security support
@@ -820,7 +822,7 @@ func NewDaemon(config *config.Config, registryService registry.Service, containe
 	for operatingSystem, ds := range d.stores {
 		lsMap[operatingSystem] = ds.layerStore
 	}
-	d.downloadManager = xfer.NewLayerDownloadManager(lsMap, *config.MaxConcurrentDownloads)
+	d.downloadManager = xfer.NewLayerDownloadManager(lsMap, deltaLayerStore, *config.MaxConcurrentDownloads)
 	logrus.Debugf("Max Concurrent Uploads: %d", *config.MaxConcurrentUploads)
 	d.uploadManager = xfer.NewLayerUploadManager(*config.MaxConcurrentUploads)
 	for operatingSystem, ds := range d.stores {
