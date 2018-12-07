@@ -1,9 +1,9 @@
 package rootfs
 
 import (
-	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/containerd/containerd/diff"
