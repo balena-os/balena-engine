@@ -105,12 +105,16 @@ func (d *imageRouter) postImagesDelta(ctx context.Context, w http.ResponseWriter
 	deltaSrc := r.Form.Get("src")
 	deltaDest := r.Form.Get("dest")
 
+	deltaOptions := types.ImageDeltaOptions{
+		Tag: r.Form.Get("t"),
+	}
+
 	output := ioutils.NewWriteFlusher(w)
 	defer output.Close()
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if err := d.backend.DeltaCreate(deltaSrc, deltaDest, output); err != nil {
+	if err := d.backend.DeltaCreate(deltaSrc, deltaDest, deltaOptions, output); err != nil {
 		if !output.Flushed() {
 			return err
 		}
