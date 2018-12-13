@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/docker/distribution/reference"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
@@ -380,7 +381,7 @@ func verifyNetworkingConfig(nwConfig *networktypes.NetworkingConfig) error {
 
 // DeltaCreate creates a delta of the specified src and dest images
 // This is called directly from the Engine API
-func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Writer) error {
+func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.ImageDeltaOptions, outStream io.Writer) error {
 	progressOutput := streamformatter.NewJSONProgressOutput(outStream, false)
 
 	srcImg, err := daemon.GetImage(deltaSrc)
@@ -585,5 +586,27 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 
 	outStream.Write(streamformatter.FormatStatus("", "Normal size: %s, Delta size: %s, %.2fx improvement", humanTotal, humanDelta, deltaRatio))
 	outStream.Write(streamformatter.FormatStatus("", "Created delta: %s", id.String()))
+
+	if options.Tag == "" {
+		return nil
+	}
+
+	ref, err := reference.ParseNormalizedNamed(options.Tag)
+	if err != nil {
+		return err
+	}
+
+	if _, isCanonical := ref.(reference.Canonical); isCanonical {
+		return errors.New("build tag cannot contain a digest")
+	}
+
+	ref = reference.TagNameOnly(ref)
+
+	if err := daemon.TagImageWithReference(id, runtime.GOOS, ref); err != nil {
+		return err
+	}
+	logrus.Debugf("Tagged delta %s with %s", id.String(), reference.FamiliarString(ref))
+	outStream.Write(streamformatter.FormatStatus("", "Successfully tagged %s\n", reference.FamiliarString(ref)))
+
 	return nil
 }
