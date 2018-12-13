@@ -224,6 +224,11 @@ type ImageCreateOptions struct {
 	Platform     string // Platform is the target platform of the image if it needs to be pulled from the registry.
 }
 
+// ImageDeltaOptions holds information to create image deltas
+type ImageDeltaOptions struct {
+	Tag string
+}
+
 // ImageImportSource holds source information for ImageImport
 type ImageImportSource struct {
 	Source     io.Reader // Source is the data to send to the server to create this image from. You must set SourceName to "-" to leverage this.
