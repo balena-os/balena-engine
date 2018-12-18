@@ -19,6 +19,7 @@ import (
 	versionCmd "github.com/containerd/containerd/cmd/ctr/commands/version"
 	"github.com/containerd/containerd/defaults"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/pkg/seed"
 	"github.com/containerd/containerd/version"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
@@ -34,6 +35,8 @@ func init() {
 	cli.VersionPrinter = func(c *cli.Context) {
 		fmt.Println(c.App.Name, version.Package, c.App.Version)
 	}
+
+	seed.WithTimeAndRand()
 }
 
 func Main() {

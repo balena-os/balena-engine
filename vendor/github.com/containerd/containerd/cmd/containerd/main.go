@@ -15,6 +15,7 @@ import (
 	gocontext "golang.org/x/net/context"
 
 	"github.com/containerd/containerd/log"
+	"github.com/containerd/containerd/pkg/seed"
 	"github.com/containerd/containerd/server"
 	"github.com/containerd/containerd/sys"
 	"github.com/containerd/containerd/version"
@@ -40,6 +41,8 @@ func init() {
 	cli.VersionPrinter = func(c *cli.Context) {
 		fmt.Println(c.App.Name, version.Package, c.App.Version, version.Revision)
 	}
+
+	seed.WithTimeAndRand()
 }
 
 func Main() {
