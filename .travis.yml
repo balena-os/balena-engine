@@ -1,0 +1,26 @@
+language: go
+go:
+  - 1.10.4
+  # - 1.11.4
+
+branches:
+  except:
+    - gh-pages
+    - /^(.*)-build-[a-f0-9]{40}$/
+
+sudo: required
+services:
+  - docker
+
+before_install:
+  - docker version
+
+before_script:
+  # prevent legacy integration tests from running to not exeed travis job time limit
+  - sed -i -e '/run_test_integration_legacy_suites$/ s/^/#/' hack/make/.integration-test-helpers
+
+script:
+  - make test-unit
+  - make test-integration
+  - docker build -f Dockerfile.build.x86_64 -t balena-engine-build-x86_64 .
+  - docker run --rm -v "$(pwd):/balena-engine" balena-engine-build-x86_64 ./build.sh
