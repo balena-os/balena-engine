@@ -3,6 +3,7 @@ package gelf
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -84,21 +85,29 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 			m.Extra[k] = v
 			continue
 		}
+
+		ok := true
 		switch k {
 		case "version":
-			m.Version = v.(string)
+			m.Version, ok = v.(string)
 		case "host":
-			m.Host = v.(string)
+			m.Host, ok = v.(string)
 		case "short_message":
-			m.Short = v.(string)
+			m.Short, ok = v.(string)
 		case "full_message":
-			m.Full = v.(string)
+			m.Full, ok = v.(string)
 		case "timestamp":
-			m.TimeUnix = v.(float64)
+			m.TimeUnix, ok = v.(float64)
 		case "level":
-			m.Level = int32(v.(float64))
+			var level float64
+			level, ok = v.(float64)
+			m.Level = int32(level)
 		case "facility":
-			m.Facility = v.(string)
+			m.Facility, ok = v.(string)
+		}
+
+		if !ok {
+			return fmt.Errorf("invalid type for field %s", k)
 		}
 	}
 	return nil
