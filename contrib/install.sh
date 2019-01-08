@@ -33,15 +33,44 @@ case "$machine" in
 		arch="x86_64"
 		;;
 	*)
-		echo "Unknown machine type: $machine"
+		echo "Unknown machine type: $machine" >&2
 		exit 1
 esac
 
 url="https://github.com/balena-os/balena-engine/releases/download/${tag}/balena-engine-${tag}-${arch}.tar.gz"
 
-curl -sL "$url" | sudo tar xzv -C /usr/local/bin --strip-components=1
+sudo=
+if [[ $(id -u) -ne 0 ]]; then
+	if [[ $(command -v sudo) ]]; then
+		sudo='sudo -E'
+	fi
+	if [[ $(command -v su) ]]; then
+		sudo='su -c'
+	fi
+	if [[ -z $sudo ]]; then
+		cat >&2 <<-EOF
+		Error: this installer needs the ability to run commands as root.
+		We are unable to find either "sudo" or "su" available to make this happen.
+		EOF
+		exit 1
+	fi
+fi
 
-cat <<EOF
+# check for curl and tar
+abort=0
+for cmd in curl tar; do
+	if [[ -z $(command -v $cmd) ]]; then
+		cat >&2 <<-EOF
+		Error: unable to find required command: $cmd
+		EOF
+		abort=1
+	fi
+done
+[ $abort ] && exit 1
+
+curl -sL "$url" | $sudo tar xzv -C /usr/local/bin --strip-components=1
+
+cat <<-EOF
 
 
    Installation successful!
