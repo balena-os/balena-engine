@@ -4,6 +4,12 @@
 
 Release highlights:
 
+# v17.12.1
+## (2019-01-14)
+
+* docs: Fix Docker capitalisation in balenaEngine docs [Paulo Castro]
+* Update balenaEngine logo in README.md [Paulo Castro]
+
 * Project rebranding: `balena` is now known as `balenaEngine` and all the executables now have the `balena-engine` prefix in the file name. This was a result of `resin.io` open sourcing its platform backend and renaming itself `balena.io`. The old `balena.io` landing page will shortly relocate to `balena.io/engine`.
 * This release branches off the Docker CE 17.12.0-ce release and brings along all its [new features and bug fixes](https://docs.docker.com/release-notes/docker-ce/#17120-ce-2017-12-27).
 * Build environment: Go compiler updated from version 1.9 to 1.10.
