@@ -3,6 +3,7 @@ package image
 import (
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/spf13/cobra"
 	"golang.org/x/net/context"
@@ -11,11 +12,12 @@ import (
 type deltaOptions struct {
 	src  string
 	dest string
+	tag  string
 }
 
 // NewDeltaCommand creates a new `docker delta` command
 func NewDeltaCommand(dockerCli command.Cli) *cobra.Command {
-	var options deltaOptions
+	var options = deltaOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "delta [OPTIONS] SRC_IMAGE DEST_IMAGE",
@@ -28,13 +30,21 @@ func NewDeltaCommand(dockerCli command.Cli) *cobra.Command {
 		},
 	}
 
+	flags := cmd.Flags()
+	flags.StringVar(&options.tag, "tag", "t", "Name and optionally a tag in the 'name:tag' format")
+	command.AddTrustVerificationFlags(flags)
+
 	return cmd
 }
 
 func runDelta(dockerCli command.Cli, options deltaOptions) error {
 	clnt := dockerCli.Client()
 
-	responseBody, err := clnt.ImageDelta(context.Background(), options.src, options.dest)
+	deltaOpts := types.ImageDeltaOptions{
+		Tag: options.tag,
+	}
+
+	responseBody, err := clnt.ImageDelta(context.Background(), options.src, options.dest, deltaOpts)
 	if err != nil {
 		return err
 	}
