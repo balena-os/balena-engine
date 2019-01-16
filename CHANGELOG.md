@@ -4,6 +4,12 @@
 
 Release highlights:
 
+# v17.13.0
+## (2019-01-16)
+
+* Add cli for tagging delta images [Robert Günzler]
+* Allow tagging of image deltas on creation [Robert Günzler]
+
 # v17.12.1
 ## (2019-01-14)
 
