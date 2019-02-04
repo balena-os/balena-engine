@@ -1,4 +1,4 @@
-package plugin
+package plugin // import "github.com/docker/docker/plugin"
 
 import (
 	"encoding/json"
@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -25,7 +24,7 @@ import (
 	"github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/registry"
 	"github.com/opencontainers/go-digest"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -38,14 +37,14 @@ var validFullID = regexp.MustCompile(`^([a-f0-9]{64})$`)
 // Executor is the interface that the plugin manager uses to interact with for starting/stopping plugins
 type Executor interface {
 	Create(id string, spec specs.Spec, stdout, stderr io.WriteCloser) error
-	Restore(id string, stdout, stderr io.WriteCloser) error
 	IsRunning(id string) (bool, error)
+	Restore(id string, stdout, stderr io.WriteCloser) (alive bool, err error)
 	Signal(id string, signal int) error
 }
 
-func (pm *Manager) restorePlugin(p *v2.Plugin) error {
+func (pm *Manager) restorePlugin(p *v2.Plugin, c *controller) error {
 	if p.IsEnabled() {
-		return pm.restore(p)
+		return pm.restore(p, c)
 	}
 	return nil
 }
@@ -112,11 +111,6 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 			return nil, errors.Wrapf(err, "failed to mkdir %v", dirName)
 		}
 	}
-
-	if err := setupRoot(manager.config.Root); err != nil {
-		return nil, err
-	}
-
 	var err error
 	manager.executor, err = config.CreateExecutor(manager)
 	if err != nil {
@@ -149,28 +143,25 @@ func (pm *Manager) HandleExitEvent(id string) error {
 		return err
 	}
 
-	os.RemoveAll(filepath.Join(pm.config.ExecRoot, id))
-
-	if p.PropagatedMount != "" {
-		if err := mount.Unmount(p.PropagatedMount); err != nil {
-			logrus.Warnf("Could not unmount %s: %v", p.PropagatedMount, err)
-		}
-		propRoot := filepath.Join(filepath.Dir(p.Rootfs), "propagated-mount")
-		if err := mount.Unmount(propRoot); err != nil {
-			logrus.Warn("Could not unmount %s: %v", propRoot, err)
-		}
+	if err := os.RemoveAll(filepath.Join(pm.config.ExecRoot, id)); err != nil && !os.IsNotExist(err) {
+		logrus.WithError(err).WithField("id", id).Error("Could not remove plugin bundle dir")
 	}
 
 	pm.mu.RLock()
 	c := pm.cMap[p]
 	if c.exitChan != nil {
 		close(c.exitChan)
+		c.exitChan = nil // ignore duplicate events (containerd issue #2299)
 	}
 	restart := c.restart
 	pm.mu.RUnlock()
 
 	if restart {
 		pm.enable(p, c, true)
+	} else {
+		if err := mount.RecursiveUnmount(filepath.Join(pm.config.Root, id)); err != nil {
+			return errors.Wrap(err, "error cleaning up plugin mounts")
+		}
 	}
 	return nil
 }
@@ -217,12 +208,15 @@ func (pm *Manager) reload() error { // todo: restore
 	var wg sync.WaitGroup
 	wg.Add(len(plugins))
 	for _, p := range plugins {
-		c := &controller{} // todo: remove this
+		c := &controller{exitChan: make(chan bool)}
+		pm.mu.Lock()
 		pm.cMap[p] = c
+		pm.mu.Unlock()
+
 		go func(p *v2.Plugin) {
 			defer wg.Done()
-			if err := pm.restorePlugin(p); err != nil {
-				logrus.Errorf("failed to restore plugin '%s': %s", p.Name(), err)
+			if err := pm.restorePlugin(p, c); err != nil {
+				logrus.WithError(err).WithField("id", p.GetID()).Error("Failed to restore plugin")
 				return
 			}
 
@@ -239,27 +233,16 @@ func (pm *Manager) reload() error { // todo: restore
 						// check if we need to migrate an older propagated mount from before
 						// these mounts were stored outside the plugin rootfs
 						if _, err := os.Stat(propRoot); os.IsNotExist(err) {
-							if _, err := os.Stat(p.PropagatedMount); err == nil {
-								// make sure nothing is mounted here
-								// don't care about errors
-								mount.Unmount(p.PropagatedMount)
-								if err := os.Rename(p.PropagatedMount, propRoot); err != nil {
+							rootfsProp := filepath.Join(p.Rootfs, p.PluginObj.Config.PropagatedMount)
+							if _, err := os.Stat(rootfsProp); err == nil {
+								if err := os.Rename(rootfsProp, propRoot); err != nil {
 									logrus.WithError(err).WithField("dir", propRoot).Error("error migrating propagated mount storage")
-								}
-								if err := os.MkdirAll(p.PropagatedMount, 0755); err != nil {
-									logrus.WithError(err).WithField("dir", p.PropagatedMount).Error("error migrating propagated mount storage")
 								}
 							}
 						}
 
 						if err := os.MkdirAll(propRoot, 0755); err != nil {
 							logrus.Errorf("failed to create PropagatedMount directory at %s: %v", propRoot, err)
-						}
-						// TODO: sanitize PropagatedMount and prevent breakout
-						p.PropagatedMount = filepath.Join(p.Rootfs, p.PluginObj.Config.PropagatedMount)
-						if err := os.MkdirAll(p.PropagatedMount, 0755); err != nil {
-							logrus.Errorf("failed to create PropagatedMount directory at %s: %v", p.PropagatedMount, err)
-							return
 						}
 					}
 				}
@@ -271,7 +254,7 @@ func (pm *Manager) reload() error { // todo: restore
 			if requiresManualRestore {
 				// if liveRestore is not enabled, the plugin will be stopped now so we should enable it
 				if err := pm.enable(p, c, true); err != nil {
-					logrus.Errorf("failed to enable plugin '%s': %s", p.Name(), err)
+					logrus.WithError(err).WithField("id", p.GetID()).Error("failed to enable plugin")
 				}
 			}
 		}(p)
@@ -375,22 +358,17 @@ func isEqualPrivilege(a, b types.PluginPrivilege) bool {
 	return reflect.DeepEqual(a.Value, b.Value)
 }
 
-func configToRootFS(c []byte) (*image.RootFS, layer.OS, error) {
-	// TODO @jhowardmsft LCOW - Will need to revisit this. For now, calculate the operating system.
-	os := layer.OS(runtime.GOOS)
-	if system.LCOWSupported() {
-		os = "linux"
-	}
+func configToRootFS(c []byte) (*image.RootFS, error) {
 	var pluginConfig types.PluginConfig
 	if err := json.Unmarshal(c, &pluginConfig); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	// validation for empty rootfs is in distribution code
 	if pluginConfig.Rootfs == nil {
-		return nil, os, nil
+		return nil, nil
 	}
 
-	return rootFSFromPlugin(pluginConfig.Rootfs), os, nil
+	return rootFSFromPlugin(pluginConfig.Rootfs), nil
 }
 
 func rootFSFromPlugin(pluginfs *types.PluginConfigRootfs) *image.RootFS {

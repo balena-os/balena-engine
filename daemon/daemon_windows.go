@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/config"
-	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/idtools"
@@ -26,7 +25,6 @@ import (
 	winlibnetwork "github.com/docker/libnetwork/drivers/windows"
 	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/options"
-	blkiodev "github.com/opencontainers/runc/libcontainer/configs"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
@@ -47,10 +45,6 @@ func getPluginExecRoot(root string) string {
 	return filepath.Join(root, "plugins")
 }
 
-func getBlkioWeightDevices(config *containertypes.HostConfig) ([]blkiodev.WeightDevice, error) {
-	return nil, nil
-}
-
 func (daemon *Daemon) parseSecurityOpt(container *container.Container, hostConfig *containertypes.HostConfig) error {
 	return parseSecurityOpt(container, hostConfig)
 }
@@ -59,7 +53,7 @@ func parseSecurityOpt(container *container.Container, config *containertypes.Hos
 	return nil
 }
 
-func (daemon *Daemon) getLayerInit() func(containerfs.ContainerFS) error {
+func setupInitLayer(idMapping *idtools.IdentityMapping) func(containerfs.ContainerFS) error {
 	return nil
 }
 
@@ -212,12 +206,6 @@ func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.
 	return warnings, err
 }
 
-// reloadPlatform updates configuration with platform specific options
-// and updates the passed attributes
-func (daemon *Daemon) reloadPlatform(config *config.Config, attributes map[string]string) error {
-	return nil
-}
-
 // verifyDaemonSettings performs validation of daemon config struct
 func verifyDaemonSettings(config *config.Config) error {
 	return nil
@@ -267,7 +255,7 @@ func ensureServicesInstalled(services []string) error {
 }
 
 // configureKernelSecuritySupport configures and validate security support for the kernel
-func configureKernelSecuritySupport(config *config.Config, driverNames []string) error {
+func configureKernelSecuritySupport(config *config.Config, driverName string) error {
 	return nil
 }
 
@@ -477,11 +465,11 @@ func (daemon *Daemon) cleanupMounts() error {
 	return nil
 }
 
-func setupRemappedRoot(config *config.Config) (*idtools.IDMappings, error) {
-	return &idtools.IDMappings{}, nil
+func setupRemappedRoot(config *config.Config) (*idtools.IdentityMapping, error) {
+	return &idtools.IdentityMapping{}, nil
 }
 
-func setupDaemonRoot(config *config.Config, rootDir string, rootIDs idtools.IDPair) error {
+func setupDaemonRoot(config *config.Config, rootDir string, rootIdentity idtools.Identity) error {
 	config.Root = rootDir
 	// Create the root directory if it doesn't exists
 	if err := system.MkdirAllWithACL(config.Root, 0, system.SddlAdministratorsLocalSystem); err != nil {
@@ -640,25 +628,7 @@ func (daemon *Daemon) setDefaultIsolation() error {
 	return nil
 }
 
-func rootFSToAPIType(rootfs *image.RootFS) types.RootFS {
-	var layers []string
-	for _, l := range rootfs.DiffIDs {
-		layers = append(layers, l.String())
-	}
-	return types.RootFS{
-		Type:   rootfs.Type,
-		Layers: layers,
-	}
-}
-
 func setupDaemonProcess(config *config.Config) error {
-	return nil
-}
-
-// verifyVolumesInfo is a no-op on windows.
-// This is called during daemon initialization to migrate volumes from pre-1.7.
-// volumes were not supported on windows pre-1.7
-func (daemon *Daemon) verifyVolumesInfo(container *container.Container) error {
 	return nil
 }
 
@@ -682,4 +652,7 @@ func (daemon *Daemon) loadRuntimes() error {
 
 func (daemon *Daemon) initRuntimes(_ map[string]types.Runtime) error {
 	return nil
+}
+
+func setupResolvConf(config *config.Config) {
 }

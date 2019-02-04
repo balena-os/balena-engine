@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package docker
 
 import (
@@ -11,6 +27,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/containerd/containerd/images"
@@ -36,6 +53,7 @@ var (
 
 type dockerResolver struct {
 	credentials func(string) (string, string, error)
+	host        func(string) (string, error)
 	plainHTTP   bool
 	client      *http.Client
 	tracker     StatusTracker
@@ -47,6 +65,9 @@ type ResolverOptions struct {
 	// If username is empty but a secret is given, that secret
 	// is interpretted as a long lived token.
 	Credentials func(string) (string, string, error)
+
+	// Host provides the hostname given a namespace.
+	Host func(string) (string, error)
 
 	// PlainHTTP specifies to use plain http and not https
 	PlainHTTP bool
@@ -60,14 +81,27 @@ type ResolverOptions struct {
 	Tracker StatusTracker
 }
 
+// DefaultHost is the default host function.
+func DefaultHost(ns string) (string, error) {
+	if ns == "docker.io" {
+		return "registry-1.docker.io", nil
+	}
+	return ns, nil
+}
+
 // NewResolver returns a new resolver to a Docker registry
 func NewResolver(options ResolverOptions) remotes.Resolver {
 	tracker := options.Tracker
 	if tracker == nil {
 		tracker = NewInMemoryTracker()
 	}
+	host := options.Host
+	if host == nil {
+		host = DefaultHost
+	}
 	return &dockerResolver{
 		credentials: options.Credentials,
+		host:        host,
 		plainHTTP:   options.PlainHTTP,
 		client:      options.Client,
 		tracker:     tracker,
@@ -136,6 +170,9 @@ func (r *dockerResolver) Resolve(ctx context.Context, ref string) (string, ocisp
 		log.G(ctx).Debug("resolving")
 		resp, err := fetcher.doRequestWithRetries(ctx, req, nil)
 		if err != nil {
+			if errors.Cause(err) == ErrInvalidAuthorization {
+				err = errors.Wrapf(err, "pull access denied, repository does not exist or may require authorization")
+			}
 			return "", ocispec.Descriptor{}, err
 		}
 		resp.Body.Close() // don't care about body contents.
@@ -234,12 +271,12 @@ func (r *dockerResolver) Pusher(ctx context.Context, ref string) (remotes.Pusher
 type dockerBase struct {
 	refspec reference.Spec
 	base    url.URL
-	token   string
 
-	client   *http.Client
-	useBasic bool
-	username string
-	secret   string
+	client           *http.Client
+	useBasic         bool
+	username, secret string
+	token            string
+	mu               sync.Mutex
 }
 
 func (r *dockerResolver) base(refspec reference.Spec) (*dockerBase, error) {
@@ -250,16 +287,17 @@ func (r *dockerResolver) base(refspec reference.Spec) (*dockerBase, error) {
 	)
 
 	host := refspec.Hostname()
-	base.Scheme = "https"
-
-	if host == "docker.io" {
-		base.Host = "registry-1.docker.io"
-	} else {
-		base.Host = host
-
-		if r.plainHTTP || strings.HasPrefix(host, "localhost:") {
-			base.Scheme = "http"
+	base.Host = host
+	if r.host != nil {
+		base.Host, err = r.host(host)
+		if err != nil {
+			return nil, err
 		}
+	}
+
+	base.Scheme = "https"
+	if r.plainHTTP || strings.HasPrefix(base.Host, "localhost:") {
+		base.Scheme = "http"
 	}
 
 	if r.credentials != nil {
@@ -281,6 +319,23 @@ func (r *dockerResolver) base(refspec reference.Spec) (*dockerBase, error) {
 	}, nil
 }
 
+func (r *dockerBase) getToken() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return r.token
+}
+
+func (r *dockerBase) setToken(token string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	changed := r.token != token
+	r.token = token
+
+	return changed
+}
+
 func (r *dockerBase) url(ps ...string) string {
 	url := r.base
 	url.Path = path.Join(url.Path, path.Join(ps...))
@@ -288,10 +343,11 @@ func (r *dockerBase) url(ps ...string) string {
 }
 
 func (r *dockerBase) authorize(req *http.Request) {
+	token := r.getToken()
 	if r.useBasic {
 		req.SetBasicAuth(r.username, r.secret)
-	} else if r.token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", r.token))
+	} else if token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 }
 
@@ -339,7 +395,7 @@ func (r *dockerBase) retryRequest(ctx context.Context, req *http.Request, respon
 		for _, c := range parseAuthHeader(last.Header) {
 			if c.scheme == bearerAuth {
 				if err := invalidAuthorization(c, responses); err != nil {
-					r.token = ""
+					r.setToken("")
 					return nil, err
 				}
 				if err := r.setTokenAuth(ctx, c.parameters); err != nil {
@@ -424,19 +480,22 @@ func (r *dockerBase) setTokenAuth(ctx context.Context, params map[string]string)
 	if len(to.scopes) == 0 {
 		return errors.Errorf("no scope specified for token auth challenge")
 	}
+
+	var token string
 	if r.secret != "" {
 		// Credential information is provided, use oauth POST endpoint
-		r.token, err = r.fetchTokenWithOAuth(ctx, to)
+		token, err = r.fetchTokenWithOAuth(ctx, to)
 		if err != nil {
 			return errors.Wrap(err, "failed to fetch oauth token")
 		}
 	} else {
 		// Do request anonymously
-		r.token, err = r.getToken(ctx, to)
+		token, err = r.fetchToken(ctx, to)
 		if err != nil {
 			return errors.Wrap(err, "failed to fetch anonymous token")
 		}
 	}
+	r.setToken(token)
 
 	return nil
 }
@@ -479,8 +538,9 @@ func (r *dockerBase) fetchTokenWithOAuth(ctx context.Context, to tokenOptions) (
 
 	// Registries without support for POST may return 404 for POST /v2/token.
 	// As of September 2017, GCR is known to return 404.
-	if (resp.StatusCode == 405 && r.username != "") || resp.StatusCode == 404 {
-		return r.getToken(ctx, to)
+	// As of February 2018, JFrog Artifactory is known to return 401.
+	if (resp.StatusCode == 405 && r.username != "") || resp.StatusCode == 404 || resp.StatusCode == 401 {
+		return r.fetchToken(ctx, to)
 	} else if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		b, _ := ioutil.ReadAll(io.LimitReader(resp.Body, 64000)) // 64KB
 		log.G(ctx).WithFields(logrus.Fields{
@@ -510,7 +570,7 @@ type getTokenResponse struct {
 }
 
 // getToken fetches a token using a GET request
-func (r *dockerBase) getToken(ctx context.Context, to tokenOptions) (string, error) {
+func (r *dockerBase) fetchToken(ctx context.Context, to tokenOptions) (string, error) {
 	req, err := http.NewRequest("GET", to.realm, nil)
 	if err != nil {
 		return "", err

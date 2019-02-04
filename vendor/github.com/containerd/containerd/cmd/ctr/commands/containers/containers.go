@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package containers
 
 import (
@@ -9,7 +25,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/cmd/ctr/commands"
+	"github.com/containerd/containerd/cmd/ctr/commands/run"
 	"github.com/containerd/containerd/log"
 	"github.com/urfave/cli"
 )
@@ -20,10 +38,40 @@ var Command = cli.Command{
 	Usage:   "manage containers",
 	Aliases: []string{"c", "container"},
 	Subcommands: []cli.Command{
+		createCommand,
 		deleteCommand,
 		infoCommand,
 		listCommand,
 		setLabelsCommand,
+	},
+}
+
+var createCommand = cli.Command{
+	Name:      "create",
+	Usage:     "create container",
+	ArgsUsage: "[flags] Image|RootFS CONTAINER",
+	Flags:     append(commands.SnapshotterFlags, commands.ContainerFlags...),
+	Action: func(context *cli.Context) error {
+		var (
+			id  = context.Args().Get(1)
+			ref = context.Args().First()
+		)
+		if ref == "" {
+			return errors.New("image ref must be provided")
+		}
+		if id == "" {
+			return errors.New("container id must be provided")
+		}
+		client, ctx, cancel, err := commands.NewClient(context)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+		_, err = run.NewContainer(ctx, client, context)
+		if err != nil {
+			return err
+		}
+		return nil
 	},
 }
 
@@ -115,7 +163,6 @@ var deleteCommand = cli.Command{
 				log.G(ctx).WithError(err).Errorf("failed to delete container %q", arg)
 			}
 		}
-
 		return exitErr
 	},
 }
@@ -125,7 +172,7 @@ func deleteContainer(ctx context.Context, client *containerd.Client, id string, 
 	if err != nil {
 		return err
 	}
-	task, err := container.Task(ctx, nil)
+	task, err := container.Task(ctx, cio.Load)
 	if err != nil {
 		return container.Delete(ctx, opts...)
 	}
@@ -146,13 +193,13 @@ func deleteContainer(ctx context.Context, client *containerd.Client, id string, 
 var setLabelsCommand = cli.Command{
 	Name:        "label",
 	Usage:       "set and clear labels for a container",
-	ArgsUsage:   "[flags] <name> [<key>=<value>, ...]",
+	ArgsUsage:   "[flags] CONTAINER [<key>=<value>, ...]",
 	Description: "set and clear labels for a container",
 	Flags:       []cli.Flag{},
 	Action: func(context *cli.Context) error {
 		containerID, labels := commands.ObjectWithLabelArgs(context)
 		if containerID == "" {
-			return errors.New("please specify a container")
+			return errors.New("container id must be provided")
 		}
 		client, ctx, cancel, err := commands.NewClient(context)
 		if err != nil {

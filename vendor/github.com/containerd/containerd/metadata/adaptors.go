@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package metadata
 
 import (
@@ -7,6 +23,7 @@ import (
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/filters"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/leases"
 )
 
 func adaptImage(o interface{}) filters.Adaptor {
@@ -97,6 +114,23 @@ func adaptContentStatus(status content.Status) filters.Adaptor {
 		switch fieldpath[0] {
 		case "ref":
 			return status.Ref, true
+		}
+
+		return "", false
+	})
+}
+
+func adaptLease(lease leases.Lease) filters.Adaptor {
+	return filters.AdapterFunc(func(fieldpath []string) (string, bool) {
+		if len(fieldpath) == 0 {
+			return "", false
+		}
+
+		switch fieldpath[0] {
+		case "id":
+			return lease.ID, len(lease.ID) > 0
+		case "labels":
+			return checkMap(fieldpath[1:], lease.Labels)
 		}
 
 		return "", false

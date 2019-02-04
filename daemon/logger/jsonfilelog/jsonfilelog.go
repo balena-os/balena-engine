@@ -1,7 +1,7 @@
 // Package jsonfilelog provides the default Logger implementation for
 // Docker logging. This logger logs to files on the host server in the
 // JSON format.
-package jsonfilelog
+package jsonfilelog // import "github.com/docker/docker/daemon/logger/jsonfilelog"
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/logger/jsonfilelog/jsonlog"
 	"github.com/docker/docker/daemon/logger/loggerutils"
-	units "github.com/docker/go-units"
+	"github.com/docker/go-units"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -27,6 +27,7 @@ type JSONFileLogger struct {
 	closed  bool
 	writer  *loggerutils.LogFile
 	readers map[*logger.LogWatcher]struct{} // stores the active log followers
+	tag     string                          // tag values requested by the user to log
 }
 
 func init() {
@@ -48,6 +49,9 @@ func New(info logger.Info) (logger.Logger, error) {
 		if err != nil {
 			return nil, err
 		}
+		if capval <= 0 {
+			return nil, fmt.Errorf("max-size should be a positive numbler")
+		}
 	}
 	var maxFiles = 1
 	if maxFileString, ok := info.Config["max-file"]; ok {
@@ -61,11 +65,33 @@ func New(info logger.Info) (logger.Logger, error) {
 		}
 	}
 
-	var extra []byte
+	var compress bool
+	if compressString, ok := info.Config["compress"]; ok {
+		var err error
+		compress, err = strconv.ParseBool(compressString)
+		if err != nil {
+			return nil, err
+		}
+		if compress && (maxFiles == 1 || capval == -1) {
+			return nil, fmt.Errorf("compress cannot be true when max-file is less than 2 or max-size is not set")
+		}
+	}
+
 	attrs, err := info.ExtraAttributes(nil)
 	if err != nil {
 		return nil, err
 	}
+
+	// no default template. only use a tag if the user asked for it
+	tag, err := loggerutils.ParseLogTag(info, "")
+	if err != nil {
+		return nil, err
+	}
+	if tag != "" {
+		attrs["tag"] = tag
+	}
+
+	var extra []byte
 	if len(attrs) > 0 {
 		var err error
 		extra, err = json.Marshal(attrs)
@@ -84,7 +110,7 @@ func New(info logger.Info) (logger.Logger, error) {
 		return b, nil
 	}
 
-	writer, err := loggerutils.NewLogFile(info.LogPath, capval, maxFiles, marshalFunc, decodeFunc)
+	writer, err := loggerutils.NewLogFile(info.LogPath, capval, maxFiles, compress, marshalFunc, decodeFunc, 0640, getTailReader)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +118,7 @@ func New(info logger.Info) (logger.Logger, error) {
 	return &JSONFileLogger{
 		writer:  writer,
 		readers: make(map[*logger.LogWatcher]struct{}),
+		tag:     tag,
 	}, nil
 }
 
@@ -105,7 +132,7 @@ func (l *JSONFileLogger) Log(msg *logger.Message) error {
 
 func marshalMessage(msg *logger.Message, extra json.RawMessage, buf *bytes.Buffer) error {
 	logLine := msg.Line
-	if !msg.Partial {
+	if msg.PLogMetaData == nil || (msg.PLogMetaData != nil && msg.PLogMetaData.Last) {
 		logLine = append(msg.Line, '\n')
 	}
 	err := (&jsonlog.JSONLogs{
@@ -127,19 +154,16 @@ func ValidateLogOpt(cfg map[string]string) error {
 		switch key {
 		case "max-file":
 		case "max-size":
+		case "compress":
 		case "labels":
 		case "env":
 		case "env-regex":
+		case "tag":
 		default:
 			return fmt.Errorf("unknown log opt '%s' for json-file log driver", key)
 		}
 	}
 	return nil
-}
-
-// LogPath returns the location the given json logger logs to.
-func (l *JSONFileLogger) LogPath() string {
-	return l.writer.LogPath()
 }
 
 // Close closes underlying file and signals all readers to stop.

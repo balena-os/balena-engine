@@ -3,15 +3,13 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/docker/docker/integration-cli/checker"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/go-check/check"
-	"github.com/gotestyourself/gotestyourself/icmd"
 	"golang.org/x/sys/unix"
+	"gotest.tools/icmd"
 )
 
 // TestDaemonRestartWithPluginEnabled tests state restore for an enabled plugin
@@ -213,12 +211,6 @@ func (s *DockerDaemonSuite) TestVolumePlugin(c *check.C) {
 	if err != nil {
 		c.Fatalf("Could not install plugin: %v %s", err, out)
 	}
-	pluginID, err := s.d.Cmd("plugin", "inspect", "-f", "{{.Id}}", pName)
-	pluginID = strings.TrimSpace(pluginID)
-	if err != nil {
-		c.Fatalf("Could not retrieve plugin ID: %v %s", err, pluginID)
-	}
-	mountpointPrefix := filepath.Join(s.d.RootDir(), "plugins", pluginID, "rootfs")
 	defer func() {
 		if out, err := s.d.Cmd("plugin", "disable", pName); err != nil {
 			c.Fatalf("Could not disable plugin: %v %s", err, out)
@@ -227,11 +219,6 @@ func (s *DockerDaemonSuite) TestVolumePlugin(c *check.C) {
 		if out, err := s.d.Cmd("plugin", "remove", pName); err != nil {
 			c.Fatalf("Could not remove plugin: %v %s", err, out)
 		}
-
-		exists, err := existsMountpointWithPrefix(mountpointPrefix)
-		c.Assert(err, checker.IsNil)
-		c.Assert(exists, checker.Equals, false)
-
 	}()
 
 	out, err = s.d.Cmd("volume", "create", "-d", pName, volName)
@@ -251,41 +238,11 @@ func (s *DockerDaemonSuite) TestVolumePlugin(c *check.C) {
 	c.Assert(out, checker.Contains, volName)
 	c.Assert(out, checker.Contains, pName)
 
-	mountPoint, err := s.d.Cmd("volume", "inspect", volName, "--format", "{{.Mountpoint}}")
-	if err != nil {
-		c.Fatalf("Could not inspect volume: %v %s", err, mountPoint)
-	}
-	mountPoint = strings.TrimSpace(mountPoint)
-
 	out, err = s.d.Cmd("run", "--rm", "-v", volName+":"+destDir, "busybox", "touch", destDir+destFile)
-	c.Assert(err, checker.IsNil, check.Commentf(out))
-	path := filepath.Join(s.d.RootDir(), "plugins", pluginID, "rootfs", mountPoint, destFile)
-	_, err = os.Lstat(path)
-	c.Assert(err, checker.IsNil)
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 
-	exists, err := existsMountpointWithPrefix(mountpointPrefix)
-	c.Assert(err, checker.IsNil)
-	c.Assert(exists, checker.Equals, true)
-}
-
-func (s *DockerDaemonSuite) TestGraphdriverPlugin(c *check.C) {
-	c.Skip("Plugins aren't supported")
-
-	testRequires(c, Network, IsAmd64, DaemonIsLinux, overlay2Supported, ExperimentalDaemon)
-
-	s.d.Start(c)
-
-	// install the plugin
-	plugin := "cpuguy83/docker-overlay2-graphdriver-plugin"
-	out, err := s.d.Cmd("plugin", "install", "--grant-all-permissions", plugin)
-	c.Assert(err, checker.IsNil, check.Commentf(out))
-
-	// restart the daemon with the plugin set as the storage driver
-	s.d.Restart(c, "-s", plugin, "--storage-opt", "overlay2.override_kernel_check=1")
-
-	// run a container
-	out, err = s.d.Cmd("run", "--rm", "busybox", "true") // this will pull busybox using the plugin
-	c.Assert(err, checker.IsNil, check.Commentf(out))
+	out, err = s.d.Cmd("run", "--rm", "-v", volName+":"+destDir, "busybox", "ls", destDir+destFile)
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 }
 
 func (s *DockerDaemonSuite) TestPluginVolumeRemoveOnRestart(c *check.C) {
@@ -296,30 +253,30 @@ func (s *DockerDaemonSuite) TestPluginVolumeRemoveOnRestart(c *check.C) {
 	s.d.Start(c, "--live-restore=true")
 
 	out, err := s.d.Cmd("plugin", "install", "--grant-all-permissions", pName)
-	c.Assert(err, checker.IsNil, check.Commentf(out))
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 	c.Assert(strings.TrimSpace(out), checker.Contains, pName)
 
 	out, err = s.d.Cmd("volume", "create", "--driver", pName, "test")
-	c.Assert(err, checker.IsNil, check.Commentf(out))
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 
 	s.d.Restart(c, "--live-restore=true")
 
 	out, err = s.d.Cmd("plugin", "disable", pName)
-	c.Assert(err, checker.NotNil, check.Commentf(out))
+	c.Assert(err, checker.NotNil, check.Commentf("%s", out))
 	c.Assert(out, checker.Contains, "in use")
 
 	out, err = s.d.Cmd("volume", "rm", "test")
-	c.Assert(err, checker.IsNil, check.Commentf(out))
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 
 	out, err = s.d.Cmd("plugin", "disable", pName)
-	c.Assert(err, checker.IsNil, check.Commentf(out))
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 
 	out, err = s.d.Cmd("plugin", "rm", pName)
-	c.Assert(err, checker.IsNil, check.Commentf(out))
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 }
 
 func existsMountpointWithPrefix(mountpointPrefix string) (bool, error) {
-	mounts, err := mount.GetMounts()
+	mounts, err := mount.GetMounts(nil)
 	if err != nil {
 		return false, err
 	}
@@ -339,7 +296,7 @@ func (s *DockerDaemonSuite) TestPluginListFilterEnabled(c *check.C) {
 	s.d.Start(c)
 
 	out, err := s.d.Cmd("plugin", "install", "--grant-all-permissions", pNameWithTag, "--disable")
-	c.Assert(err, check.IsNil, check.Commentf(out))
+	c.Assert(err, check.IsNil, check.Commentf("%s", out))
 
 	defer func() {
 		if out, err := s.d.Cmd("plugin", "remove", pNameWithTag); err != nil {
@@ -348,16 +305,16 @@ func (s *DockerDaemonSuite) TestPluginListFilterEnabled(c *check.C) {
 	}()
 
 	out, err = s.d.Cmd("plugin", "ls", "--filter", "enabled=true")
-	c.Assert(err, checker.IsNil)
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 	c.Assert(out, checker.Not(checker.Contains), pName)
 
 	out, err = s.d.Cmd("plugin", "ls", "--filter", "enabled=false")
-	c.Assert(err, checker.IsNil)
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 	c.Assert(out, checker.Contains, pName)
 	c.Assert(out, checker.Contains, "false")
 
 	out, err = s.d.Cmd("plugin", "ls")
-	c.Assert(err, checker.IsNil)
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 	c.Assert(out, checker.Contains, pName)
 }
 
@@ -369,7 +326,7 @@ func (s *DockerDaemonSuite) TestPluginListFilterCapability(c *check.C) {
 	s.d.Start(c)
 
 	out, err := s.d.Cmd("plugin", "install", "--grant-all-permissions", pNameWithTag, "--disable")
-	c.Assert(err, check.IsNil, check.Commentf(out))
+	c.Assert(err, check.IsNil, check.Commentf("%s", out))
 
 	defer func() {
 		if out, err := s.d.Cmd("plugin", "remove", pNameWithTag); err != nil {
@@ -378,14 +335,14 @@ func (s *DockerDaemonSuite) TestPluginListFilterCapability(c *check.C) {
 	}()
 
 	out, err = s.d.Cmd("plugin", "ls", "--filter", "capability=volumedriver")
-	c.Assert(err, checker.IsNil)
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 	c.Assert(out, checker.Contains, pName)
 
 	out, err = s.d.Cmd("plugin", "ls", "--filter", "capability=authz")
-	c.Assert(err, checker.IsNil)
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 	c.Assert(out, checker.Not(checker.Contains), pName)
 
 	out, err = s.d.Cmd("plugin", "ls")
-	c.Assert(err, checker.IsNil)
+	c.Assert(err, checker.IsNil, check.Commentf("%s", out))
 	c.Assert(out, checker.Contains, pName)
 }

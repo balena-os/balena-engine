@@ -2,7 +2,10 @@
 
 package runc
 
-import "github.com/urfave/cli"
+import (
+	"github.com/sirupsen/logrus"
+	"github.com/urfave/cli"
+)
 
 var pauseCommand = cli.Command{
 	Name:  "pause",
@@ -18,15 +21,18 @@ Use runc list to identiy instances of containers and their current status.`,
 		if err := checkArgs(context, 1, exactArgs); err != nil {
 			return err
 		}
+		rootlessCg, err := shouldUseRootlessCgroupManager(context)
+		if err != nil {
+			return err
+		}
+		if rootlessCg {
+			logrus.Warnf("runc pause may fail if you don't have the full access to cgroups")
+		}
 		container, err := getContainer(context)
 		if err != nil {
 			return err
 		}
-		if err := container.Pause(); err != nil {
-			return err
-		}
-
-		return nil
+		return container.Pause()
 	},
 }
 
@@ -44,14 +50,17 @@ Use runc list to identiy instances of containers and their current status.`,
 		if err := checkArgs(context, 1, exactArgs); err != nil {
 			return err
 		}
+		rootlessCg, err := shouldUseRootlessCgroupManager(context)
+		if err != nil {
+			return err
+		}
+		if rootlessCg {
+			logrus.Warn("runc resume may fail if you don't have the full access to cgroups")
+		}
 		container, err := getContainer(context)
 		if err != nil {
 			return err
 		}
-		if err := container.Resume(); err != nil {
-			return err
-		}
-
-		return nil
+		return container.Resume()
 	},
 }

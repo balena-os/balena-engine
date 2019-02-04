@@ -1,7 +1,7 @@
 // Package local provides the default implementation for volumes. It
 // is used to mount data volume containers and directories local to
 // the host server.
-package local
+package local // import "github.com/docker/docker/volume/local"
 
 import (
 	"encoding/json"
@@ -14,11 +14,11 @@ import (
 	"sync"
 
 	"github.com/docker/docker/daemon/names"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/volume"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 // VolumeDataPathName is the name of the directory where the volume data is stored.
@@ -46,28 +46,23 @@ type activeMount struct {
 // New instantiates a new Root instance with the provided scope. Scope
 // is the base path that the Root instance uses to store its
 // volumes. The base path is created here if it does not exist.
-func New(scope string, rootIDs idtools.IDPair) (*Root, error) {
+func New(scope string, rootIdentity idtools.Identity) (*Root, error) {
 	rootDirectory := filepath.Join(scope, volumesPathName)
 
-	if err := idtools.MkdirAllAndChown(rootDirectory, 0700, rootIDs); err != nil {
+	if err := idtools.MkdirAllAndChown(rootDirectory, 0700, rootIdentity); err != nil {
 		return nil, err
 	}
 
 	r := &Root{
-		scope:   scope,
-		path:    rootDirectory,
-		volumes: make(map[string]*localVolume),
-		rootIDs: rootIDs,
+		scope:        scope,
+		path:         rootDirectory,
+		volumes:      make(map[string]*localVolume),
+		rootIdentity: rootIdentity,
 	}
 
 	dirs, err := ioutil.ReadDir(rootDirectory)
 	if err != nil {
 		return nil, err
-	}
-
-	mountInfos, err := mount.GetMounts()
-	if err != nil {
-		logrus.Debugf("error looking up mounts for local volume cleanup: %v", err)
 	}
 
 	for _, d := range dirs {
@@ -95,12 +90,7 @@ func New(scope string, rootIDs idtools.IDPair) (*Root, error) {
 			}
 
 			// unmount anything that may still be mounted (for example, from an unclean shutdown)
-			for _, info := range mountInfos {
-				if info.Mountpoint == v.path {
-					mount.Unmount(v.path)
-					break
-				}
-			}
+			mount.Unmount(v.path)
 		}
 	}
 
@@ -111,11 +101,11 @@ func New(scope string, rootIDs idtools.IDPair) (*Root, error) {
 // manages the creation/removal of volumes. It uses only standard vfs
 // commands to create/remove dirs within its provided scope.
 type Root struct {
-	m       sync.Mutex
-	scope   string
-	path    string
-	volumes map[string]*localVolume
-	rootIDs idtools.IDPair
+	m            sync.Mutex
+	scope        string
+	path         string
+	volumes      map[string]*localVolume
+	rootIdentity idtools.Identity
 }
 
 // List lists all the volumes
@@ -139,20 +129,6 @@ func (r *Root) Name() string {
 	return volume.DefaultDriverName
 }
 
-type systemError struct {
-	err error
-}
-
-func (e systemError) Error() string {
-	return e.err.Error()
-}
-
-func (e systemError) SystemError() {}
-
-func (e systemError) Cause() error {
-	return e.err
-}
-
 // Create creates a new volume.Volume with the provided name, creating
 // the underlying directory tree required for this volume in the
 // process.
@@ -170,8 +146,8 @@ func (r *Root) Create(name string, opts map[string]string) (volume.Volume, error
 	}
 
 	path := r.DataPath(name)
-	if err := idtools.MkdirAllAndChown(path, 0755, r.rootIDs); err != nil {
-		return nil, errors.Wrapf(systemError{err}, "error while creating volume path '%s'", path)
+	if err := idtools.MkdirAllAndChown(path, 0755, r.rootIdentity); err != nil {
+		return nil, errors.Wrapf(errdefs.System(err), "error while creating volume path '%s'", path)
 	}
 
 	var err error
@@ -197,7 +173,7 @@ func (r *Root) Create(name string, opts map[string]string) (volume.Volume, error
 			return nil, err
 		}
 		if err = ioutil.WriteFile(filepath.Join(filepath.Dir(path), "opts.json"), b, 600); err != nil {
-			return nil, errors.Wrap(systemError{err}, "error while persisting volume options")
+			return nil, errdefs.System(errors.Wrap(err, "error while persisting volume options"))
 		}
 	}
 
@@ -215,11 +191,11 @@ func (r *Root) Remove(v volume.Volume) error {
 
 	lv, ok := v.(*localVolume)
 	if !ok {
-		return systemError{errors.Errorf("unknown volume type %T", v)}
+		return errdefs.System(errors.Errorf("unknown volume type %T", v))
 	}
 
 	if lv.active.count > 0 {
-		return systemError{errors.Errorf("volume has active mounts")}
+		return errdefs.System(errors.Errorf("volume has active mounts"))
 	}
 
 	if err := lv.unmount(); err != nil {
@@ -235,7 +211,7 @@ func (r *Root) Remove(v volume.Volume) error {
 	}
 
 	if !r.scopedPath(realPath) {
-		return systemError{errors.Errorf("Unable to remove a directory of out the Docker root %s: %s", r.scope, realPath)}
+		return errdefs.System(errors.Errorf("Unable to remove a directory outside of the local volume root %s: %s", r.scope, realPath))
 	}
 
 	if err := removePath(realPath); err != nil {
@@ -251,7 +227,7 @@ func removePath(path string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return errors.Wrapf(systemError{err}, "error removing volume path '%s'", path)
+		return errdefs.System(errors.Wrapf(err, "error removing volume path '%s'", path))
 	}
 	return nil
 }
@@ -334,7 +310,7 @@ func (v *localVolume) Mount(id string) (string, error) {
 	if v.opts != nil {
 		if !v.active.mounted {
 			if err := v.mount(); err != nil {
-				return "", systemError{err}
+				return "", errdefs.System(err)
 			}
 			v.active.mounted = true
 		}
@@ -368,7 +344,7 @@ func (v *localVolume) unmount() error {
 	if v.opts != nil {
 		if err := mount.Unmount(v.path); err != nil {
 			if mounted, mErr := mount.Mounted(v.path); mounted || mErr != nil {
-				return errors.Wrapf(systemError{err}, "error while unmounting volume path '%s'", v.path)
+				return errdefs.System(errors.Wrapf(err, "error while unmounting volume path '%s'", v.path))
 			}
 		}
 		v.active.mounted = false
@@ -394,7 +370,7 @@ func getAddress(opts string) string {
 	optsList := strings.Split(opts, ",")
 	for i := 0; i < len(optsList); i++ {
 		if strings.HasPrefix(optsList[i], "addr=") {
-			addr := (strings.SplitN(optsList[i], "=", 2)[1])
+			addr := strings.SplitN(optsList[i], "=", 2)[1]
 			return addr
 		}
 	}

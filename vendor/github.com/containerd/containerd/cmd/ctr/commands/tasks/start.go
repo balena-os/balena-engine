@@ -1,7 +1,24 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package tasks
 
 import (
 	"github.com/containerd/console"
+	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -16,6 +33,14 @@ var startCommand = cli.Command{
 		cli.BoolFlag{
 			Name:  "null-io",
 			Usage: "send all IO to /dev/null",
+		},
+		cli.StringFlag{
+			Name:  "fifo-dir",
+			Usage: "directory used for storing IO FIFOs",
+		},
+		cli.StringFlag{
+			Name:  "pid-file",
+			Usage: "file path to write the task's pid",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -41,14 +66,21 @@ var startCommand = cli.Command{
 			return err
 		}
 
-		tty := spec.Process.Terminal
-
-		task, err := NewTask(ctx, client, container, "", tty, context.Bool("null-io"))
+		var (
+			tty    = spec.Process.Terminal
+			opts   = getNewTaskOpts(context)
+			ioOpts = []cio.Opt{cio.WithFIFODir(context.String("fifo-dir"))}
+		)
+		task, err := NewTask(ctx, client, container, "", tty, context.Bool("null-io"), ioOpts, opts...)
 		if err != nil {
 			return err
 		}
 		defer task.Delete(ctx)
-
+		if context.IsSet("pid-file") {
+			if err := commands.WritePidFile(context.String("pid-file"), int(task.Pid())); err != nil {
+				return err
+			}
+		}
 		statusC, err := task.Wait(ctx)
 		if err != nil {
 			return err

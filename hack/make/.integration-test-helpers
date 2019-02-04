@@ -17,7 +17,7 @@ source "$MAKEDIR/.go-autogen"
 
 integration_api_dirs=${TEST_INTEGRATION_DIR:-"$(
 	find ./integration -type d |
-	grep -vE '(^./integration($|/util)|/testdata)')"}
+	grep -vE '(^./integration($|/internal)|/testdata)')"}
 
 run_test_integration() {
 	[[ "$TESTFLAGS" != *-check.f* ]] && run_test_integration_suites
@@ -84,6 +84,7 @@ test_env() {
 		env -i \
 			DEST="$ABS_DEST" \
 			DOCKER_API_VERSION="$DOCKER_API_VERSION" \
+			DOCKER_BUILDKIT="$DOCKER_BUILDKIT" \
 			DOCKER_INTEGRATION_DAEMON_DEST="$DOCKER_INTEGRATION_DAEMON_DEST" \
 			DOCKER_TLS_VERIFY="$DOCKER_TEST_TLS_VERIFY" \
 			DOCKER_CERT_PATH="$DOCKER_TEST_CERT_PATH" \
@@ -99,7 +100,6 @@ test_env() {
 			HOME="$ABS_DEST/fake-HOME" \
 			PATH="$PATH" \
 			TEMP="$TEMP" \
-			TEST_IMAGE_NAMESPACE="$TEST_IMAGE_NAMESPACE" \
 			TEST_CLIENT_BINARY="$TEST_CLIENT_BINARY" \
 			DOCKER_RCE_RUNC_VERSION="$DOCKER_RCE_RUNC_VERSION" \
 			"$@"

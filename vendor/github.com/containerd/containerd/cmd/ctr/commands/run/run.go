@@ -1,14 +1,30 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package run
 
 import (
 	gocontext "context"
 	"encoding/csv"
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/containerd/console"
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/containerd/containerd/cmd/ctr/commands/tasks"
 	"github.com/containerd/containerd/containers"
@@ -19,26 +35,17 @@ import (
 	"github.com/urfave/cli"
 )
 
-func withEnv(context *cli.Context) oci.SpecOpts {
-	return func(_ gocontext.Context, _ oci.Client, _ *containers.Container, s *specs.Spec) error {
-		env := context.StringSlice("env")
-		if len(env) > 0 {
-			s.Process.Env = replaceOrAppendEnvValues(s.Process.Env, env)
-		}
-		return nil
-	}
-}
-
 func withMounts(context *cli.Context) oci.SpecOpts {
-	return func(_ gocontext.Context, _ oci.Client, _ *containers.Container, s *specs.Spec) error {
+	return func(ctx gocontext.Context, client oci.Client, container *containers.Container, s *specs.Spec) error {
+		mounts := make([]specs.Mount, 0)
 		for _, mount := range context.StringSlice("mount") {
 			m, err := parseMountFlag(mount)
 			if err != nil {
 				return err
 			}
-			s.Mounts = append(s.Mounts, m)
+			mounts = append(mounts, m)
 		}
-		return nil
+		return oci.WithMounts(mounts)(ctx, client, container, s)
 	}
 }
 
@@ -77,44 +84,6 @@ func parseMountFlag(m string) (specs.Mount, error) {
 	return mount, nil
 }
 
-// replaceOrAppendEnvValues returns the defaults with the overrides either
-// replaced by env key or appended to the list
-func replaceOrAppendEnvValues(defaults, overrides []string) []string {
-	cache := make(map[string]int, len(defaults))
-	for i, e := range defaults {
-		parts := strings.SplitN(e, "=", 2)
-		cache[parts[0]] = i
-	}
-
-	for _, value := range overrides {
-		// Values w/o = means they want this env to be removed/unset.
-		if !strings.Contains(value, "=") {
-			if i, exists := cache[value]; exists {
-				defaults[i] = "" // Used to indicate it should be removed
-			}
-			continue
-		}
-
-		// Just do a normal set/update
-		parts := strings.SplitN(value, "=", 2)
-		if i, exists := cache[parts[0]]; exists {
-			defaults[i] = value
-		} else {
-			defaults = append(defaults, value)
-		}
-	}
-
-	// Now remove all entries that we want to "unset"
-	for i := 0; i < len(defaults); i++ {
-		if defaults[i] == "" {
-			defaults = append(defaults[:i], defaults[i+1:]...)
-			i--
-		}
-	}
-
-	return defaults
-}
-
 // Command runs a container
 var Command = cli.Command{
 	Name:      "run",
@@ -122,45 +91,8 @@ var Command = cli.Command{
 	ArgsUsage: "[flags] Image|RootFS ID [COMMAND] [ARG...]",
 	Flags: append([]cli.Flag{
 		cli.BoolFlag{
-			Name:  "tty,t",
-			Usage: "allocate a TTY for the container",
-		},
-		cli.StringFlag{
-			Name:  "runtime",
-			Usage: "runtime name (io.containerd.runtime.v1.linux, io.containerd.runtime.v1.windows, io.containerd.runtime.v1.com.vmware.linux)",
-			Value: fmt.Sprintf("io.containerd.runtime.v1.%s", runtime.GOOS),
-		},
-		cli.BoolFlag{
-			Name:  "readonly",
-			Usage: "set the containers filesystem as readonly",
-		},
-		cli.BoolFlag{
-			Name:  "net-host",
-			Usage: "enable host networking for the container",
-		},
-		cli.StringSliceFlag{
-			Name:  "mount",
-			Usage: "specify additional container mount (ex: type=bind,src=/tmp,dest=/host,options=rbind:ro)",
-		},
-		cli.StringSliceFlag{
-			Name:  "env",
-			Usage: "specify additional container environment variables (i.e. FOO=bar)",
-		},
-		cli.StringSliceFlag{
-			Name:  "label",
-			Usage: "specify additional labels (foo=bar)",
-		},
-		cli.BoolFlag{
 			Name:  "rm",
 			Usage: "remove the container after running",
-		},
-		cli.StringFlag{
-			Name:  "checkpoint",
-			Usage: "provide the checkpoint digest to restore the container",
-		},
-		cli.StringFlag{
-			Name:  "cwd",
-			Usage: "specify the working directory of the process",
 		},
 		cli.BoolFlag{
 			Name:  "null-io",
@@ -170,18 +102,22 @@ var Command = cli.Command{
 			Name:  "detach,d",
 			Usage: "detach from the task after it has started execution",
 		},
-	}, commands.SnapshotterFlags...),
+		cli.StringFlag{
+			Name:  "fifo-dir",
+			Usage: "directory used for storing IO FIFOs",
+		},
+	}, append(commands.SnapshotterFlags, commands.ContainerFlags...)...),
 	Action: func(context *cli.Context) error {
 		var (
 			err error
 
-			id       = context.Args().Get(1)
-			imageRef = context.Args().First()
-			tty      = context.Bool("tty")
-			detach   = context.Bool("detach")
+			id     = context.Args().Get(1)
+			ref    = context.Args().First()
+			tty    = context.Bool("tty")
+			detach = context.Bool("detach")
 		)
 
-		if imageRef == "" {
+		if ref == "" {
 			return errors.New("image ref must be provided")
 		}
 		if id == "" {
@@ -192,14 +128,16 @@ var Command = cli.Command{
 			return err
 		}
 		defer cancel()
-		container, err := newContainer(ctx, client, context)
+		container, err := NewContainer(ctx, client, context)
 		if err != nil {
 			return err
 		}
 		if context.Bool("rm") && !detach {
 			defer container.Delete(ctx, containerd.WithSnapshotCleanup)
 		}
-		task, err := tasks.NewTask(ctx, client, container, context.String("checkpoint"), tty, context.Bool("null-io"))
+		opts := getNewTaskOpts(context)
+		ioOpts := []cio.Opt{cio.WithFIFODir(context.String("fifo-dir"))}
+		task, err := tasks.NewTask(ctx, client, container, context.String("checkpoint"), tty, context.Bool("null-io"), ioOpts, opts...)
 		if err != nil {
 			return err
 		}
@@ -207,6 +145,11 @@ var Command = cli.Command{
 		if !detach {
 			defer task.Delete(ctx)
 			if statusC, err = task.Wait(ctx); err != nil {
+				return err
+			}
+		}
+		if context.IsSet("pid-file") {
+			if err := commands.WritePidFile(context.String("pid-file"), int(task.Pid())); err != nil {
 				return err
 			}
 		}
@@ -237,7 +180,6 @@ var Command = cli.Command{
 		if err != nil {
 			return err
 		}
-
 		if _, err := task.Delete(ctx); err != nil {
 			return err
 		}

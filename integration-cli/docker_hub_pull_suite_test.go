@@ -7,6 +7,7 @@ import (
 
 	"github.com/docker/docker/integration-cli/checker"
 	"github.com/docker/docker/integration-cli/daemon"
+	testdaemon "github.com/docker/docker/internal/test/daemon"
 	"github.com/go-check/check"
 )
 
@@ -43,9 +44,7 @@ func (s *DockerHubPullSuite) SetUpSuite(c *check.C) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 
 	testRequires(c, DaemonIsLinux, SameHostDaemon)
-	s.d = daemon.New(c, dockerBinary, dockerdBinary, daemon.Config{
-		Experimental: testEnv.ExperimentalDaemon(),
-	})
+	s.d = daemon.New(c, dockerBinary, dockerdBinary, testdaemon.WithEnvironment(testEnv.Execution))
 	s.d.Start(c)
 }
 

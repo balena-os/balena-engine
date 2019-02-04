@@ -1,10 +1,9 @@
 // +build linux freebsd
 
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
 	"io/ioutil"
@@ -24,16 +23,17 @@ import (
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/config"
-	"github.com/docker/docker/image"
+	"github.com/docker/docker/daemon/initlayer"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/parsers/kernel"
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/runconfig"
-	"github.com/docker/docker/volume"
+	volumemounts "github.com/docker/docker/volume/mounts"
 	"github.com/docker/libnetwork"
 	nwconfig "github.com/docker/libnetwork/config"
 	"github.com/docker/libnetwork/drivers/bridge"
@@ -43,7 +43,7 @@ import (
 	lntypes "github.com/docker/libnetwork/types"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	rsystem "github.com/opencontainers/runc/libcontainer/system"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -67,8 +67,8 @@ const (
 	// It's not kernel limit, we want this 4M limit to supply a reasonable functional container
 	linuxMinMemory = 4194304
 	// constants for remapped root settings
-	defaultIDSpecifier string = "default"
-	defaultRemappedID  string = "dockremap"
+	defaultIDSpecifier = "default"
+	defaultRemappedID  = "dockremap"
 
 	// constant for cgroup drivers
 	cgroupFsDriver      = "cgroupfs"
@@ -101,6 +101,10 @@ func getMemoryResources(config containertypes.Resources) *specs.LinuxMemory {
 	if config.MemorySwappiness != nil {
 		swappiness := uint64(*config.MemorySwappiness)
 		memory.Swappiness = &swappiness
+	}
+
+	if config.OomKillDisable != nil {
+		memory.DisableOOMKiller = config.OomKillDisable
 	}
 
 	if config.KernelMemory != 0 {
@@ -574,11 +578,6 @@ func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.
 	var warnings []string
 	sysInfo := sysinfo.New(true)
 
-	warnings, err := daemon.verifyExperimentalContainerSettings(hostConfig, config)
-	if err != nil {
-		return warnings, err
-	}
-
 	w, err := verifyContainerResources(&hostConfig.Resources, sysInfo, update)
 
 	// no matter err is nil or not, w could have data in itself.
@@ -627,7 +626,7 @@ func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.
 		return warnings, fmt.Errorf("Unknown runtime specified %s", hostConfig.Runtime)
 	}
 
-	parser := volume.NewParser(runtime.GOOS)
+	parser := volumemounts.NewParser(runtime.GOOS)
 	for dest := range hostConfig.Tmpfs {
 		if err := parser.ValidateTmpfsMountDestination(dest); err != nil {
 			return warnings, err
@@ -647,13 +646,13 @@ func (daemon *Daemon) initRuntimes(runtimes map[string]types.Runtime) (err error
 	os.RemoveAll(runtimeDir + "-old")
 	tmpDir, err := ioutils.TempDir(daemon.configStore.Root, "gen-runtimes")
 	if err != nil {
-		return errors.Wrapf(err, "failed to get temp dir to generate runtime scripts")
+		return errors.Wrap(err, "failed to get temp dir to generate runtime scripts")
 	}
 	defer func() {
 		if err != nil {
 			if err1 := os.RemoveAll(tmpDir); err1 != nil {
 				logrus.WithError(err1).WithField("dir", tmpDir).
-					Warnf("failed to remove tmp dir")
+					Warn("failed to remove tmp dir")
 			}
 			return
 		}
@@ -662,12 +661,12 @@ func (daemon *Daemon) initRuntimes(runtimes map[string]types.Runtime) (err error
 			return
 		}
 		if err = os.Rename(tmpDir, runtimeDir); err != nil {
-			err = errors.Wrapf(err, "failed to setup runtimes dir, new containers may not start")
+			err = errors.Wrap(err, "failed to setup runtimes dir, new containers may not start")
 			return
 		}
 		if err = os.RemoveAll(runtimeDir + "-old"); err != nil {
 			logrus.WithError(err).WithField("dir", tmpDir).
-				Warnf("failed to remove old runtimes dir")
+				Warn("failed to remove old runtimes dir")
 		}
 	}()
 
@@ -682,51 +681,6 @@ func (daemon *Daemon) initRuntimes(runtimes map[string]types.Runtime) (err error
 			return err
 		}
 	}
-	return nil
-}
-
-// reloadPlatform updates configuration with platform specific options
-// and updates the passed attributes
-func (daemon *Daemon) reloadPlatform(conf *config.Config, attributes map[string]string) error {
-	if err := conf.ValidatePlatformConfig(); err != nil {
-		return err
-	}
-
-	if conf.IsValueSet("runtimes") {
-		// Always set the default one
-		conf.Runtimes[config.StockRuntimeName] = types.Runtime{Path: DefaultRuntimeBinary}
-		if err := daemon.initRuntimes(conf.Runtimes); err != nil {
-			return err
-		}
-		daemon.configStore.Runtimes = conf.Runtimes
-	}
-
-	if conf.DefaultRuntime != "" {
-		daemon.configStore.DefaultRuntime = conf.DefaultRuntime
-	}
-
-	if conf.IsValueSet("default-shm-size") {
-		daemon.configStore.ShmSize = conf.ShmSize
-	}
-
-	if conf.IpcMode != "" {
-		daemon.configStore.IpcMode = conf.IpcMode
-	}
-
-	// Update attributes
-	var runtimeList bytes.Buffer
-	for name, rt := range daemon.configStore.Runtimes {
-		if runtimeList.Len() > 0 {
-			runtimeList.WriteRune(' ')
-		}
-		runtimeList.WriteString(fmt.Sprintf("%s:%s", name, rt))
-	}
-
-	attributes["runtimes"] = runtimeList.String()
-	attributes["default-runtime"] = daemon.configStore.DefaultRuntime
-	attributes["default-shm-size"] = fmt.Sprintf("%d", daemon.configStore.ShmSize)
-	attributes["default-ipc-mode"] = daemon.configStore.IpcMode
-
 	return nil
 }
 
@@ -820,22 +774,14 @@ func overlaySupportsSelinux() (bool, error) {
 }
 
 // configureKernelSecuritySupport configures and validates security support for the kernel
-func configureKernelSecuritySupport(config *config.Config, driverNames []string) error {
+func configureKernelSecuritySupport(config *config.Config, driverName string) error {
 	if config.EnableSelinuxSupport {
 		if !selinuxEnabled() {
 			logrus.Warn("Docker could not enable SELinux on the host system")
 			return nil
 		}
 
-		overlayFound := false
-		for _, d := range driverNames {
-			if d == "overlay" || d == "overlay2" {
-				overlayFound = true
-				break
-			}
-		}
-
-		if overlayFound {
+		if driverName == "overlay" || driverName == "overlay2" {
 			// If driver is overlay or overlay2, make sure kernel
 			// supports selinux with overlay.
 			supported, err := overlaySupportsSelinux()
@@ -844,7 +790,7 @@ func configureKernelSecuritySupport(config *config.Config, driverNames []string)
 			}
 
 			if !supported {
-				logrus.Warnf("SELinux is not supported with the %v graph driver on this kernel", driverNames)
+				logrus.Warnf("SELinux is not supported with the %v graph driver on this kernel", driverName)
 			}
 		}
 	} else {
@@ -887,6 +833,9 @@ func (daemon *Daemon) initNetworkController(config *config.Config, activeSandbox
 	if n, err := controller.NetworkByName("bridge"); err == nil {
 		if err = n.Delete(); err != nil {
 			return nil, fmt.Errorf("could not delete the default bridge network: %v", err)
+		}
+		if len(config.NetworkConfig.DefaultAddressPools.Value()) > 0 && !daemon.configStore.LiveRestoreEnabled {
+			removeDefaultBridgeInterface()
 		}
 	}
 
@@ -1055,8 +1004,10 @@ func removeDefaultBridgeInterface() {
 	}
 }
 
-func (daemon *Daemon) getLayerInit() func(containerfs.ContainerFS) error {
-	return daemon.setupInitLayer
+func setupInitLayer(idMapping *idtools.IdentityMapping) func(containerfs.ContainerFS) error {
+	return func(initPath containerfs.ContainerFS) error {
+		return initlayer.Setup(initPath, idMapping.RootPair())
+	}
 }
 
 // Parse the remapped root (user namespace) option, which can be one of:
@@ -1152,7 +1103,7 @@ func parseRemappedRoot(usergrp string) (string, string, error) {
 	return username, groupname, nil
 }
 
-func setupRemappedRoot(config *config.Config) (*idtools.IDMappings, error) {
+func setupRemappedRoot(config *config.Config) (*idtools.IdentityMapping, error) {
 	if runtime.GOOS != "linux" && config.RemappedRoot != "" {
 		return nil, fmt.Errorf("User namespaces are only supported on Linux")
 	}
@@ -1168,22 +1119,22 @@ func setupRemappedRoot(config *config.Config) (*idtools.IDMappings, error) {
 			// Cannot setup user namespaces with a 1-to-1 mapping; "--root=0:0" is a no-op
 			// effectively
 			logrus.Warn("User namespaces: root cannot be remapped with itself; user namespaces are OFF")
-			return &idtools.IDMappings{}, nil
+			return &idtools.IdentityMapping{}, nil
 		}
 		logrus.Infof("User namespaces: ID ranges will be mapped to subuid/subgid ranges of: %s:%s", username, groupname)
 		// update remapped root setting now that we have resolved them to actual names
 		config.RemappedRoot = fmt.Sprintf("%s:%s", username, groupname)
 
-		mappings, err := idtools.NewIDMappings(username, groupname)
+		mappings, err := idtools.NewIdentityMapping(username, groupname)
 		if err != nil {
-			return nil, errors.Wrapf(err, "Can't create ID mappings: %v")
+			return nil, errors.Wrap(err, "Can't create ID mappings")
 		}
 		return mappings, nil
 	}
-	return &idtools.IDMappings{}, nil
+	return &idtools.IdentityMapping{}, nil
 }
 
-func setupDaemonRoot(config *config.Config, rootDir string, rootIDs idtools.IDPair) error {
+func setupDaemonRoot(config *config.Config, rootDir string, rootIdentity idtools.Identity) error {
 	config.Root = rootDir
 	// the docker root metadata directory needs to have execute permissions for all users (g+x,o+x)
 	// so that syscalls executing as non-root, operating on subdirectories of the graph root
@@ -1208,10 +1159,10 @@ func setupDaemonRoot(config *config.Config, rootDir string, rootIDs idtools.IDPa
 	// a new subdirectory with ownership set to the remapped uid/gid (so as to allow
 	// `chdir()` to work for containers namespaced to that uid/gid)
 	if config.RemappedRoot != "" {
-		config.Root = filepath.Join(rootDir, fmt.Sprintf("%d.%d", rootIDs.UID, rootIDs.GID))
+		config.Root = filepath.Join(rootDir, fmt.Sprintf("%d.%d", rootIdentity.UID, rootIdentity.GID))
 		logrus.Debugf("Creating user namespaced daemon root: %s", config.Root)
 		// Create the root directory if it doesn't exist
-		if err := idtools.MkdirAllAndChown(config.Root, 0700, rootIDs); err != nil {
+		if err := idtools.MkdirAllAndChown(config.Root, 0700, rootIdentity); err != nil {
 			return fmt.Errorf("Cannot create daemon root: %s: %v", config.Root, err)
 		}
 		// we also need to verify that any pre-existing directories in the path to
@@ -1224,12 +1175,61 @@ func setupDaemonRoot(config *config.Config, rootDir string, rootIDs idtools.IDPa
 			if dirPath == "/" {
 				break
 			}
-			if !idtools.CanAccess(dirPath, rootIDs) {
+			if !idtools.CanAccess(dirPath, rootIdentity) {
 				return fmt.Errorf("a subdirectory in your graphroot path (%s) restricts access to the remapped root uid/gid; please fix by allowing 'o+x' permissions on existing directories", config.Root)
 			}
 		}
 	}
+
+	if err := setupDaemonRootPropagation(config); err != nil {
+		logrus.WithError(err).WithField("dir", config.Root).Warn("Error while setting daemon root propagation, this is not generally critical but may cause some functionality to not work or fallback to less desirable behavior")
+	}
 	return nil
+}
+
+func setupDaemonRootPropagation(cfg *config.Config) error {
+	rootParentMount, options, err := getSourceMount(cfg.Root)
+	if err != nil {
+		return errors.Wrap(err, "error getting daemon root's parent mount")
+	}
+
+	var cleanupOldFile bool
+	cleanupFile := getUnmountOnShutdownPath(cfg)
+	defer func() {
+		if !cleanupOldFile {
+			return
+		}
+		if err := os.Remove(cleanupFile); err != nil && !os.IsNotExist(err) {
+			logrus.WithError(err).WithField("file", cleanupFile).Warn("could not clean up old root propagation unmount file")
+		}
+	}()
+
+	if hasMountinfoOption(options, sharedPropagationOption, slavePropagationOption) {
+		cleanupOldFile = true
+		return nil
+	}
+
+	if err := mount.MakeShared(cfg.Root); err != nil {
+		return errors.Wrap(err, "could not setup daemon root propagation to shared")
+	}
+
+	// check the case where this may have already been a mount to itself.
+	// If so then the daemon only performed a remount and should not try to unmount this later.
+	if rootParentMount == cfg.Root {
+		cleanupOldFile = true
+		return nil
+	}
+
+	if err := ioutil.WriteFile(cleanupFile, nil, 0600); err != nil {
+		return errors.Wrap(err, "error writing file to signal mount cleanup on shutdown")
+	}
+	return nil
+}
+
+// getUnmountOnShutdownPath generates the path to used when writing the file that signals to the daemon that on shutdown
+// the daemon root should be unmounted.
+func getUnmountOnShutdownPath(config *config.Config) string {
+	return filepath.Join(config.ExecRoot, "unmount-on-shutdown")
 }
 
 // registerLinks writes the links to a file.
@@ -1406,17 +1406,6 @@ func (daemon *Daemon) setDefaultIsolation() error {
 	return nil
 }
 
-func rootFSToAPIType(rootfs *image.RootFS) types.RootFS {
-	var layers []string
-	for _, l := range rootfs.DiffIDs {
-		layers = append(layers, l.String())
-	}
-	return types.RootFS{
-		Type:   rootfs.Type,
-		Layers: layers,
-	}
-}
-
 // setupDaemonProcess sets various settings for the daemon's process
 func setupDaemonProcess(config *config.Config) error {
 	// setup the daemons oom_score_adj
@@ -1507,10 +1496,7 @@ func (daemon *Daemon) initCgroupsPath(path string) error {
 	if err := maybeCreateCPURealTimeFile(sysinfo.CPURealtimePeriod, daemon.configStore.CPURealtimePeriod, "cpu.rt_period_us", path); err != nil {
 		return err
 	}
-	if err := maybeCreateCPURealTimeFile(sysinfo.CPURealtimeRuntime, daemon.configStore.CPURealtimeRuntime, "cpu.rt_runtime_us", path); err != nil {
-		return err
-	}
-	return nil
+	return maybeCreateCPURealTimeFile(sysinfo.CPURealtimeRuntime, daemon.configStore.CPURealtimeRuntime, "cpu.rt_runtime_us", path)
 }
 
 func maybeCreateCPURealTimeFile(sysinfoPresent bool, configValue int64, file string, path string) error {

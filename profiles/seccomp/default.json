@@ -322,6 +322,7 @@
 				"stat64",
 				"statfs",
 				"statfs64",
+				"statx",
 				"symlink",
 				"symlinkat",
 				"sync",
@@ -742,6 +743,22 @@
 			"includes": {
 				"caps": [
 					"CAP_SYS_TTY_CONFIG"
+				]
+			},
+			"excludes": {}
+		},
+		{
+			"names": [
+				"get_mempolicy",
+				"mbind",
+				"set_mempolicy"
+			],
+			"action": "SCMP_ACT_ALLOW",
+			"args": [],
+			"comment": "",
+			"includes": {
+				"caps": [
+					"CAP_SYS_NICE"
 				]
 			},
 			"excludes": {}

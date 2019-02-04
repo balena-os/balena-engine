@@ -104,7 +104,7 @@ type containerConfiguration struct {
 	ChildEndpoints  []string
 }
 
-// cnnectivityConfiguration represents the user specified configuration regarding the external connectivity
+// connectivityConfiguration represents the user specified configuration regarding the external connectivity
 type connectivityConfiguration struct {
 	PortBindings []types.PortBinding
 	ExposedPorts []types.TransportPort
@@ -137,15 +137,16 @@ type bridgeNetwork struct {
 }
 
 type driver struct {
-	config         *configuration
-	network        *bridgeNetwork
-	natChain       *iptables.ChainInfo
-	filterChain    *iptables.ChainInfo
-	isolationChain *iptables.ChainInfo
-	networks       map[string]*bridgeNetwork
-	store          datastore.DataStore
-	nlh            *netlink.Handle
-	configNetwork  sync.Mutex
+	config          *configuration
+	network         *bridgeNetwork
+	natChain        *iptables.ChainInfo
+	filterChain     *iptables.ChainInfo
+	isolationChain1 *iptables.ChainInfo
+	isolationChain2 *iptables.ChainInfo
+	networks        map[string]*bridgeNetwork
+	store           datastore.DataStore
+	nlh             *netlink.Handle
+	configNetwork   sync.Mutex
 	sync.Mutex
 }
 
@@ -266,15 +267,15 @@ func (n *bridgeNetwork) registerIptCleanFunc(clean iptableCleanFunc) {
 	n.iptCleanFuncs = append(n.iptCleanFuncs, clean)
 }
 
-func (n *bridgeNetwork) getDriverChains() (*iptables.ChainInfo, *iptables.ChainInfo, *iptables.ChainInfo, error) {
+func (n *bridgeNetwork) getDriverChains() (*iptables.ChainInfo, *iptables.ChainInfo, *iptables.ChainInfo, *iptables.ChainInfo, error) {
 	n.Lock()
 	defer n.Unlock()
 
 	if n.driver == nil {
-		return nil, nil, nil, types.BadRequestErrorf("no driver found")
+		return nil, nil, nil, nil, types.BadRequestErrorf("no driver found")
 	}
 
-	return n.driver.natChain, n.driver.filterChain, n.driver.isolationChain, nil
+	return n.driver.natChain, n.driver.filterChain, n.driver.isolationChain1, n.driver.isolationChain2, nil
 }
 
 func (n *bridgeNetwork) getNetworkBridgeName() string {
@@ -311,33 +312,18 @@ func (n *bridgeNetwork) isolateNetwork(others []*bridgeNetwork, enable bool) err
 		return nil
 	}
 
-	// Install the rules to isolate this networks against each of the other networks
-	for _, o := range others {
-		o.Lock()
-		otherConfig := o.config
-		o.Unlock()
-
-		if otherConfig.Internal {
-			continue
-		}
-
-		if thisConfig.BridgeName != otherConfig.BridgeName {
-			if err := setINC(thisConfig.BridgeName, otherConfig.BridgeName, enable); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	// Install the rules to isolate this network against each of the other networks
+	return setINC(thisConfig.BridgeName, enable)
 }
 
 func (d *driver) configure(option map[string]interface{}) error {
 	var (
-		config         *configuration
-		err            error
-		natChain       *iptables.ChainInfo
-		filterChain    *iptables.ChainInfo
-		isolationChain *iptables.ChainInfo
+		config          *configuration
+		err             error
+		natChain        *iptables.ChainInfo
+		filterChain     *iptables.ChainInfo
+		isolationChain1 *iptables.ChainInfo
+		isolationChain2 *iptables.ChainInfo
 	)
 
 	genericData, ok := option[netlabel.GenericData]
@@ -365,7 +351,7 @@ func (d *driver) configure(option map[string]interface{}) error {
 			}
 		}
 		removeIPChains()
-		natChain, filterChain, isolationChain, err = setupIPChains(config)
+		natChain, filterChain, isolationChain1, isolationChain2, err = setupIPChains(config)
 		if err != nil {
 			return err
 		}
@@ -384,7 +370,8 @@ func (d *driver) configure(option map[string]interface{}) error {
 	d.Lock()
 	d.natChain = natChain
 	d.filterChain = filterChain
-	d.isolationChain = isolationChain
+	d.isolationChain1 = isolationChain1
+	d.isolationChain2 = isolationChain2
 	d.config = config
 	d.Unlock()
 
@@ -717,8 +704,8 @@ func (d *driver) createNetwork(config *networkConfiguration) (err error) {
 		// Enable IPv6 Forwarding
 		{enableIPv6Forwarding, setupIPv6Forwarding},
 
-		// Setup Loopback Adresses Routing
-		{!d.config.EnableUserlandProxy, setupLoopbackAdressesRouting},
+		// Setup Loopback Addresses Routing
+		{!d.config.EnableUserlandProxy, setupLoopbackAddressesRouting},
 
 		// Setup IPTables.
 		{d.config.EnableIPTables, network.setupIPTables},
@@ -780,11 +767,13 @@ func (d *driver) deleteNetwork(nid string) error {
 			logrus.Warn(err)
 		}
 		if link, err := d.nlh.LinkByName(ep.srcName); err == nil {
-			d.nlh.LinkDel(link)
+			if err := d.nlh.LinkDel(link); err != nil {
+				logrus.WithError(err).Errorf("Failed to delete interface (%s)'s link on endpoint (%s) delete", ep.srcName, ep.id)
+			}
 		}
 
 		if err := d.storeDelete(ep); err != nil {
-			logrus.Warnf("Failed to remove bridge endpoint %s from store: %v", ep.id[0:7], err)
+			logrus.Warnf("Failed to remove bridge endpoint %.7s from store: %v", ep.id, err)
 		}
 	}
 
@@ -967,7 +956,9 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	}
 	defer func() {
 		if err != nil {
-			d.nlh.LinkDel(host)
+			if err := d.nlh.LinkDel(host); err != nil {
+				logrus.WithError(err).Warnf("Failed to delete host side interface (%s)'s link", hostIfName)
+			}
 		}
 	}()
 
@@ -978,7 +969,9 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	}
 	defer func() {
 		if err != nil {
-			d.nlh.LinkDel(sbox)
+			if err := d.nlh.LinkDel(sbox); err != nil {
+				logrus.WithError(err).Warnf("Failed to delete sandbox side interface (%s)'s link", containerIfName)
+			}
 		}
 	}()
 
@@ -1055,7 +1048,7 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	}
 
 	if err = d.storeUpdate(endpoint); err != nil {
-		return fmt.Errorf("failed to save bridge endpoint %s to store: %v", endpoint.id[0:7], err)
+		return fmt.Errorf("failed to save bridge endpoint %.7s to store: %v", endpoint.id, err)
 	}
 
 	return nil
@@ -1115,11 +1108,13 @@ func (d *driver) DeleteEndpoint(nid, eid string) error {
 	// Try removal of link. Discard error: it is a best effort.
 	// Also make sure defer does not see this error either.
 	if link, err := d.nlh.LinkByName(ep.srcName); err == nil {
-		d.nlh.LinkDel(link)
+		if err := d.nlh.LinkDel(link); err != nil {
+			logrus.WithError(err).Errorf("Failed to delete interface (%s)'s link on endpoint (%s) delete", ep.srcName, ep.id)
+		}
 	}
 
 	if err := d.storeDelete(ep); err != nil {
-		logrus.Warnf("Failed to remove bridge endpoint %s from store: %v", ep.id[0:7], err)
+		logrus.Warnf("Failed to remove bridge endpoint %.7s from store: %v", ep.id, err)
 	}
 
 	return nil
@@ -1293,7 +1288,7 @@ func (d *driver) ProgramExternalConnectivity(nid, eid string, options map[string
 	}()
 
 	if err = d.storeUpdate(endpoint); err != nil {
-		return fmt.Errorf("failed to update bridge endpoint %s to store: %v", endpoint.id[0:7], err)
+		return fmt.Errorf("failed to update bridge endpoint %.7s to store: %v", endpoint.id, err)
 	}
 
 	if !network.config.EnableICC {
@@ -1335,7 +1330,7 @@ func (d *driver) RevokeExternalConnectivity(nid, eid string) error {
 	clearEndpointConnections(d.nlh, endpoint)
 
 	if err = d.storeUpdate(endpoint); err != nil {
-		return fmt.Errorf("failed to update bridge endpoint %s to store: %v", endpoint.id[0:7], err)
+		return fmt.Errorf("failed to update bridge endpoint %.7s to store: %v", endpoint.id, err)
 	}
 
 	return nil

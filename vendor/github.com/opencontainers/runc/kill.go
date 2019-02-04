@@ -51,23 +51,14 @@ signal to the init process of the "ubuntu01" container:
 		if err != nil {
 			return err
 		}
-		if err := container.Signal(signal, context.Bool("all")); err != nil {
-			return err
-		}
-		return nil
+		return container.Signal(signal, context.Bool("all"))
 	},
 }
 
 func parseSignal(rawSignal string) (syscall.Signal, error) {
 	s, err := strconv.Atoi(rawSignal)
 	if err == nil {
-		sig := syscall.Signal(s)
-		for _, msig := range signalMap {
-			if sig == msig {
-				return sig, nil
-			}
-		}
-		return -1, fmt.Errorf("unknown signal %q", rawSignal)
+		return syscall.Signal(s), nil
 	}
 	signal, ok := signalMap[strings.TrimPrefix(strings.ToUpper(rawSignal), "SIG")]
 	if !ok {

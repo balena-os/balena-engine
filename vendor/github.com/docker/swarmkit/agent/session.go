@@ -12,6 +12,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -65,10 +66,21 @@ func newSession(ctx context.Context, agent *Agent, delay time.Duration, sessionI
 		grpc.WithTransportCredentials(agent.config.Credentials),
 		grpc.WithTimeout(dispatcherRPCTimeout),
 	)
+
 	if err != nil {
-		s.errs <- err
+		// since we are returning without launching the session goroutine, we
+		// need to provide the delay that is guaranteed by calling this
+		// function. We launch a goroutine so that we only delay the retry and
+		// avoid blocking the main loop.
+		go func() {
+			time.Sleep(delay)
+			s.errs <- err
+		}()
 		return s
 	}
+
+	log.G(ctx).Infof("manager selected by agent for new session: %v", cc.Peer())
+
 	s.conn = cc
 
 	go s.run(sessionCtx, delay, description)
@@ -77,6 +89,7 @@ func newSession(ctx context.Context, agent *Agent, delay time.Duration, sessionI
 
 func (s *session) run(ctx context.Context, delay time.Duration, description *api.NodeDescription) {
 	timer := time.NewTimer(delay) // delay before registering.
+	log.G(ctx).Infof("waiting %v before registering session", delay)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
@@ -166,21 +179,32 @@ func (s *session) heartbeat(ctx context.Context) error {
 	heartbeat := time.NewTimer(1) // send out a heartbeat right away
 	defer heartbeat.Stop()
 
+	fields := logrus.Fields{
+		"sessionID": s.sessionID,
+		"method":    "(*session).heartbeat",
+	}
+
 	for {
 		select {
 		case <-heartbeat.C:
 			heartbeatCtx, cancel := context.WithTimeout(ctx, dispatcherRPCTimeout)
+			// TODO(anshul) log manager info in all logs in this function.
+			log.G(ctx).WithFields(fields).Debugf("sending heartbeat to manager %v with timeout %v", s.conn.Peer(), dispatcherRPCTimeout)
 			resp, err := client.Heartbeat(heartbeatCtx, &api.HeartbeatRequest{
 				SessionID: s.sessionID,
 			})
 			cancel()
 			if err != nil {
-				if grpc.Code(err) == codes.NotFound {
+				log.G(ctx).WithFields(fields).WithError(err).Errorf("heartbeat to manager %v failed", s.conn.Peer())
+				st, _ := status.FromError(err)
+				if st.Code() == codes.NotFound {
 					err = errNodeNotRegistered
 				}
 
 				return err
 			}
+
+			log.G(ctx).WithFields(fields).Debugf("heartbeat successful to manager %v, next heartbeat period: %v", s.conn.Peer(), resp.Period)
 
 			heartbeat.Reset(resp.Period)
 		case <-s.closed:
@@ -230,7 +254,8 @@ func (s *session) logSubscriptions(ctx context.Context) error {
 
 	for {
 		resp, err := subscriptions.Recv()
-		if grpc.Code(err) == codes.Unimplemented {
+		st, _ := status.FromError(err)
+		if st.Code() == codes.Unimplemented {
 			log.Warning("manager does not support log subscriptions")
 			// Don't return, because returning would bounce the session
 			select {
@@ -281,7 +306,8 @@ func (s *session) watch(ctx context.Context) error {
 			// If we get a code = 12 desc = unknown method Assignments, try to use tasks
 			resp, err = assignmentWatch.Recv()
 			if err != nil {
-				if grpc.Code(err) != codes.Unimplemented {
+				st, _ := status.FromError(err)
+				if st.Code() != codes.Unimplemented {
 					return err
 				}
 				tasksFallback = true
@@ -340,20 +366,21 @@ func (s *session) watch(ctx context.Context) error {
 }
 
 // sendTaskStatus uses the current session to send the status of a single task.
-func (s *session) sendTaskStatus(ctx context.Context, taskID string, status *api.TaskStatus) error {
+func (s *session) sendTaskStatus(ctx context.Context, taskID string, taskStatus *api.TaskStatus) error {
 	client := api.NewDispatcherClient(s.conn.ClientConn)
 	if _, err := client.UpdateTaskStatus(ctx, &api.UpdateTaskStatusRequest{
 		SessionID: s.sessionID,
 		Updates: []*api.UpdateTaskStatusRequest_TaskStatusUpdate{
 			{
 				TaskID: taskID,
-				Status: status,
+				Status: taskStatus,
 			},
 		},
 	}); err != nil {
 		// TODO(stevvooe): Dispatcher should not return this error. Status
 		// reports for unknown tasks should be ignored.
-		if grpc.Code(err) == codes.NotFound {
+		st, _ := status.FromError(err)
+		if st.Code() == codes.NotFound {
 			return errTaskUnknown
 		}
 
@@ -408,7 +435,7 @@ func (s *session) sendError(err error) {
 	}
 }
 
-// close closing session. It should be called only in <-session.errs branch
+// close the given session. It should be called only in <-session.errs branch
 // of event loop, or when cleaning up the agent.
 func (s *session) close() error {
 	s.closeOnce.Do(func() {

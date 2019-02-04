@@ -1,6 +1,6 @@
 // +build linux freebsd
 
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/links"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
@@ -89,7 +90,7 @@ func (daemon *Daemon) getPidContainer(container *container.Container) (*containe
 
 func containerIsRunning(c *container.Container) error {
 	if !c.IsRunning() {
-		return stateConflictError{errors.Errorf("container %s is not running", c.ID)}
+		return errdefs.Conflict(errors.Errorf("container %s is not running", c.ID))
 	}
 	return nil
 }
@@ -129,7 +130,7 @@ func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
 		fallthrough
 
 	case ipcMode.IsShareable():
-		rootIDs := daemon.idMappings.RootPair()
+		rootIDs := daemon.idMapping.RootPair()
 		if !c.HasMountFor("/dev/shm") {
 			shmPath, err := c.ShmResourcePath()
 			if err != nil {
@@ -158,63 +159,55 @@ func (daemon *Daemon) setupIpcDirs(c *container.Container) error {
 }
 
 func (daemon *Daemon) setupSecretDir(c *container.Container) (setupErr error) {
-	if len(c.SecretReferences) == 0 {
+	if len(c.SecretReferences) == 0 && len(c.ConfigReferences) == 0 {
 		return nil
 	}
 
-	localMountPath := c.SecretMountPath()
-	logrus.Debugf("secrets: setting up secret dir: %s", localMountPath)
-
-	// retrieve possible remapped range start for root UID, GID
-	rootIDs := daemon.idMappings.RootPair()
-	// create tmpfs
-	if err := idtools.MkdirAllAndChown(localMountPath, 0700, rootIDs); err != nil {
-		return errors.Wrap(err, "error creating secret local mount path")
+	if err := daemon.createSecretsDir(c); err != nil {
+		return err
 	}
-
 	defer func() {
 		if setupErr != nil {
-			// cleanup
-			_ = detachMounted(localMountPath)
-
-			if err := os.RemoveAll(localMountPath); err != nil {
-				logrus.Errorf("error cleaning up secret mount: %s", err)
-			}
+			daemon.cleanupSecretDir(c)
 		}
 	}()
-
-	tmpfsOwnership := fmt.Sprintf("uid=%d,gid=%d", rootIDs.UID, rootIDs.GID)
-	if err := mount.Mount("tmpfs", localMountPath, "tmpfs", "nodev,nosuid,noexec,"+tmpfsOwnership); err != nil {
-		return errors.Wrap(err, "unable to setup secret mount")
-	}
 
 	return fmt.Errorf("secret store is not initialized")
 }
 
-func (daemon *Daemon) setupConfigDir(c *container.Container) (setupErr error) {
-	if len(c.ConfigReferences) == 0 {
-		return nil
-	}
-
-	localPath := c.ConfigsDirPath()
-	logrus.Debugf("configs: setting up config dir: %s", localPath)
-
+// createSecretsDir is used to create a dir suitable for storing container secrets.
+// In practice this is using a tmpfs mount and is used for both "configs" and "secrets"
+func (daemon *Daemon) createSecretsDir(c *container.Container) error {
 	// retrieve possible remapped range start for root UID, GID
-	rootIDs := daemon.idMappings.RootPair()
-	// create tmpfs
-	if err := idtools.MkdirAllAndChown(localPath, 0700, rootIDs); err != nil {
-		return errors.Wrap(err, "error creating config dir")
+	rootIDs := daemon.idMapping.RootPair()
+	dir, err := c.SecretMountPath()
+	if err != nil {
+		return errors.Wrap(err, "error getting container secrets dir")
 	}
 
-	defer func() {
-		if setupErr != nil {
-			if err := os.RemoveAll(localPath); err != nil {
-				logrus.Errorf("error cleaning up config dir: %s", err)
-			}
-		}
-	}()
+	// create tmpfs
+	if err := idtools.MkdirAllAndChown(dir, 0700, rootIDs); err != nil {
+		return errors.Wrap(err, "error creating secret local mount path")
+	}
 
-	return fmt.Errorf("config store is not initialized")
+	tmpfsOwnership := fmt.Sprintf("uid=%d,gid=%d", rootIDs.UID, rootIDs.GID)
+	if err := mount.Mount("tmpfs", dir, "tmpfs", "nodev,nosuid,noexec,"+tmpfsOwnership); err != nil {
+		return errors.Wrap(err, "unable to setup secret mount")
+	}
+	return nil
+}
+
+func (daemon *Daemon) cleanupSecretDir(c *container.Container) {
+	dir, err := c.SecretMountPath()
+	if err != nil {
+		logrus.WithError(err).WithField("container", c.ID).Warn("error getting secrets mount path for container")
+	}
+	if err := mount.RecursiveUnmount(dir); err != nil {
+		logrus.WithField("dir", dir).WithError(err).Warn("Error while attempting to unmount dir, this may prevent removal of container.")
+	}
+	if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
+		logrus.WithField("dir", dir).WithError(err).Error("Error removing dir.")
+	}
 }
 
 func killProcessDirectly(cntr *container.Container) error {
@@ -258,8 +251,16 @@ func (daemon *Daemon) isNetworkHotPluggable() bool {
 	return true
 }
 
-func setupPathsAndSandboxOptions(container *container.Container, sboxOptions *[]libnetwork.SandboxOption) error {
+func (daemon *Daemon) setupPathsAndSandboxOptions(container *container.Container, sboxOptions *[]libnetwork.SandboxOption) error {
 	var err error
+
+	if container.HostConfig.NetworkMode.IsHost() {
+		// Point to the host files, so that will be copied into the container running in host mode
+		*sboxOptions = append(*sboxOptions, libnetwork.OptionOriginHostsPath("/etc/hosts"))
+		*sboxOptions = append(*sboxOptions, libnetwork.OptionOriginResolvConfPath("/etc/resolv.conf"))
+	} else {
+		*sboxOptions = append(*sboxOptions, libnetwork.OptionOriginResolvConfPath(daemon.configStore.GetResolvConf()))
+	}
 
 	container.HostsPath, err = container.GetRootResourcePath("hosts")
 	if err != nil {
@@ -280,4 +281,13 @@ func (daemon *Daemon) initializeNetworkingPaths(container *container.Container, 
 	container.HostsPath = nc.HostsPath
 	container.ResolvConfPath = nc.ResolvConfPath
 	return nil
+}
+
+func (daemon *Daemon) setupContainerMountsRoot(c *container.Container) error {
+	// get the root mount path so we can make it unbindable
+	p, err := c.MountsResourcePath("")
+	if err != nil {
+		return err
+	}
+	return idtools.MkdirAllAndChown(p, 0700, daemon.idMapping.RootPair())
 }

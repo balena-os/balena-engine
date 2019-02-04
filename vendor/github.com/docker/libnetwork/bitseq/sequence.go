@@ -108,6 +108,12 @@ func (s *sequence) getAvailableBit(from uint64) (uint64, uint64, error) {
 		bitSel >>= 1
 		bits++
 	}
+	// Check if the loop exited because it could not
+	// find any available bit int block  starting from
+	// "from". Return invalid pos in that case.
+	if bitSel == 0 {
+		return invalidPos, invalidPos, ErrNoBitAvailable
+	}
 	return bits / 8, bits % 8, nil
 }
 
@@ -313,14 +319,13 @@ func (h *Handle) set(ordinal, start, end uint64, any bool, release bool, serial 
 		curr := uint64(0)
 		h.Lock()
 		store = h.store
-		h.Unlock()
 		if store != nil {
+			h.Unlock() // The lock is acquired in the GetObject
 			if err := store.GetObject(datastore.Key(h.Key()...), h); err != nil && err != datastore.ErrKeyNotFound {
 				return ret, err
 			}
+			h.Lock() // Acquire the lock back
 		}
-
-		h.Lock()
 		if serial {
 			curr = h.curr
 		}
@@ -346,7 +351,6 @@ func (h *Handle) set(ordinal, start, end uint64, any bool, release bool, serial 
 
 		// Create a private copy of h and work on it
 		nh := h.getCopy()
-		h.Unlock()
 
 		nh.head = pushReservation(bytePos, bitPos, nh.head, release)
 		if release {
@@ -355,22 +359,25 @@ func (h *Handle) set(ordinal, start, end uint64, any bool, release bool, serial 
 			nh.unselected--
 		}
 
-		// Attempt to write private copy to store
-		if err := nh.writeToStore(); err != nil {
-			if _, ok := err.(types.RetryError); !ok {
-				return ret, fmt.Errorf("internal failure while setting the bit: %v", err)
+		if h.store != nil {
+			h.Unlock()
+			// Attempt to write private copy to store
+			if err := nh.writeToStore(); err != nil {
+				if _, ok := err.(types.RetryError); !ok {
+					return ret, fmt.Errorf("internal failure while setting the bit: %v", err)
+				}
+				// Retry
+				continue
 			}
-			// Retry
-			continue
+			h.Lock()
 		}
 
-		// Previous atomic push was succesfull. Save private copy to local copy
-		h.Lock()
-		defer h.Unlock()
+		// Previous atomic push was successful. Save private copy to local copy
 		h.unselected = nh.unselected
 		h.head = nh.head
 		h.dbExists = nh.dbExists
 		h.dbIndex = nh.dbIndex
+		h.Unlock()
 		return ret, nil
 	}
 }
@@ -458,8 +465,8 @@ func (h *Handle) Unselected() uint64 {
 func (h *Handle) String() string {
 	h.Lock()
 	defer h.Unlock()
-	return fmt.Sprintf("App: %s, ID: %s, DBIndex: 0x%x, bits: %d, unselected: %d, sequence: %s",
-		h.app, h.id, h.dbIndex, h.bits, h.unselected, h.head.toString())
+	return fmt.Sprintf("App: %s, ID: %s, DBIndex: 0x%x, Bits: %d, Unselected: %d, Sequence: %s Curr:%d",
+		h.app, h.id, h.dbIndex, h.bits, h.unselected, h.head.toString(), h.curr)
 }
 
 // MarshalJSON encodes Handle into json message
@@ -498,24 +505,40 @@ func (h *Handle) UnmarshalJSON(data []byte) error {
 func getFirstAvailable(head *sequence, start uint64) (uint64, uint64, error) {
 	// Find sequence which contains the start bit
 	byteStart, bitStart := ordinalToPos(start)
-	current, _, _, inBlockBytePos := findSequence(head, byteStart)
-
+	current, _, precBlocks, inBlockBytePos := findSequence(head, byteStart)
 	// Derive the this sequence offsets
 	byteOffset := byteStart - inBlockBytePos
 	bitOffset := inBlockBytePos*8 + bitStart
-	var firstOffset uint64
-	if current == head {
-		firstOffset = byteOffset
-	}
 	for current != nil {
 		if current.block != blockMAX {
+			// If the current block is not full, check if there is any bit
+			// from the current bit in the current block. If not, before proceeding to the
+			// next block node, make sure we check for available bit in the next
+			// instance of the same block. Due to RLE same block signature will be
+			// compressed.
+		retry:
 			bytePos, bitPos, err := current.getAvailableBit(bitOffset)
+			if err != nil && precBlocks == current.count-1 {
+				// This is the last instance in the same block node,
+				// so move to the next block.
+				goto next
+			}
+			if err != nil {
+				// There are some more instances of the same block, so add the offset
+				// and be optimistic that you will find the available bit in the next
+				// instance of the same block.
+				bitOffset = 0
+				byteOffset += blockBytes
+				precBlocks++
+				goto retry
+			}
 			return byteOffset + bytePos, bitPos, err
 		}
 		// Moving to next block: Reset bit offset.
+	next:
 		bitOffset = 0
-		byteOffset += (current.count * blockBytes) - firstOffset
-		firstOffset = 0
+		byteOffset += (current.count * blockBytes) - (precBlocks * blockBytes)
+		precBlocks = 0
 		current = current.next
 	}
 	return invalidPos, invalidPos, ErrNoBitAvailable
@@ -526,19 +549,20 @@ func getFirstAvailable(head *sequence, start uint64) (uint64, uint64, error) {
 // This can be further optimized to check from start till curr in case of a rollover
 func getAvailableFromCurrent(head *sequence, start, curr, end uint64) (uint64, uint64, error) {
 	var bytePos, bitPos uint64
+	var err error
 	if curr != 0 && curr > start {
-		bytePos, bitPos, _ = getFirstAvailable(head, curr)
+		bytePos, bitPos, err = getFirstAvailable(head, curr)
 		ret := posToOrdinal(bytePos, bitPos)
-		if end < ret {
+		if end < ret || err != nil {
 			goto begin
 		}
 		return bytePos, bitPos, nil
 	}
 
 begin:
-	bytePos, bitPos, _ = getFirstAvailable(head, start)
+	bytePos, bitPos, err = getFirstAvailable(head, start)
 	ret := posToOrdinal(bytePos, bitPos)
-	if end < ret {
+	if end < ret || err != nil {
 		return invalidPos, invalidPos, ErrNoBitAvailable
 	}
 	return bytePos, bitPos, nil

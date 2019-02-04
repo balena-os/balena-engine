@@ -1,15 +1,31 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package scheduler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/containerd/containerd/gc"
 	"github.com/containerd/containerd/log"
-	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/plugin"
+	"github.com/pkg/errors"
 )
 
 // config configures the garbage collection policies.
@@ -75,6 +91,10 @@ func (d *duration) UnmarshalText(text []byte) error {
 	return nil
 }
 
+func (d duration) MarshalText() (text []byte, err error) {
+	return []byte(time.Duration(d).String()), nil
+}
+
 func init() {
 	plugin.Register(&plugin.Registration{
 		Type: plugin.GCPlugin,
@@ -95,7 +115,12 @@ func init() {
 				return nil, err
 			}
 
-			m := newScheduler(md.(*metadata.DB), ic.Config.(*config))
+			mdCollector, ok := md.(collector)
+			if !ok {
+				return nil, errors.Errorf("%s %T must implement collector", plugin.MetadataPlugin, md)
+			}
+
+			m := newScheduler(mdCollector, ic.Config.(*config))
 
 			ic.Meta.Exports = map[string]string{
 				"PauseThreshold":    fmt.Sprint(m.pauseThreshold),
@@ -119,7 +144,7 @@ type mutationEvent struct {
 
 type collector interface {
 	RegisterMutationCallback(func(bool))
-	GarbageCollect(context.Context) (metadata.GCStats, error)
+	GarbageCollect(context.Context) (gc.Stats, error)
 }
 
 type gcScheduler struct {
@@ -128,7 +153,7 @@ type gcScheduler struct {
 	eventC chan mutationEvent
 
 	waiterL sync.Mutex
-	waiters []chan metadata.GCStats
+	waiters []chan gc.Stats
 
 	pauseThreshold    float64
 	deletionThreshold int
@@ -171,12 +196,12 @@ func newScheduler(c collector, cfg *config) *gcScheduler {
 	return s
 }
 
-func (s *gcScheduler) ScheduleAndWait(ctx context.Context) (metadata.GCStats, error) {
+func (s *gcScheduler) ScheduleAndWait(ctx context.Context) (gc.Stats, error) {
 	return s.wait(ctx, true)
 }
 
-func (s *gcScheduler) wait(ctx context.Context, trigger bool) (metadata.GCStats, error) {
-	wc := make(chan metadata.GCStats, 1)
+func (s *gcScheduler) wait(ctx context.Context, trigger bool) (gc.Stats, error) {
+	wc := make(chan gc.Stats, 1)
 	s.waiterL.Lock()
 	s.waiters = append(s.waiters, wc)
 	s.waiterL.Unlock()
@@ -190,15 +215,15 @@ func (s *gcScheduler) wait(ctx context.Context, trigger bool) (metadata.GCStats,
 		}()
 	}
 
-	var gcStats metadata.GCStats
+	var gcStats gc.Stats
 	select {
 	case stats, ok := <-wc:
 		if !ok {
-			return metadata.GCStats{}, errors.New("gc failed")
+			return gcStats, errors.New("gc failed")
 		}
 		gcStats = stats
 	case <-ctx.Done():
-		return metadata.GCStats{}, ctx.Err()
+		return gcStats, ctx.Err()
 	}
 
 	return gcStats, nil
@@ -290,7 +315,7 @@ func (s *gcScheduler) run(ctx context.Context) {
 			// Reschedule garbage collection for same duration + 1 second
 			schedC, nextCollection = schedule(nextCollection.Sub(*lastCollection) + time.Second)
 
-			// Update last collection time even though failure occured
+			// Update last collection time even though failure occurred
 			lastCollection = &last
 
 			for _, w := range s.waiters {
@@ -301,9 +326,9 @@ func (s *gcScheduler) run(ctx context.Context) {
 			continue
 		}
 
-		log.G(ctx).WithField("d", stats.MetaD).Debug("garbage collected")
+		log.G(ctx).WithField("d", stats.Elapsed()).Debug("garbage collected")
 
-		gcTime += stats.MetaD
+		gcTime += stats.Elapsed()
 		collections++
 		triggered = false
 		deletions = 0

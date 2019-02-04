@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package containerd
 
 import (
@@ -9,7 +25,6 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/rootfs"
-	"github.com/containerd/containerd/snapshots"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -38,10 +53,29 @@ type Image interface {
 
 var _ = (Image)(&image{})
 
+// NewImage returns a client image object from the metadata image
+func NewImage(client *Client, i images.Image) Image {
+	return &image{
+		client:   client,
+		i:        i,
+		platform: platforms.Default(),
+	}
+}
+
+// NewImageWithPlatform returns a client image object from the metadata image
+func NewImageWithPlatform(client *Client, i images.Image, platform string) Image {
+	return &image{
+		client:   client,
+		i:        i,
+		platform: platform,
+	}
+}
+
 type image struct {
 	client *Client
 
-	i images.Image
+	i        images.Image
+	platform string
 }
 
 func (i *image) Name() string {
@@ -54,24 +88,24 @@ func (i *image) Target() ocispec.Descriptor {
 
 func (i *image) RootFS(ctx context.Context) ([]digest.Digest, error) {
 	provider := i.client.ContentStore()
-	return i.i.RootFS(ctx, provider, platforms.Default())
+	return i.i.RootFS(ctx, provider, i.platform)
 }
 
 func (i *image) Size(ctx context.Context) (int64, error) {
 	provider := i.client.ContentStore()
-	return i.i.Size(ctx, provider, platforms.Default())
+	return i.i.Size(ctx, provider, i.platform)
 }
 
 func (i *image) Config(ctx context.Context) (ocispec.Descriptor, error) {
 	provider := i.client.ContentStore()
-	return i.i.Config(ctx, provider, platforms.Default())
+	return i.i.Config(ctx, provider, i.platform)
 }
 
 func (i *image) IsUnpacked(ctx context.Context, snapshotterName string) (bool, error) {
 	sn := i.client.SnapshotService(snapshotterName)
 	cs := i.client.ContentStore()
 
-	diffs, err := i.i.RootFS(ctx, cs, platforms.Default())
+	diffs, err := i.i.RootFS(ctx, cs, i.platform)
 	if err != nil {
 		return false, err
 	}
@@ -92,9 +126,9 @@ func (i *image) Unpack(ctx context.Context, snapshotterName string) error {
 	if err != nil {
 		return err
 	}
-	defer done()
+	defer done(ctx)
 
-	layers, err := i.getLayers(ctx, platforms.Default())
+	layers, err := i.getLayers(ctx, i.platform)
 	if err != nil {
 		return err
 	}
@@ -108,20 +142,30 @@ func (i *image) Unpack(ctx context.Context, snapshotterName string) error {
 		unpacked bool
 	)
 	for _, layer := range layers {
-		labels := map[string]string{
-			"containerd.io/uncompressed": layer.Diff.Digest.String(),
-		}
-
-		unpacked, err = rootfs.ApplyLayer(ctx, layer, chain, sn, a, snapshots.WithLabels(labels))
+		unpacked, err = rootfs.ApplyLayer(ctx, layer, chain, sn, a)
 		if err != nil {
 			return err
+		}
+
+		if unpacked {
+			// Set the uncompressed label after the uncompressed
+			// digest has been verified through apply.
+			cinfo := content.Info{
+				Digest: layer.Blob.Digest,
+				Labels: map[string]string{
+					"containerd.io/uncompressed": layer.Diff.Digest.String(),
+				},
+			}
+			if _, err := cs.Update(ctx, cinfo, "labels.containerd.io/uncompressed"); err != nil {
+				return err
+			}
 		}
 
 		chain = append(chain, layer.Diff.Digest)
 	}
 
 	if unpacked {
-		desc, err := i.i.Config(ctx, cs, platforms.Default())
+		desc, err := i.i.Config(ctx, cs, i.platform)
 		if err != nil {
 			return err
 		}

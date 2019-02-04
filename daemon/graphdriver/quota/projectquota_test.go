@@ -1,6 +1,6 @@
 // +build linux
 
-package quota
+package quota // import "github.com/docker/docker/daemon/graphdriver/quota"
 
 import (
 	"io"
@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
+	"gotest.tools/fs"
 )
 
 // 10MB
@@ -22,7 +23,7 @@ const imageSize = 64 * 1024 * 1024
 func TestBlockDev(t *testing.T) {
 	mkfs, err := exec.LookPath("mkfs.xfs")
 	if err != nil {
-		t.Fatal("mkfs.xfs not installed")
+		t.Skip("mkfs.xfs not found in PATH")
 	}
 
 	// create a sparse image
@@ -52,18 +53,11 @@ func TestBlockDev(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runTest(t, "testBlockDevQuotaDisabled", wrapMountTest(imageFileName, false, testBlockDevQuotaDisabled))
-	runTest(t, "testBlockDevQuotaEnabled", wrapMountTest(imageFileName, true, testBlockDevQuotaEnabled))
-	runTest(t, "testSmallerThanQuota", wrapMountTest(imageFileName, true, wrapQuotaTest(testSmallerThanQuota)))
-	runTest(t, "testBiggerThanQuota", wrapMountTest(imageFileName, true, wrapQuotaTest(testBiggerThanQuota)))
-	runTest(t, "testRetrieveQuota", wrapMountTest(imageFileName, true, wrapQuotaTest(testRetrieveQuota)))
-}
-
-func runTest(t *testing.T, testName string, testFunc func(*testing.T)) {
-	if success := t.Run(testName, testFunc); !success {
-		out, _ := exec.Command("dmesg").CombinedOutput()
-		t.Log(string(out))
-	}
+	t.Run("testBlockDevQuotaDisabled", wrapMountTest(imageFileName, false, testBlockDevQuotaDisabled))
+	t.Run("testBlockDevQuotaEnabled", wrapMountTest(imageFileName, true, testBlockDevQuotaEnabled))
+	t.Run("testSmallerThanQuota", wrapMountTest(imageFileName, true, wrapQuotaTest(testSmallerThanQuota)))
+	t.Run("testBiggerThanQuota", wrapMountTest(imageFileName, true, wrapQuotaTest(testBiggerThanQuota)))
+	t.Run("testRetrieveQuota", wrapMountTest(imageFileName, true, wrapQuotaTest(testRetrieveQuota)))
 }
 
 func wrapMountTest(imageFileName string, enableQuota bool, testFunc func(t *testing.T, mountPoint, backingFsDev string)) func(*testing.T) {
@@ -74,29 +68,26 @@ func wrapMountTest(imageFileName string, enableQuota bool, testFunc func(t *test
 			mountOptions = mountOptions + ",prjquota"
 		}
 
-		// create a mountPoint
-		mountPoint, err := ioutil.TempDir("", "xfs-mountPoint")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer os.RemoveAll(mountPoint)
+		mountPointDir := fs.NewDir(t, "xfs-mountPoint")
+		defer mountPointDir.Remove()
+		mountPoint := mountPointDir.Path()
 
 		out, err := exec.Command("mount", "-o", mountOptions, imageFileName, mountPoint).CombinedOutput()
-		if len(out) > 0 {
-			t.Log(string(out))
-		}
 		if err != nil {
-			t.Fatal("mount failed")
+			_, err := os.Stat("/proc/fs/xfs")
+			if os.IsNotExist(err) {
+				t.Skip("no /proc/fs/xfs")
+			}
 		}
 
+		assert.NilError(t, err, "mount failed: %s", out)
+
 		defer func() {
-			if err := unix.Unmount(mountPoint, 0); err != nil {
-				t.Fatal(err)
-			}
+			assert.NilError(t, unix.Unmount(mountPoint, 0))
 		}()
 
 		backingFsDev, err := makeBackingFsDev(mountPoint)
-		require.NoError(t, err)
+		assert.NilError(t, err)
 
 		testFunc(t, mountPoint, backingFsDev)
 	}
@@ -104,58 +95,58 @@ func wrapMountTest(imageFileName string, enableQuota bool, testFunc func(t *test
 
 func testBlockDevQuotaDisabled(t *testing.T, mountPoint, backingFsDev string) {
 	hasSupport, err := hasQuotaSupport(backingFsDev)
-	require.NoError(t, err)
-	assert.False(t, hasSupport)
+	assert.NilError(t, err)
+	assert.Check(t, !hasSupport)
 }
 
 func testBlockDevQuotaEnabled(t *testing.T, mountPoint, backingFsDev string) {
 	hasSupport, err := hasQuotaSupport(backingFsDev)
-	require.NoError(t, err)
-	assert.True(t, hasSupport)
+	assert.NilError(t, err)
+	assert.Check(t, hasSupport)
 }
 
 func wrapQuotaTest(testFunc func(t *testing.T, ctrl *Control, mountPoint, testDir, testSubDir string)) func(t *testing.T, mountPoint, backingFsDev string) {
 	return func(t *testing.T, mountPoint, backingFsDev string) {
 		testDir, err := ioutil.TempDir(mountPoint, "per-test")
-		require.NoError(t, err)
+		assert.NilError(t, err)
 		defer os.RemoveAll(testDir)
 
 		ctrl, err := NewControl(testDir)
-		require.NoError(t, err)
+		assert.NilError(t, err)
 
 		testSubDir, err := ioutil.TempDir(testDir, "quota-test")
-		require.NoError(t, err)
+		assert.NilError(t, err)
 		testFunc(t, ctrl, mountPoint, testDir, testSubDir)
 	}
 
 }
 
 func testSmallerThanQuota(t *testing.T, ctrl *Control, homeDir, testDir, testSubDir string) {
-	require.NoError(t, ctrl.SetQuota(testSubDir, Quota{testQuotaSize}))
+	assert.NilError(t, ctrl.SetQuota(testSubDir, Quota{testQuotaSize}))
 	smallerThanQuotaFile := filepath.Join(testSubDir, "smaller-than-quota")
-	require.NoError(t, ioutil.WriteFile(smallerThanQuotaFile, make([]byte, testQuotaSize/2), 0644))
-	require.NoError(t, os.Remove(smallerThanQuotaFile))
+	assert.NilError(t, ioutil.WriteFile(smallerThanQuotaFile, make([]byte, testQuotaSize/2), 0644))
+	assert.NilError(t, os.Remove(smallerThanQuotaFile))
 }
 
 func testBiggerThanQuota(t *testing.T, ctrl *Control, homeDir, testDir, testSubDir string) {
 	// Make sure the quota is being enforced
 	// TODO: When we implement this under EXT4, we need to shed CAP_SYS_RESOURCE, otherwise
 	// we're able to violate quota without issue
-	require.NoError(t, ctrl.SetQuota(testSubDir, Quota{testQuotaSize}))
+	assert.NilError(t, ctrl.SetQuota(testSubDir, Quota{testQuotaSize}))
 
 	biggerThanQuotaFile := filepath.Join(testSubDir, "bigger-than-quota")
 	err := ioutil.WriteFile(biggerThanQuotaFile, make([]byte, testQuotaSize+1), 0644)
-	require.Error(t, err)
+	assert.Assert(t, is.ErrorContains(err, ""))
 	if err == io.ErrShortWrite {
-		require.NoError(t, os.Remove(biggerThanQuotaFile))
+		assert.NilError(t, os.Remove(biggerThanQuotaFile))
 	}
 }
 
 func testRetrieveQuota(t *testing.T, ctrl *Control, homeDir, testDir, testSubDir string) {
 	// Validate that we can retrieve quota
-	require.NoError(t, ctrl.SetQuota(testSubDir, Quota{testQuotaSize}))
+	assert.NilError(t, ctrl.SetQuota(testSubDir, Quota{testQuotaSize}))
 
 	var q Quota
-	require.NoError(t, ctrl.GetQuota(testSubDir, &q))
-	assert.EqualValues(t, testQuotaSize, q.Size)
+	assert.NilError(t, ctrl.GetQuota(testSubDir, &q))
+	assert.Check(t, is.Equal(uint64(testQuotaSize), q.Size))
 }

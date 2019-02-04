@@ -3,6 +3,7 @@ package main
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,21 +21,21 @@ import (
 	containertypes "github.com/docker/docker/api/types/container"
 	mounttypes "github.com/docker/docker/api/types/mount"
 	networktypes "github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration-cli/checker"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"github.com/docker/docker/integration-cli/request"
+	"github.com/docker/docker/internal/test/request"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/volume"
 	"github.com/docker/go-connections/nat"
 	"github.com/go-check/check"
-	"github.com/gotestyourself/gotestyourself/poll"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/net/context"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
+	"gotest.tools/poll"
 )
 
 func (s *DockerSuite) TestContainerAPIGetAll(c *check.C) {
@@ -441,7 +442,8 @@ func (s *DockerSuite) TestContainerAPITop(c *check.C) {
 	c.Assert(err, checker.IsNil)
 	defer cli.Close()
 
-	top, err := cli.ContainerTop(context.Background(), id, []string{"aux"})
+	// sort by comm[andline] to make sure order stays the same in case of PID rollover
+	top, err := cli.ContainerTop(context.Background(), id, []string{"aux", "--sort=comm"})
 	c.Assert(err, checker.IsNil)
 	c.Assert(top.Titles, checker.HasLen, 11, check.Commentf("expected 11 titles, found %d: %v", len(top.Titles), top.Titles))
 
@@ -724,13 +726,23 @@ func (s *DockerSuite) TestContainerAPIVerifyHeader(c *check.C) {
 	// Try with no content-type
 	res, body, err := create("")
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	// todo: we need to figure out a better way to compare between dockerd versions
+	// comparing between daemon API version is not precise.
+	if versions.GreaterThanOrEqualTo(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	} else {
+		c.Assert(res.StatusCode, checker.Not(checker.Equals), http.StatusOK)
+	}
 	body.Close()
 
 	// Try with wrong content-type
 	res, body, err = create("application/xml")
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	if versions.GreaterThanOrEqualTo(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	} else {
+		c.Assert(res.StatusCode, checker.Not(checker.Equals), http.StatusOK)
+	}
 	body.Close()
 
 	// now application/json
@@ -756,7 +768,11 @@ func (s *DockerSuite) TestContainerAPIInvalidPortSyntax(c *check.C) {
 
 	res, body, err := request.Post("/containers/create", request.RawString(config), request.JSON)
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	if versions.GreaterThanOrEqualTo(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	} else {
+		c.Assert(res.StatusCode, checker.Not(checker.Equals), http.StatusOK)
+	}
 
 	b, err := request.ReadBody(body)
 	c.Assert(err, checker.IsNil)
@@ -776,7 +792,11 @@ func (s *DockerSuite) TestContainerAPIRestartPolicyInvalidPolicyName(c *check.C)
 
 	res, body, err := request.Post("/containers/create", request.RawString(config), request.JSON)
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	if versions.GreaterThanOrEqualTo(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	} else {
+		c.Assert(res.StatusCode, checker.Not(checker.Equals), http.StatusOK)
+	}
 
 	b, err := request.ReadBody(body)
 	c.Assert(err, checker.IsNil)
@@ -796,7 +816,11 @@ func (s *DockerSuite) TestContainerAPIRestartPolicyRetryMismatch(c *check.C) {
 
 	res, body, err := request.Post("/containers/create", request.RawString(config), request.JSON)
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	if versions.GreaterThanOrEqualTo(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	} else {
+		c.Assert(res.StatusCode, checker.Not(checker.Equals), http.StatusOK)
+	}
 
 	b, err := request.ReadBody(body)
 	c.Assert(err, checker.IsNil)
@@ -816,7 +840,11 @@ func (s *DockerSuite) TestContainerAPIRestartPolicyNegativeRetryCount(c *check.C
 
 	res, body, err := request.Post("/containers/create", request.RawString(config), request.JSON)
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	if versions.GreaterThanOrEqualTo(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	} else {
+		c.Assert(res.StatusCode, checker.Not(checker.Equals), http.StatusOK)
+	}
 
 	b, err := request.ReadBody(body)
 	c.Assert(err, checker.IsNil)
@@ -901,7 +929,11 @@ func (s *DockerSuite) TestCreateWithTooLowMemoryLimit(c *check.C) {
 	b, err2 := request.ReadBody(body)
 	c.Assert(err2, checker.IsNil)
 
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	if versions.GreaterThanOrEqualTo(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	} else {
+		c.Assert(res.StatusCode, checker.Not(checker.Equals), http.StatusOK)
+	}
 	c.Assert(string(b), checker.Contains, "Minimum memory limit allowed is 4MB")
 }
 
@@ -1016,7 +1048,7 @@ func (s *DockerSuite) TestContainerAPIWait(c *check.C) {
 	name := "test-api-wait"
 
 	sleepCmd := "/bin/sleep"
-	if testEnv.DaemonPlatform() == "windows" {
+	if testEnv.OSType == "windows" {
 		sleepCmd = "sleep"
 	}
 	dockerCmd(c, "run", "--name", name, "busybox", sleepCmd, "2")
@@ -1089,7 +1121,11 @@ func (s *DockerSuite) TestContainerAPICopyResourcePathEmptyPre124(c *check.C) {
 
 	res, body, err := request.Post("/v1.23/containers/"+name+"/copy", request.JSONBody(postData))
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	if versions.GreaterThanOrEqualTo(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusBadRequest)
+	} else {
+		c.Assert(res.StatusCode, checker.Not(checker.Equals), http.StatusOK)
+	}
 	b, err := request.ReadBody(body)
 	c.Assert(err, checker.IsNil)
 	c.Assert(string(b), checker.Matches, "Path cannot be empty\n")
@@ -1106,8 +1142,11 @@ func (s *DockerSuite) TestContainerAPICopyResourcePathNotFoundPre124(c *check.C)
 
 	res, body, err := request.Post("/v1.23/containers/"+name+"/copy", request.JSONBody(postData))
 	c.Assert(err, checker.IsNil)
-	c.Assert(res.StatusCode, checker.Equals, http.StatusNotFound)
-
+	if versions.LessThan(testEnv.DaemonAPIVersion(), "1.32") {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusInternalServerError)
+	} else {
+		c.Assert(res.StatusCode, checker.Equals, http.StatusNotFound)
+	}
 	b, err := request.ReadBody(body)
 	c.Assert(err, checker.IsNil)
 	c.Assert(string(b), checker.Matches, "Could not find the file /notexist in container "+name+"\n")
@@ -1216,7 +1255,7 @@ func (s *DockerSuite) TestContainerAPIDeleteRemoveVolume(c *check.C) {
 	testRequires(c, SameHostDaemon)
 
 	vol := "/testvolume"
-	if testEnv.DaemonPlatform() == "windows" {
+	if testEnv.OSType == "windows" {
 		vol = `c:\testvolume`
 	}
 
@@ -1226,6 +1265,7 @@ func (s *DockerSuite) TestContainerAPIDeleteRemoveVolume(c *check.C) {
 	c.Assert(waitRun(id), checker.IsNil)
 
 	source, err := inspectMountSourceField(id, vol)
+	c.Assert(err, checker.IsNil)
 	_, err = os.Stat(source)
 	c.Assert(err, checker.IsNil)
 
@@ -1254,13 +1294,13 @@ func (s *DockerSuite) TestContainerAPIChunkedEncoding(c *check.C) {
 		"OpenStdin": true,
 	}
 
-	resp, _, err := request.Post("/containers/create", request.JSONBody(config), func(req *http.Request) error {
+	resp, _, err := request.Post("/containers/create", request.JSONBody(config), request.With(func(req *http.Request) error {
 		// This is a cheat to make the http request do chunked encoding
 		// Otherwise (just setting the Content-Encoding to chunked) net/http will overwrite
 		// https://golang.org/src/pkg/net/http/request.go?s=11980:12172
 		req.ContentLength = -1
 		return nil
-	})
+	}))
 	c.Assert(err, checker.IsNil, check.Commentf("error creating container with chunked encoding"))
 	defer resp.Body.Close()
 	c.Assert(resp.StatusCode, checker.Equals, http.StatusCreated)
@@ -1372,7 +1412,8 @@ func (s *DockerSuite) TestContainerAPICreateNoHostConfig118(c *check.C) {
 		Image: "busybox",
 	}
 
-	cli, err := request.NewEnvClientWithVersion("v1.18")
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithVersion("v1.18"))
+	c.Assert(err, checker.IsNil)
 
 	_, err = cli.ContainerCreate(context.Background(), &config, &containertypes.HostConfig{}, &networktypes.NetworkingConfig{}, "")
 	c.Assert(err, checker.IsNil)
@@ -1562,7 +1603,11 @@ func (s *DockerSuite) TestPostContainersCreateMemorySwappinessHostConfigOmitted(
 	containerJSON, err := cli.ContainerInspect(context.Background(), container.ID)
 	c.Assert(err, check.IsNil)
 
-	c.Assert(containerJSON.HostConfig.MemorySwappiness, check.IsNil)
+	if versions.LessThan(testEnv.DaemonAPIVersion(), "1.31") {
+		c.Assert(*containerJSON.HostConfig.MemorySwappiness, check.Equals, int64(-1))
+	} else {
+		c.Assert(containerJSON.HostConfig.MemorySwappiness, check.IsNil)
+	}
 }
 
 // check validation is done daemon side and not only in cli
@@ -1712,7 +1757,9 @@ func (s *DockerSuite) TestContainersAPICreateMountsValidation(c *check.C) {
 					Type:   "bind",
 					Source: notExistPath,
 					Target: destPath}}},
-			msg: "bind source path does not exist",
+			msg: "source path does not exist",
+			// FIXME(vdemeester) fails into e2e, migrate to integration/container anyway
+			// msg: "bind mount source path does not exist: " + notExistPath,
 		},
 		{
 			config: containertypes.Config{
@@ -1890,7 +1937,7 @@ func (s *DockerSuite) TestContainersAPICreateMountsCreate(c *check.C) {
 	var (
 		testImg string
 	)
-	if testEnv.DaemonPlatform() != "windows" {
+	if testEnv.OSType != "windows" {
 		testImg = "test-mount-config"
 		buildImageSuccessfully(c, testImg, build.WithDockerfile(`
 	FROM busybox
@@ -1907,8 +1954,13 @@ func (s *DockerSuite) TestContainersAPICreateMountsCreate(c *check.C) {
 	}
 
 	var selinuxSharedLabel string
-	if runtime.GOOS == "linux" {
-		selinuxSharedLabel = "z"
+	// this test label was added after a bug fix in 1.32, thus add requirements min API >= 1.32
+	// for the sake of making test pass in earlier versions
+	// bug fixed in https://github.com/moby/moby/pull/34684
+	if !versions.LessThan(testEnv.DaemonAPIVersion(), "1.32") {
+		if runtime.GOOS == "linux" {
+			selinuxSharedLabel = "z"
+		}
 	}
 
 	cases := []testCase{
@@ -1987,7 +2039,7 @@ func (s *DockerSuite) TestContainersAPICreateMountsCreate(c *check.C) {
 		}
 	}
 
-	if testEnv.DaemonPlatform() != "windows" { // Windows does not support volume populate
+	if testEnv.OSType != "windows" { // Windows does not support volume populate
 		cases = append(cases, []testCase{
 			{
 				spec:     mounttypes.Mount{Type: "volume", Target: destPath, VolumeOptions: &mounttypes.VolumeOptions{NoCopy: true}},
@@ -2026,47 +2078,47 @@ func (s *DockerSuite) TestContainersAPICreateMountsCreate(c *check.C) {
 			&containertypes.HostConfig{Mounts: []mounttypes.Mount{x.spec}},
 			&networktypes.NetworkingConfig{},
 			"")
-		require.NoError(c, err)
+		assert.NilError(c, err)
 
 		containerInspect, err := apiclient.ContainerInspect(ctx, container.ID)
-		require.NoError(c, err)
+		assert.NilError(c, err)
 		mps := containerInspect.Mounts
-		require.Len(c, mps, 1)
+		assert.Assert(c, is.Len(mps, 1))
 		mountPoint := mps[0]
 
 		if x.expected.Source != "" {
-			assert.Equal(c, x.expected.Source, mountPoint.Source)
+			assert.Check(c, is.Equal(x.expected.Source, mountPoint.Source))
 		}
 		if x.expected.Name != "" {
-			assert.Equal(c, x.expected.Name, mountPoint.Name)
+			assert.Check(c, is.Equal(x.expected.Name, mountPoint.Name))
 		}
 		if x.expected.Driver != "" {
-			assert.Equal(c, x.expected.Driver, mountPoint.Driver)
+			assert.Check(c, is.Equal(x.expected.Driver, mountPoint.Driver))
 		}
 		if x.expected.Propagation != "" {
-			assert.Equal(c, x.expected.Propagation, mountPoint.Propagation)
+			assert.Check(c, is.Equal(x.expected.Propagation, mountPoint.Propagation))
 		}
-		assert.Equal(c, x.expected.RW, mountPoint.RW)
-		assert.Equal(c, x.expected.Type, mountPoint.Type)
-		assert.Equal(c, x.expected.Mode, mountPoint.Mode)
-		assert.Equal(c, x.expected.Destination, mountPoint.Destination)
+		assert.Check(c, is.Equal(x.expected.RW, mountPoint.RW))
+		assert.Check(c, is.Equal(x.expected.Type, mountPoint.Type))
+		assert.Check(c, is.Equal(x.expected.Mode, mountPoint.Mode))
+		assert.Check(c, is.Equal(x.expected.Destination, mountPoint.Destination))
 
 		err = apiclient.ContainerStart(ctx, container.ID, types.ContainerStartOptions{})
-		require.NoError(c, err)
+		assert.NilError(c, err)
 		poll.WaitOn(c, containerExit(apiclient, container.ID), poll.WithDelay(time.Second))
 
 		err = apiclient.ContainerRemove(ctx, container.ID, types.ContainerRemoveOptions{
 			RemoveVolumes: true,
 			Force:         true,
 		})
-		require.NoError(c, err)
+		assert.NilError(c, err)
 
 		switch {
 
 		// Named volumes still exist after the container is removed
 		case x.spec.Type == "volume" && len(x.spec.Source) > 0:
 			_, err := apiclient.VolumeInspect(ctx, mountPoint.Name)
-			require.NoError(c, err)
+			assert.NilError(c, err)
 
 		// Bind mounts are never removed with the container
 		case x.spec.Type == "bind":
@@ -2074,7 +2126,7 @@ func (s *DockerSuite) TestContainersAPICreateMountsCreate(c *check.C) {
 		// anonymous volumes are removed
 		default:
 			_, err := apiclient.VolumeInspect(ctx, mountPoint.Name)
-			assert.True(c, client.IsErrNotFound(err))
+			assert.Check(c, client.IsErrNotFound(err))
 		}
 	}
 }
@@ -2150,6 +2202,7 @@ func (s *DockerSuite) TestContainerKillCustomStopSignal(c *check.C) {
 	defer res.Body.Close()
 
 	b, err := ioutil.ReadAll(res.Body)
+	c.Assert(err, checker.IsNil)
 	c.Assert(res.StatusCode, checker.Equals, http.StatusNoContent, check.Commentf(string(b)))
 	err = waitInspect(id, "{{.State.Running}} {{.State.Restarting}}", "false false", 30*time.Second)
 	c.Assert(err, checker.IsNil)

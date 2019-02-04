@@ -1,20 +1,34 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package snapshots
 
 import (
-	gocontext "context"
+	"context"
 
-	eventstypes "github.com/containerd/containerd/api/events"
 	snapshotsapi "github.com/containerd/containerd/api/services/snapshots/v1"
 	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/events"
 	"github.com/containerd/containerd/log"
-	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/plugin"
+	"github.com/containerd/containerd/services"
 	"github.com/containerd/containerd/snapshots"
 	ptypes "github.com/gogo/protobuf/types"
-	"golang.org/x/net/context"
+	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 )
 
@@ -23,7 +37,7 @@ func init() {
 		Type: plugin.GRPCPlugin,
 		ID:   "snapshots",
 		Requires: []plugin.Type{
-			plugin.MetadataPlugin,
+			plugin.ServicePlugin,
 		},
 		InitFn: newService,
 	})
@@ -32,20 +46,24 @@ func init() {
 var empty = &ptypes.Empty{}
 
 type service struct {
-	db        *metadata.DB
-	publisher events.Publisher
+	ss map[string]snapshots.Snapshotter
 }
 
 func newService(ic *plugin.InitContext) (interface{}, error) {
-	md, err := ic.Get(plugin.MetadataPlugin)
+	plugins, err := ic.GetByType(plugin.ServicePlugin)
 	if err != nil {
 		return nil, err
 	}
-
-	return &service{
-		db:        md.(*metadata.DB),
-		publisher: ic.Events,
-	}, nil
+	p, ok := plugins[services.SnapshotsService]
+	if !ok {
+		return nil, errors.New("snapshots service not found")
+	}
+	i, err := p.Instance()
+	if err != nil {
+		return nil, err
+	}
+	ss := i.(map[string]snapshots.Snapshotter)
+	return &service{ss: ss}, nil
 }
 
 func (s *service) getSnapshotter(name string) (snapshots.Snapshotter, error) {
@@ -53,7 +71,7 @@ func (s *service) getSnapshotter(name string) (snapshots.Snapshotter, error) {
 		return nil, errdefs.ToGRPCf(errdefs.ErrInvalidArgument, "snapshotter argument missing")
 	}
 
-	sn := s.db.Snapshotter(name)
+	sn := s.ss[name]
 	if sn == nil {
 		return nil, errdefs.ToGRPCf(errdefs.ErrInvalidArgument, "snapshotter not loaded: %s", name)
 	}
@@ -81,12 +99,6 @@ func (s *service) Prepare(ctx context.Context, pr *snapshotsapi.PrepareSnapshotR
 		return nil, errdefs.ToGRPC(err)
 	}
 
-	if err := s.publisher.Publish(ctx, "/snapshot/prepare", &eventstypes.SnapshotPrepare{
-		Key:    pr.Key,
-		Parent: pr.Parent,
-	}); err != nil {
-		return nil, err
-	}
 	return &snapshotsapi.PrepareSnapshotResponse{
 		Mounts: fromMounts(mounts),
 	}, nil
@@ -142,12 +154,6 @@ func (s *service) Commit(ctx context.Context, cr *snapshotsapi.CommitSnapshotReq
 		return nil, errdefs.ToGRPC(err)
 	}
 
-	if err := s.publisher.Publish(ctx, "/snapshot/commit", &eventstypes.SnapshotCommit{
-		Key:  cr.Key,
-		Name: cr.Name,
-	}); err != nil {
-		return nil, err
-	}
 	return empty, nil
 }
 
@@ -162,11 +168,6 @@ func (s *service) Remove(ctx context.Context, rr *snapshotsapi.RemoveSnapshotReq
 		return nil, errdefs.ToGRPC(err)
 	}
 
-	if err := s.publisher.Publish(ctx, "/snapshot/remove", &eventstypes.SnapshotRemove{
-		Key: rr.Key,
-	}); err != nil {
-		return nil, err
-	}
 	return empty, nil
 }
 
@@ -214,7 +215,7 @@ func (s *service) List(sr *snapshotsapi.ListSnapshotsRequest, ss snapshotsapi.Sn
 			})
 		}
 	)
-	err = sn.Walk(ss.Context(), func(ctx gocontext.Context, info snapshots.Info) error {
+	err = sn.Walk(ss.Context(), func(ctx context.Context, info snapshots.Info) error {
 		buffer = append(buffer, fromInfo(info))
 
 		if len(buffer) >= 100 {

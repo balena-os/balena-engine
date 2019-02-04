@@ -84,8 +84,11 @@ func (config *Config) RunProcess(commandLine string, stdin io.Reader, stdout io.
 		}
 
 		// Don't need stdin now we've sent everything. This signals GCS that we are finished sending data.
-		if err := process.Process.CloseStdin(); err != nil {
-			return nil, err
+		if err := process.Process.CloseStdin(); err != nil && !hcsshim.IsNotExist(err) && !hcsshim.IsAlreadyClosed(err) {
+			// This error will occur if the compute system is currently shutting down
+			if perr, ok := err.(*hcsshim.ProcessError); ok && perr.Err != hcsshim.ErrVmcomputeOperationInvalidState {
+				return nil, err
+			}
 		}
 	}
 
@@ -130,13 +133,17 @@ func (config *Config) DebugGCS() {
 	cmd := os.Getenv("OPENGCS_DEBUG_COMMAND")
 	if cmd == "" {
 		cmd = `sh -c "`
+		cmd += debugCommand("kill -10 `pidof gcs`") // SIGUSR1 for stackdump
 		cmd += debugCommand("ls -l /tmp")
 		cmd += debugCommand("cat /tmp/gcs.log")
+		cmd += debugCommand("cat /tmp/gcs/gcs-stacks*")
+		cmd += debugCommand("cat /tmp/gcs/paniclog*")
 		cmd += debugCommand("ls -l /tmp/gcs")
 		cmd += debugCommand("ls -l /tmp/gcs/*")
 		cmd += debugCommand("cat /tmp/gcs/*/config.json")
 		cmd += debugCommand("ls -lR /var/run/gcsrunc")
-		cmd += debugCommand("cat /var/run/gcsrunc/log.log")
+		cmd += debugCommand("cat /tmp/gcs/global-runc.log")
+		cmd += debugCommand("cat /tmp/gcs/*/runc.log")
 		cmd += debugCommand("ps -ef")
 		cmd += `"`
 	}
@@ -153,5 +160,5 @@ func (config *Config) DebugGCS() {
 	if proc != nil {
 		proc.WaitTimeout(time.Duration(int(time.Second) * 30))
 	}
-	logrus.Debugf("GCS Debugging:\n%s\n\nEnd GCS Debugging\n", strings.TrimSpace(out.String()))
+	logrus.Debugf("GCS Debugging:\n%s\n\nEnd GCS Debugging", strings.TrimSpace(out.String()))
 }

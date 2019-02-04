@@ -20,8 +20,6 @@ func (c CapType) String() string {
 		return "bounding"
 	case CAPS:
 		return "caps"
-	case AMBIENT:
-		return "ambient"
 	}
 	return "unknown"
 }
@@ -31,11 +29,9 @@ const (
 	PERMITTED
 	INHERITABLE
 	BOUNDING
-	AMBIENT
 
 	CAPS   = EFFECTIVE | PERMITTED | INHERITABLE
 	BOUNDS = BOUNDING
-	AMBS   = AMBIENT
 )
 
 //go:generate go run enumgen/gen.go

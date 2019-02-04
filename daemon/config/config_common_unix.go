@@ -1,6 +1,6 @@
 // +build linux freebsd
 
-package config
+package config // import "github.com/docker/docker/daemon/config"
 
 import (
 	"net"
@@ -68,4 +68,10 @@ func (conf *Config) GetInitPath() string {
 		return conf.DefaultInitBinary
 	}
 	return DefaultInitBinary
+}
+
+// GetResolvConf returns the appropriate resolv.conf
+// Check setupResolvConf on how this is selected
+func (conf *Config) GetResolvConf() string {
+	return conf.ResolvConf
 }

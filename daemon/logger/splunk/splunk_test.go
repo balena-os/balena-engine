@@ -1,16 +1,18 @@
-package splunk
+package splunk // import "github.com/docker/docker/daemon/logger/splunk"
 
 import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"runtime"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/daemon/logger"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/assert"
+	"gotest.tools/env"
 )
 
 // Validate options
@@ -80,6 +82,36 @@ func TestNewMissedToken(t *testing.T) {
 	if err.Error() != "splunk: splunk-token is expected" {
 		t.Fatal("Logger driver should fail when no required parameters specified")
 	}
+}
+
+func TestNewWithProxy(t *testing.T) {
+	proxy := "http://proxy.testing:8888"
+	reset := env.Patch(t, "HTTP_PROXY", proxy)
+	defer reset()
+
+	// must not be localhost
+	splunkURL := "http://example.com:12345"
+	logger, err := New(logger.Info{
+		Config: map[string]string{
+			splunkURLKey:              splunkURL,
+			splunkTokenKey:            "token",
+			splunkVerifyConnectionKey: "false",
+		},
+		ContainerID: "containeriid",
+	})
+	assert.NilError(t, err)
+	splunkLogger := logger.(*splunkLoggerInline)
+
+	proxyFunc := splunkLogger.transport.Proxy
+	assert.Assert(t, proxyFunc != nil)
+
+	req, err := http.NewRequest("GET", splunkURL, nil)
+	assert.NilError(t, err)
+
+	proxyURL, err := proxyFunc(req)
+	assert.NilError(t, err)
+	assert.Assert(t, proxyURL != nil)
+	assert.Equal(t, proxy, proxyURL.String())
 }
 
 // Test default settings
@@ -451,10 +483,10 @@ func TestRawFormat(t *testing.T) {
 	}
 
 	hostname, err := info.Hostname()
-	require.NoError(t, err)
+	assert.NilError(t, err)
 
 	loggerDriver, err := New(info)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 
 	if !hec.connectionVerified {
 		t.Fatal("By default connection should be verified")

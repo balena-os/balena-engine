@@ -1,6 +1,6 @@
 // +build linux,seccomp
 
-package seccomp
+package seccomp // import "github.com/docker/docker/profiles/seccomp"
 
 import (
 	"github.com/docker/docker/api/types"
@@ -315,6 +315,7 @@ func DefaultProfile() *types.Seccomp {
 				"stat64",
 				"statfs",
 				"statfs64",
+				"statx",
 				"symlink",
 				"symlinkat",
 				"sync",
@@ -627,6 +628,18 @@ func DefaultProfile() *types.Seccomp {
 			Args:   []*types.Arg{},
 			Includes: types.Filter{
 				Caps: []string{"CAP_SYS_TTY_CONFIG"},
+			},
+		},
+		{
+			Names: []string{
+				"get_mempolicy",
+				"mbind",
+				"set_mempolicy",
+			},
+			Action: types.ActAllow,
+			Args:   []*types.Arg{},
+			Includes: types.Filter{
+				Caps: []string{"CAP_SYS_NICE"},
 			},
 		},
 	}

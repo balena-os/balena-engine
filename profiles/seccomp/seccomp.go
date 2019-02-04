@@ -1,6 +1,6 @@
 // +build linux
 
-package seccomp
+package seccomp // import "github.com/docker/docker/profiles/seccomp"
 
 import (
 	"encoding/json"
@@ -105,7 +105,7 @@ Loop:
 		}
 		if len(call.Excludes.Caps) > 0 {
 			for _, c := range call.Excludes.Caps {
-				if inSlice(rs.Process.Capabilities.Effective, c) {
+				if inSlice(rs.Process.Capabilities.Bounding, c) {
 					continue Loop
 				}
 			}
@@ -117,7 +117,7 @@ Loop:
 		}
 		if len(call.Includes.Caps) > 0 {
 			for _, c := range call.Includes.Caps {
-				if !inSlice(rs.Process.Capabilities.Effective, c) {
+				if !inSlice(rs.Process.Capabilities.Bounding, c) {
 					continue Loop
 				}
 			}

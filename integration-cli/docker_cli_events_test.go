@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,8 +20,7 @@ import (
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
 	"github.com/go-check/check"
-	"github.com/gotestyourself/gotestyourself/icmd"
-	"golang.org/x/net/context"
+	"gotest.tools/icmd"
 )
 
 func (s *DockerSuite) TestEventsTimestampFormats(c *check.C) {
@@ -50,11 +50,11 @@ func (s *DockerSuite) TestEventsTimestampFormats(c *check.C) {
 		containerEvents := eventActionsByIDAndType(c, events, name, "container")
 		c.Assert(containerEvents, checker.HasLen, 5, check.Commentf("events: %v", events))
 
-		c.Assert(containerEvents[0], checker.Equals, "create", check.Commentf(out))
-		c.Assert(containerEvents[1], checker.Equals, "attach", check.Commentf(out))
-		c.Assert(containerEvents[2], checker.Equals, "start", check.Commentf(out))
-		c.Assert(containerEvents[3], checker.Equals, "die", check.Commentf(out))
-		c.Assert(containerEvents[4], checker.Equals, "destroy", check.Commentf(out))
+		c.Assert(containerEvents[0], checker.Equals, "create", check.Commentf("%s", out))
+		c.Assert(containerEvents[1], checker.Equals, "attach", check.Commentf("%s", out))
+		c.Assert(containerEvents[2], checker.Equals, "start", check.Commentf("%s", out))
+		c.Assert(containerEvents[3], checker.Equals, "die", check.Commentf("%s", out))
+		c.Assert(containerEvents[4], checker.Equals, "destroy", check.Commentf("%s", out))
 	}
 }
 
@@ -81,50 +81,6 @@ func (s *DockerSuite) TestEventsUntag(c *check.C) {
 	}
 }
 
-func (s *DockerSuite) TestEventsLimit(c *check.C) {
-	// Windows: Limit to 4 goroutines creating containers in order to prevent
-	// timeouts creating so many containers simultaneously. This is a due to
-	// a bug in the Windows platform. It will be fixed in a Windows Update.
-	numContainers := 17
-	eventPerContainer := 7 // create, attach, network connect, start, die, network disconnect, destroy
-	numConcurrentContainers := numContainers
-	if testEnv.DaemonPlatform() == "windows" {
-		numConcurrentContainers = 4
-	}
-	sem := make(chan bool, numConcurrentContainers)
-	errChan := make(chan error, numContainers)
-
-	startTime := daemonUnixTime(c)
-
-	args := []string{"run", "--rm", "busybox", "true"}
-	for i := 0; i < numContainers; i++ {
-		sem <- true
-		go func(i int) {
-			defer func() { <-sem }()
-			out, err := exec.Command(dockerBinary, args...).CombinedOutput()
-			if err != nil {
-				err = fmt.Errorf("%v: %s", err, string(out))
-			}
-			errChan <- err
-		}(i)
-	}
-
-	// Wait for all goroutines to finish
-	for i := 0; i < cap(sem); i++ {
-		sem <- true
-	}
-	close(errChan)
-
-	for err := range errChan {
-		c.Assert(err, checker.IsNil, check.Commentf("%q failed with error", strings.Join(args, " ")))
-	}
-
-	out, _ := dockerCmd(c, "events", "--since="+startTime, "--until", daemonUnixTime(c))
-	events := strings.Split(out, "\n")
-	nEvents := len(events) - 1
-	c.Assert(nEvents, checker.Equals, numContainers*eventPerContainer, check.Commentf("events should be limited to 256, but received %d", nEvents))
-}
-
 func (s *DockerSuite) TestEventsContainerEvents(c *check.C) {
 	dockerCmd(c, "run", "--rm", "--name", "container-events-test", "busybox", "true")
 
@@ -137,11 +93,11 @@ func (s *DockerSuite) TestEventsContainerEvents(c *check.C) {
 	containerEvents := eventActionsByIDAndType(c, events, "container-events-test", "container")
 	c.Assert(containerEvents, checker.HasLen, 5, check.Commentf("events: %v", events))
 
-	c.Assert(containerEvents[0], checker.Equals, "create", check.Commentf(out))
-	c.Assert(containerEvents[1], checker.Equals, "attach", check.Commentf(out))
-	c.Assert(containerEvents[2], checker.Equals, "start", check.Commentf(out))
-	c.Assert(containerEvents[3], checker.Equals, "die", check.Commentf(out))
-	c.Assert(containerEvents[4], checker.Equals, "destroy", check.Commentf(out))
+	c.Assert(containerEvents[0], checker.Equals, "create", check.Commentf("%s", out))
+	c.Assert(containerEvents[1], checker.Equals, "attach", check.Commentf("%s", out))
+	c.Assert(containerEvents[2], checker.Equals, "start", check.Commentf("%s", out))
+	c.Assert(containerEvents[3], checker.Equals, "die", check.Commentf("%s", out))
+	c.Assert(containerEvents[4], checker.Equals, "destroy", check.Commentf("%s", out))
 }
 
 func (s *DockerSuite) TestEventsContainerEventsAttrSort(c *check.C) {
@@ -180,11 +136,11 @@ func (s *DockerSuite) TestEventsContainerEventsSinceUnixEpoch(c *check.C) {
 	containerEvents := eventActionsByIDAndType(c, events, "since-epoch-test", "container")
 	c.Assert(containerEvents, checker.HasLen, 5, check.Commentf("events: %v", events))
 
-	c.Assert(containerEvents[0], checker.Equals, "create", check.Commentf(out))
-	c.Assert(containerEvents[1], checker.Equals, "attach", check.Commentf(out))
-	c.Assert(containerEvents[2], checker.Equals, "start", check.Commentf(out))
-	c.Assert(containerEvents[3], checker.Equals, "die", check.Commentf(out))
-	c.Assert(containerEvents[4], checker.Equals, "destroy", check.Commentf(out))
+	c.Assert(containerEvents[0], checker.Equals, "create", check.Commentf("%s", out))
+	c.Assert(containerEvents[1], checker.Equals, "attach", check.Commentf("%s", out))
+	c.Assert(containerEvents[2], checker.Equals, "start", check.Commentf("%s", out))
+	c.Assert(containerEvents[3], checker.Equals, "die", check.Commentf("%s", out))
+	c.Assert(containerEvents[4], checker.Equals, "destroy", check.Commentf("%s", out))
 }
 
 func (s *DockerSuite) TestEventsImageTag(c *check.C) {
@@ -308,10 +264,10 @@ func (s *DockerSuite) TestEventsPluginOps(c *check.C) {
 	pluginEvents := eventActionsByIDAndType(c, events, pNameWithTag, "plugin")
 	c.Assert(pluginEvents, checker.HasLen, 4, check.Commentf("events: %v", events))
 
-	c.Assert(pluginEvents[0], checker.Equals, "pull", check.Commentf(out))
-	c.Assert(pluginEvents[1], checker.Equals, "enable", check.Commentf(out))
-	c.Assert(pluginEvents[2], checker.Equals, "disable", check.Commentf(out))
-	c.Assert(pluginEvents[3], checker.Equals, "remove", check.Commentf(out))
+	c.Assert(pluginEvents[0], checker.Equals, "pull", check.Commentf("%s", out))
+	c.Assert(pluginEvents[1], checker.Equals, "enable", check.Commentf("%s", out))
+	c.Assert(pluginEvents[2], checker.Equals, "disable", check.Commentf("%s", out))
+	c.Assert(pluginEvents[3], checker.Equals, "remove", check.Commentf("%s", out))
 }
 
 func (s *DockerSuite) TestEventsFilters(c *check.C) {
@@ -609,6 +565,8 @@ func (s *DockerRegistrySuite) TestEventsImageFilterPush(c *check.C) {
 }
 
 func (s *DockerSuite) TestEventsFilterType(c *check.C) {
+	// FIXME(vdemeester) fails on e2e run
+	testRequires(c, SameHostDaemon)
 	since := daemonUnixTime(c)
 	name := "labelfiltertest"
 	label := "io.docker.testing=image"
@@ -647,7 +605,7 @@ func (s *DockerSuite) TestEventsFilterType(c *check.C) {
 	events = strings.Split(strings.TrimSpace(out), "\n")
 
 	// Events generated by the container that builds the image
-	c.Assert(events, checker.HasLen, 3, check.Commentf("Events == %s", events))
+	c.Assert(events, checker.HasLen, 2, check.Commentf("Events == %s", events))
 
 	out, _ = dockerCmd(
 		c,
@@ -677,7 +635,7 @@ func (s *DockerSuite) TestEventsSpecialFiltersWithExecCreate(c *check.C) {
 	)
 
 	events := strings.Split(strings.TrimSpace(out), "\n")
-	c.Assert(len(events), checker.Equals, 1, check.Commentf(out))
+	c.Assert(len(events), checker.Equals, 1, check.Commentf("%s", out))
 
 	out, _ = dockerCmd(
 		c,
@@ -687,7 +645,7 @@ func (s *DockerSuite) TestEventsSpecialFiltersWithExecCreate(c *check.C) {
 		"--filter",
 		"event=exec_create",
 	)
-	c.Assert(len(events), checker.Equals, 1, check.Commentf(out))
+	c.Assert(len(events), checker.Equals, 1, check.Commentf("%s", out))
 }
 
 func (s *DockerSuite) TestEventsFilterImageInContainerAction(c *check.C) {
@@ -697,7 +655,7 @@ func (s *DockerSuite) TestEventsFilterImageInContainerAction(c *check.C) {
 
 	out, _ := dockerCmd(c, "events", "--filter", "image=busybox", "--since", since, "--until", daemonUnixTime(c))
 	events := strings.Split(strings.TrimSpace(out), "\n")
-	c.Assert(len(events), checker.GreaterThan, 1, check.Commentf(out))
+	c.Assert(len(events), checker.GreaterThan, 1, check.Commentf("%s", out))
 }
 
 func (s *DockerSuite) TestEventsContainerRestart(c *check.C) {
@@ -705,7 +663,7 @@ func (s *DockerSuite) TestEventsContainerRestart(c *check.C) {
 
 	// wait until test2 is auto removed.
 	waitTime := 10 * time.Second
-	if testEnv.DaemonPlatform() == "windows" {
+	if testEnv.OSType == "windows" {
 		// Windows takes longer...
 		waitTime = 90 * time.Second
 	}

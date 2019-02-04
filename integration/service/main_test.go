@@ -1,4 +1,4 @@
-package service
+package service // import "github.com/docker/docker/integration/service"
 
 import (
 	"fmt"
@@ -9,8 +9,6 @@ import (
 )
 
 var testEnv *environment.Execution
-
-const dockerdBinary = "balena-engine-daemon"
 
 func TestMain(m *testing.M) {
 	var err error

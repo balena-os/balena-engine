@@ -1,6 +1,6 @@
 // Package fluentd provides the log driver for forwarding server logs
 // to fluentd endpoints.
-package fluentd
+package fluentd // import "github.com/docker/docker/daemon/logger/fluentd"
 
 import (
 	"fmt"
@@ -162,6 +162,9 @@ func (f *fluentd) Log(msg *logger.Message) error {
 	}
 	for k, v := range f.extra {
 		data[k] = v
+	}
+	if msg.PLogMetaData != nil {
+		data["partial_message"] = "true"
 	}
 
 	ts := msg.Timestamp

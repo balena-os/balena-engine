@@ -1,4 +1,4 @@
-package convert
+package convert // import "github.com/docker/docker/daemon/cluster/convert"
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 	"github.com/docker/docker/api/types/swarm/runtime"
 	swarmapi "github.com/docker/swarmkit/api"
 	google_protobuf3 "github.com/gogo/protobuf/types"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/assert"
 )
 
 func TestServiceConvertFromGRPCRuntimeContainer(t *testing.T) {
@@ -178,12 +178,12 @@ func TestServiceConvertToGRPCIsolation(t *testing.T) {
 				},
 			}
 			res, err := ServiceSpecToGRPC(s)
-			require.NoError(t, err)
+			assert.NilError(t, err)
 			v, ok := res.Task.Runtime.(*swarmapi.TaskSpec_Container)
 			if !ok {
 				t.Fatal("expected type swarmapi.TaskSpec_Container")
 			}
-			require.Equal(t, c.to, v.Container.Isolation)
+			assert.Equal(t, c.to, v.Container.Isolation)
 		})
 	}
 }
@@ -228,7 +228,81 @@ func TestServiceConvertFromGRPCIsolation(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			require.Equal(t, c.to, svc.Spec.TaskTemplate.ContainerSpec.Isolation)
+			assert.Equal(t, c.to, svc.Spec.TaskTemplate.ContainerSpec.Isolation)
 		})
+	}
+}
+
+func TestServiceConvertToGRPCNetworkAtachmentRuntime(t *testing.T) {
+	someid := "asfjkl"
+	s := swarmtypes.ServiceSpec{
+		TaskTemplate: swarmtypes.TaskSpec{
+			Runtime: swarmtypes.RuntimeNetworkAttachment,
+			NetworkAttachmentSpec: &swarmtypes.NetworkAttachmentSpec{
+				ContainerID: someid,
+			},
+		},
+	}
+
+	// discard the service, which will be empty
+	_, err := ServiceSpecToGRPC(s)
+	if err == nil {
+		t.Fatalf("expected error %v but got no error", ErrUnsupportedRuntime)
+	}
+	if err != ErrUnsupportedRuntime {
+		t.Fatalf("expected error %v but got error %v", ErrUnsupportedRuntime, err)
+	}
+}
+
+func TestServiceConvertToGRPCMismatchedRuntime(t *testing.T) {
+	// NOTE(dperny): an earlier version of this test was for code that also
+	// converted network attachment tasks to GRPC. that conversion code was
+	// removed, so if this loop body seems a bit complicated, that's why.
+	for i, rt := range []swarmtypes.RuntimeType{
+		swarmtypes.RuntimeContainer,
+		swarmtypes.RuntimePlugin,
+	} {
+		for j, spec := range []swarmtypes.TaskSpec{
+			{ContainerSpec: &swarmtypes.ContainerSpec{}},
+			{PluginSpec: &runtime.PluginSpec{}},
+		} {
+			// skip the cases, where the indices match, which would not error
+			if i == j {
+				continue
+			}
+			// set the task spec, then change the runtime
+			s := swarmtypes.ServiceSpec{
+				TaskTemplate: spec,
+			}
+			s.TaskTemplate.Runtime = rt
+
+			if _, err := ServiceSpecToGRPC(s); err != ErrMismatchedRuntime {
+				t.Fatalf("expected %v got %v", ErrMismatchedRuntime, err)
+			}
+		}
+	}
+}
+
+func TestTaskConvertFromGRPCNetworkAttachment(t *testing.T) {
+	containerID := "asdfjkl"
+	s := swarmapi.TaskSpec{
+		Runtime: &swarmapi.TaskSpec_Attachment{
+			Attachment: &swarmapi.NetworkAttachmentSpec{
+				ContainerID: containerID,
+			},
+		},
+	}
+	ts, err := taskSpecFromGRPC(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ts.NetworkAttachmentSpec == nil {
+		t.Fatal("expected task spec to have network attachment spec")
+	}
+	if ts.NetworkAttachmentSpec.ContainerID != containerID {
+		t.Fatalf("expected network attachment spec container id to be %q, was %q", containerID, ts.NetworkAttachmentSpec.ContainerID)
+	}
+	if ts.Runtime != swarmtypes.RuntimeNetworkAttachment {
+		t.Fatalf("expected Runtime to be %v", swarmtypes.RuntimeNetworkAttachment)
 	}
 }

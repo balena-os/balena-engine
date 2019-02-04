@@ -1,30 +1,44 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package content
 
 import (
+	"context"
 	"io"
 	"sync"
 
-	eventstypes "github.com/containerd/containerd/api/events"
 	api "github.com/containerd/containerd/api/services/content/v1"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/events"
 	"github.com/containerd/containerd/log"
-	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/plugin"
+	"github.com/containerd/containerd/services"
 	ptypes "github.com/gogo/protobuf/types"
 	digest "github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type service struct {
-	store     content.Store
-	publisher events.Publisher
+	store content.Store
 }
 
 var bufPool = sync.Pool{
@@ -41,26 +55,29 @@ func init() {
 		Type: plugin.GRPCPlugin,
 		ID:   "content",
 		Requires: []plugin.Type{
-			plugin.MetadataPlugin,
+			plugin.ServicePlugin,
 		},
 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			m, err := ic.Get(plugin.MetadataPlugin)
+			plugins, err := ic.GetByType(plugin.ServicePlugin)
 			if err != nil {
 				return nil, err
 			}
-
-			s, err := NewService(m.(*metadata.DB).ContentStore(), ic.Events)
-			return s, err
+			p, ok := plugins[services.ContentService]
+			if !ok {
+				return nil, errors.New("content store service not found")
+			}
+			cs, err := p.Instance()
+			if err != nil {
+				return nil, err
+			}
+			return newService(cs.(content.Store)), nil
 		},
 	})
 }
 
-// NewService returns the content GRPC server
-func NewService(cs content.Store, publisher events.Publisher) (api.ContentServer, error) {
-	return &service{
-		store:     cs,
-		publisher: publisher,
-	}, nil
+// newService returns the content GRPC server
+func newService(cs content.Store) api.ContentServer {
+	return &service{store: cs}
 }
 
 func (s *service) Register(server *grpc.Server) error {
@@ -150,12 +167,6 @@ func (s *service) Delete(ctx context.Context, req *api.DeleteContentRequest) (*p
 		return nil, errdefs.ToGRPC(err)
 	}
 
-	if err := s.publisher.Publish(ctx, "/content/delete", &eventstypes.ContentDelete{
-		Digest: req.Digest,
-	}); err != nil {
-		return nil, err
-	}
-
 	return &ptypes.Empty{}, nil
 }
 
@@ -169,7 +180,7 @@ func (s *service) Read(req *api.ReadContentRequest, session api.Content_ReadServ
 		return errdefs.ToGRPC(err)
 	}
 
-	ra, err := s.store.ReaderAt(session.Context(), req.Digest)
+	ra, err := s.store.ReaderAt(session.Context(), ocispec.Descriptor{Digest: req.Digest})
 	if err != nil {
 		return errdefs.ToGRPC(err)
 	}
@@ -177,7 +188,9 @@ func (s *service) Read(req *api.ReadContentRequest, session api.Content_ReadServ
 
 	var (
 		offset = req.Offset
-		size   = req.Size_
+		// size is read size, not the expected size of the blob (oi.Size), which the caller might not be aware of.
+		// offset+size can be larger than oi.Size.
+		size = req.Size_
 
 		// TODO(stevvooe): Using the global buffer pool. At 32KB, it is probably
 		// little inefficient for work over a fast network. We can tune this later.
@@ -189,12 +202,12 @@ func (s *service) Read(req *api.ReadContentRequest, session api.Content_ReadServ
 		offset = 0
 	}
 
-	if size <= 0 {
-		size = oi.Size - offset
+	if offset > oi.Size {
+		return status.Errorf(codes.OutOfRange, "read past object length %v bytes", oi.Size)
 	}
 
-	if offset+size > oi.Size {
-		return status.Errorf(codes.OutOfRange, "read past object length %v bytes", oi.Size)
+	if size <= 0 || offset+size > oi.Size {
+		size = oi.Size - offset
 	}
 
 	_, err = io.CopyBuffer(
@@ -322,7 +335,9 @@ func (s *service) Write(session api.Content_WriteServer) (err error) {
 
 	log.G(ctx).Debug("(*service).Write started")
 	// this action locks the writer for the session.
-	wr, err := s.store.Writer(ctx, ref, total, expected)
+	wr, err := s.store.Writer(ctx,
+		content.WithRef(ref),
+		content.WithDescriptor(ocispec.Descriptor{Size: total, Digest: expected}))
 	if err != nil {
 		return errdefs.ToGRPC(err)
 	}
@@ -356,7 +371,7 @@ func (s *service) Write(session api.Content_WriteServer) (err error) {
 		// users use the same writer style for each with a minimum of overhead.
 		if req.Expected != "" {
 			if expected != "" && expected != req.Expected {
-				return status.Errorf(codes.InvalidArgument, "inconsistent digest provided: %v != %v", req.Expected, expected)
+				log.G(ctx).Debugf("commit digest differs from writer digest: %v != %v", req.Expected, expected)
 			}
 			expected = req.Expected
 
@@ -373,7 +388,7 @@ func (s *service) Write(session api.Content_WriteServer) (err error) {
 			// Update the expected total. Typically, this could be seen at
 			// negotiation time or on a commit message.
 			if total > 0 && req.Total != total {
-				return status.Errorf(codes.InvalidArgument, "inconsistent total provided: %v != %v", req.Total, total)
+				log.G(ctx).Debugf("commit size differs from writer size: %v != %v", req.Total, total)
 			}
 			total = req.Total
 		}

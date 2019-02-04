@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"bufio"
@@ -8,9 +8,17 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/docker/docker/daemon/config"
+	"github.com/docker/docker/internal/procfs"
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/mount"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	defaultResolvConf   = "/etc/resolv.conf"
+	alternateResolvConf = "/run/systemd/resolve/resolv.conf"
 )
 
 // On Linux, plugins use a static path for storing execution state,
@@ -67,9 +75,41 @@ func (daemon *Daemon) cleanupMountsFromReaderByID(reader io.Reader, id string, u
 	return nil
 }
 
-// cleanupMounts umounts shm/mqueue mounts for old containers
+// cleanupMounts umounts used by container resources and the daemon root mount
 func (daemon *Daemon) cleanupMounts() error {
-	return daemon.cleanupMountsByID("")
+	if err := daemon.cleanupMountsByID(""); err != nil {
+		return err
+	}
+
+	info, err := mount.GetMounts(mount.SingleEntryFilter(daemon.root))
+	if err != nil {
+		return errors.Wrap(err, "error reading mount table for cleanup")
+	}
+
+	if len(info) < 1 {
+		// no mount found, we're done here
+		return nil
+	}
+
+	// `info.Root` here is the root mountpoint of the passed in path (`daemon.root`).
+	// The ony cases that need to be cleaned up is when the daemon has performed a
+	//   `mount --bind /daemon/root /daemon/root && mount --make-shared /daemon/root`
+	// This is only done when the daemon is started up and `/daemon/root` is not
+	// already on a shared mountpoint.
+	if !shouldUnmountRoot(daemon.root, info[0]) {
+		return nil
+	}
+
+	unmountFile := getUnmountOnShutdownPath(daemon.configStore)
+	if _, err := os.Stat(unmountFile); err != nil {
+		return nil
+	}
+
+	logrus.WithField("mountpoint", daemon.root).Debug("unmounting daemon root")
+	if err := mount.Unmount(daemon.root); err != nil {
+		return err
+	}
+	return os.Remove(unmountFile)
 }
 
 func getCleanPatterns(id string) (regexps []*regexp.Regexp) {
@@ -90,4 +130,38 @@ func getCleanPatterns(id string) (regexps []*regexp.Regexp) {
 
 func getRealPath(path string) (string, error) {
 	return fileutils.ReadSymlinkedDirectory(path)
+}
+
+func shouldUnmountRoot(root string, info *mount.Info) bool {
+	if !strings.HasSuffix(root, info.Root) {
+		return false
+	}
+	return hasMountinfoOption(info.Optional, sharedPropagationOption)
+}
+
+// setupResolvConf sets the appropriate resolv.conf file if not specified
+// When systemd-resolved is running the default /etc/resolv.conf points to
+// localhost. In this case fetch the alternative config file that is in a
+// different path so that containers can use it
+// In all the other cases fallback to the default one
+func setupResolvConf(config *config.Config) {
+	if config.ResolvConf != "" {
+		return
+	}
+
+	config.ResolvConf = defaultResolvConf
+	pids, err := procfs.PidOf("systemd-resolved")
+	if err != nil {
+		logrus.Errorf("unable to check systemd-resolved status: %s", err)
+		return
+	}
+	if len(pids) > 0 && pids[0] > 0 {
+		_, err := os.Stat(alternateResolvConf)
+		if err == nil {
+			logrus.Infof("systemd-resolved is running, so using resolvconf: %s", alternateResolvConf)
+			config.ResolvConf = alternateResolvConf
+			return
+		}
+		logrus.Infof("systemd-resolved is running, but %s is not present, fallback to %s", alternateResolvConf, defaultResolvConf)
+	}
 }

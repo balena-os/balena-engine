@@ -59,7 +59,7 @@ message Node {
 	// component, if the node is a manager.
 	ManagerStatus manager_status = 6;
 
-	// DEPRECATED: Use lb_attachments to find the ingress network
+	// DEPRECATED: Use Attachments to find the ingress network
 	// The node attachment to the ingress network.
 	NetworkAttachment attachment = 7 [deprecated=true];
 
@@ -336,6 +336,21 @@ message Cluster {
 	// If the key is empty, the node will be unlocked (will not require a key
 	// to start up from a shut down state).
 	repeated EncryptionKey unlock_keys = 9;
+
+	// FIPS specifies whether this cluster should be in FIPS mode.  This changes
+	// the format of the join tokens, and nodes that are not FIPS-enabled should
+	// reject joining the cluster.  Nodes that report themselves to be non-FIPS
+	// should be rejected from the cluster.
+	bool fips = 10 [(gogoproto.customname) = "FIPS"];
+
+	// This field specifies default subnet pools for global scope networks. If
+	// unspecified, Docker will use the predefined subnets as it works on older releases.
+	// Format Example : {"20.20.0.0/16",""20.20.0.0/16"}
+	repeated string defaultAddressPool = 11;
+
+	// This flag specifies the default subnet size of global scope networks by giving
+	// the length of the subnet masks for every such network
+	uint32 subnetSize = 12;
 }
 
 // Secret represents a secret that should be passed to a container or a node,

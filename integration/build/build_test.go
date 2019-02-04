@@ -1,4 +1,4 @@
-package build
+package build // import "github.com/docker/docker/integration/build"
 
 import (
 	"archive/tar"
@@ -12,11 +12,13 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/integration-cli/cli/build/fakecontext"
-	"github.com/docker/docker/integration/util/request"
+	"github.com/docker/docker/api/types/versions"
+	"github.com/docker/docker/internal/test/fakecontext"
+	"github.com/docker/docker/internal/test/request"
 	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
+	"gotest.tools/skip"
 )
 
 func TestBuildWithRemoveAndForceRemove(t *testing.T) {
@@ -94,21 +96,21 @@ func TestBuildWithRemoveAndForceRemove(t *testing.T) {
 
 			buff := bytes.NewBuffer(nil)
 			tw := tar.NewWriter(buff)
-			require.NoError(t, tw.WriteHeader(&tar.Header{
+			assert.NilError(t, tw.WriteHeader(&tar.Header{
 				Name: "Dockerfile",
 				Size: int64(len(dockerfile)),
 			}))
 			_, err := tw.Write(dockerfile)
-			require.NoError(t, err)
-			require.NoError(t, tw.Close())
+			assert.NilError(t, err)
+			assert.NilError(t, tw.Close())
 			resp, err := client.ImageBuild(ctx, buff, types.ImageBuildOptions{Remove: c.rm, ForceRemove: c.forceRm, NoCache: true})
-			require.NoError(t, err)
+			assert.NilError(t, err)
 			defer resp.Body.Close()
 			filter, err := buildContainerIdsFilter(resp.Body)
-			require.NoError(t, err)
+			assert.NilError(t, err)
 			remainingContainers, err := client.ContainerList(ctx, types.ContainerListOptions{Filters: filter, All: true})
-			require.NoError(t, err)
-			require.Equal(t, c.numberOfIntermediateContainers, len(remainingContainers), "Expected %v remaining intermediate containers, got %v", c.numberOfIntermediateContainers, len(remainingContainers))
+			assert.NilError(t, err)
+			assert.Equal(t, c.numberOfIntermediateContainers, len(remainingContainers), "Expected %v remaining intermediate containers, got %v", c.numberOfIntermediateContainers, len(remainingContainers))
 		})
 	}
 }
@@ -134,6 +136,7 @@ func buildContainerIdsFilter(buildOutput io.Reader) (filters.Args, error) {
 }
 
 func TestBuildMultiStageParentConfig(t *testing.T) {
+	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.35"), "broken in earlier versions")
 	dockerfile := `
 		FROM busybox AS stage0
 		ENV WHO=parent
@@ -158,16 +161,92 @@ func TestBuildMultiStageParentConfig(t *testing.T) {
 			ForceRemove: true,
 			Tags:        []string{"build1"},
 		})
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	_, err = io.Copy(ioutil.Discard, resp.Body)
 	resp.Body.Close()
-	require.NoError(t, err)
+	assert.NilError(t, err)
 
 	image, _, err := apiclient.ImageInspectWithRaw(ctx, "build1")
-	require.NoError(t, err)
+	assert.NilError(t, err)
 
-	assert.Equal(t, "/foo/sub2", image.Config.WorkingDir)
-	assert.Contains(t, image.Config.Env, "WHO=parent")
+	assert.Check(t, is.Equal("/foo/sub2", image.Config.WorkingDir))
+	assert.Check(t, is.Contains(image.Config.Env, "WHO=parent"))
+}
+
+// Test cases in #36996
+func TestBuildLabelWithTargets(t *testing.T) {
+	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "test added after 1.38")
+	bldName := "build-a"
+	testLabels := map[string]string{
+		"foo":  "bar",
+		"dead": "beef",
+	}
+
+	dockerfile := `
+		FROM busybox AS target-a
+		CMD ["/dev"]
+		LABEL label-a=inline-a
+		FROM busybox AS target-b
+		CMD ["/dist"]
+		LABEL label-b=inline-b
+		`
+
+	ctx := context.Background()
+	source := fakecontext.New(t, "", fakecontext.WithDockerfile(dockerfile))
+	defer source.Close()
+
+	apiclient := testEnv.APIClient()
+	// For `target-a` build
+	resp, err := apiclient.ImageBuild(ctx,
+		source.AsTarReader(t),
+		types.ImageBuildOptions{
+			Remove:      true,
+			ForceRemove: true,
+			Tags:        []string{bldName},
+			Labels:      testLabels,
+			Target:      "target-a",
+		})
+	assert.NilError(t, err)
+	_, err = io.Copy(ioutil.Discard, resp.Body)
+	resp.Body.Close()
+	assert.NilError(t, err)
+
+	image, _, err := apiclient.ImageInspectWithRaw(ctx, bldName)
+	assert.NilError(t, err)
+
+	testLabels["label-a"] = "inline-a"
+	for k, v := range testLabels {
+		x, ok := image.Config.Labels[k]
+		assert.Assert(t, ok)
+		assert.Assert(t, x == v)
+	}
+
+	// For `target-b` build
+	bldName = "build-b"
+	delete(testLabels, "label-a")
+	resp, err = apiclient.ImageBuild(ctx,
+		source.AsTarReader(t),
+		types.ImageBuildOptions{
+			Remove:      true,
+			ForceRemove: true,
+			Tags:        []string{bldName},
+			Labels:      testLabels,
+			Target:      "target-b",
+		})
+	assert.NilError(t, err)
+	_, err = io.Copy(ioutil.Discard, resp.Body)
+	resp.Body.Close()
+	assert.NilError(t, err)
+
+	image, _, err = apiclient.ImageInspectWithRaw(ctx, bldName)
+	assert.NilError(t, err)
+
+	testLabels["label-b"] = "inline-b"
+	for k, v := range testLabels {
+		x, ok := image.Config.Labels[k]
+		assert.Assert(t, ok)
+		assert.Assert(t, x == v)
+	}
 }
 
 func TestBuildWithEmptyLayers(t *testing.T) {
@@ -192,8 +271,190 @@ func TestBuildWithEmptyLayers(t *testing.T) {
 			Remove:      true,
 			ForceRemove: true,
 		})
-	require.NoError(t, err)
+	assert.NilError(t, err)
 	_, err = io.Copy(ioutil.Discard, resp.Body)
 	resp.Body.Close()
-	require.NoError(t, err)
+	assert.NilError(t, err)
+}
+
+// TestBuildMultiStageOnBuild checks that ONBUILD commands are applied to
+// multiple subsequent stages
+// #35652
+func TestBuildMultiStageOnBuild(t *testing.T) {
+	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.33"), "broken in earlier versions")
+	defer setupTest(t)()
+	// test both metadata and layer based commands as they may be implemented differently
+	dockerfile := `FROM busybox AS stage1
+ONBUILD RUN echo 'foo' >somefile
+ONBUILD ENV bar=baz
+
+FROM stage1
+RUN cat somefile # fails if ONBUILD RUN fails
+
+FROM stage1
+RUN cat somefile`
+
+	ctx := context.Background()
+	source := fakecontext.New(t, "",
+		fakecontext.WithDockerfile(dockerfile))
+	defer source.Close()
+
+	apiclient := testEnv.APIClient()
+	resp, err := apiclient.ImageBuild(ctx,
+		source.AsTarReader(t),
+		types.ImageBuildOptions{
+			Remove:      true,
+			ForceRemove: true,
+		})
+
+	out := bytes.NewBuffer(nil)
+	assert.NilError(t, err)
+	_, err = io.Copy(out, resp.Body)
+	resp.Body.Close()
+	assert.NilError(t, err)
+
+	assert.Check(t, is.Contains(out.String(), "Successfully built"))
+
+	imageIDs, err := getImageIDsFromBuild(out.Bytes())
+	assert.NilError(t, err)
+	assert.Check(t, is.Equal(3, len(imageIDs)))
+
+	image, _, err := apiclient.ImageInspectWithRaw(context.Background(), imageIDs[2])
+	assert.NilError(t, err)
+	assert.Check(t, is.Contains(image.Config.Env, "bar=baz"))
+}
+
+// #35403 #36122
+func TestBuildUncleanTarFilenames(t *testing.T) {
+	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.37"), "broken in earlier versions")
+	ctx := context.TODO()
+	defer setupTest(t)()
+
+	dockerfile := `FROM scratch
+COPY foo /
+FROM scratch
+COPY bar /`
+
+	buf := bytes.NewBuffer(nil)
+	w := tar.NewWriter(buf)
+	writeTarRecord(t, w, "Dockerfile", dockerfile)
+	writeTarRecord(t, w, "../foo", "foocontents0")
+	writeTarRecord(t, w, "/bar", "barcontents0")
+	err := w.Close()
+	assert.NilError(t, err)
+
+	apiclient := testEnv.APIClient()
+	resp, err := apiclient.ImageBuild(ctx,
+		buf,
+		types.ImageBuildOptions{
+			Remove:      true,
+			ForceRemove: true,
+		})
+
+	out := bytes.NewBuffer(nil)
+	assert.NilError(t, err)
+	_, err = io.Copy(out, resp.Body)
+	resp.Body.Close()
+	assert.NilError(t, err)
+
+	// repeat with changed data should not cause cache hits
+
+	buf = bytes.NewBuffer(nil)
+	w = tar.NewWriter(buf)
+	writeTarRecord(t, w, "Dockerfile", dockerfile)
+	writeTarRecord(t, w, "../foo", "foocontents1")
+	writeTarRecord(t, w, "/bar", "barcontents1")
+	err = w.Close()
+	assert.NilError(t, err)
+
+	resp, err = apiclient.ImageBuild(ctx,
+		buf,
+		types.ImageBuildOptions{
+			Remove:      true,
+			ForceRemove: true,
+		})
+
+	out = bytes.NewBuffer(nil)
+	assert.NilError(t, err)
+	_, err = io.Copy(out, resp.Body)
+	resp.Body.Close()
+	assert.NilError(t, err)
+	assert.Assert(t, !strings.Contains(out.String(), "Using cache"))
+}
+
+// docker/for-linux#135
+// #35641
+func TestBuildMultiStageLayerLeak(t *testing.T) {
+	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.37"), "broken in earlier versions")
+	ctx := context.TODO()
+	defer setupTest(t)()
+
+	// all commands need to match until COPY
+	dockerfile := `FROM busybox
+WORKDIR /foo
+COPY foo .
+FROM busybox
+WORKDIR /foo
+COPY bar .
+RUN [ -f bar ]
+RUN [ ! -f foo ]
+`
+
+	source := fakecontext.New(t, "",
+		fakecontext.WithFile("foo", "0"),
+		fakecontext.WithFile("bar", "1"),
+		fakecontext.WithDockerfile(dockerfile))
+	defer source.Close()
+
+	apiclient := testEnv.APIClient()
+	resp, err := apiclient.ImageBuild(ctx,
+		source.AsTarReader(t),
+		types.ImageBuildOptions{
+			Remove:      true,
+			ForceRemove: true,
+		})
+
+	out := bytes.NewBuffer(nil)
+	assert.NilError(t, err)
+	_, err = io.Copy(out, resp.Body)
+	resp.Body.Close()
+	assert.NilError(t, err)
+
+	assert.Check(t, is.Contains(out.String(), "Successfully built"))
+}
+
+func writeTarRecord(t *testing.T, w *tar.Writer, fn, contents string) {
+	err := w.WriteHeader(&tar.Header{
+		Name:     fn,
+		Mode:     0600,
+		Size:     int64(len(contents)),
+		Typeflag: '0',
+	})
+	assert.NilError(t, err)
+	_, err = w.Write([]byte(contents))
+	assert.NilError(t, err)
+}
+
+type buildLine struct {
+	Stream string
+	Aux    struct {
+		ID string
+	}
+}
+
+func getImageIDsFromBuild(output []byte) ([]string, error) {
+	var ids []string
+	for _, line := range bytes.Split(output, []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		entry := buildLine{}
+		if err := json.Unmarshal(line, &entry); err != nil {
+			return nil, err
+		}
+		if entry.Aux.ID != "" {
+			ids = append(ids, entry.Aux.ID)
+		}
+	}
+	return ids, nil
 }

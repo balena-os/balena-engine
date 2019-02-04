@@ -1,14 +1,13 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/net/context"
 
 	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
@@ -81,6 +80,7 @@ func (p *cmdProbe) run(ctx context.Context, d *Daemon, cntr *container.Container
 	execConfig.Tty = false
 	execConfig.Privileged = false
 	execConfig.User = cntr.Config.User
+	execConfig.WorkingDir = cntr.Config.WorkingDir
 
 	linkedEnv, err := d.setupLinkedContainers(cntr)
 	if err != nil {
@@ -89,7 +89,10 @@ func (p *cmdProbe) run(ctx context.Context, d *Daemon, cntr *container.Container
 	execConfig.Env = container.ReplaceOrAppendEnvValues(cntr.CreateDaemonEnvironment(execConfig.Tty, linkedEnv), execConfig.Env)
 
 	d.registerExecCommand(cntr, execConfig)
-	d.LogContainerEvent(cntr, "exec_create: "+execConfig.Entrypoint+" "+strings.Join(execConfig.Args, " "))
+	attributes := map[string]string{
+		"execID": execConfig.ID,
+	}
+	d.LogContainerEventWithAttributes(cntr, "exec_create: "+execConfig.Entrypoint+" "+strings.Join(execConfig.Args, " "), attributes)
 
 	output := &limitedBuffer{}
 	err = d.ContainerExecStart(ctx, execConfig.ID, nil, output, output)

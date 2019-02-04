@@ -1,5 +1,21 @@
 // +build !windows
 
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package tasks
 
 import (
@@ -12,8 +28,16 @@ import (
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/log"
 	"github.com/pkg/errors"
+	"github.com/urfave/cli"
 	"golang.org/x/sys/unix"
 )
+
+func init() {
+	startCommand.Flags = append(startCommand.Flags, cli.BoolFlag{
+		Name:  "no-pivot",
+		Usage: "disable use of pivot-root (linux only)",
+	})
+}
 
 // HandleConsoleResize resizes the console
 func HandleConsoleResize(ctx gocontext.Context, task resizer, con console.Console) error {
@@ -43,23 +67,31 @@ func HandleConsoleResize(ctx gocontext.Context, task resizer, con console.Consol
 }
 
 // NewTask creates a new task
-func NewTask(ctx gocontext.Context, client *containerd.Client, container containerd.Container, checkpoint string, tty, nullIO bool) (containerd.Task, error) {
-	if checkpoint == "" {
-		ioCreator := cio.Stdio
+func NewTask(ctx gocontext.Context, client *containerd.Client, container containerd.Container, checkpoint string, tty, nullIO bool, ioOpts []cio.Opt, opts ...containerd.NewTaskOpts) (containerd.Task, error) {
+	stdio := cio.NewCreator(append([]cio.Opt{cio.WithStdio}, ioOpts...)...)
+	if checkpoint != "" {
+		im, err := client.GetImage(ctx, checkpoint)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, containerd.WithTaskCheckpoint(im))
+	}
+	ioCreator := stdio
+	if tty {
+		ioCreator = cio.NewCreator(append([]cio.Opt{cio.WithStdio, cio.WithTerminal}, ioOpts...)...)
+	}
+	if nullIO {
 		if tty {
-			ioCreator = cio.StdioTerminal
+			return nil, errors.New("tty and null-io cannot be used together")
 		}
-		if nullIO {
-			if tty {
-				return nil, errors.New("tty and null-io cannot be used together")
-			}
-			ioCreator = cio.NullIO
-		}
-		return container.NewTask(ctx, ioCreator)
+		ioCreator = cio.NullIO
 	}
-	im, err := client.GetImage(ctx, checkpoint)
-	if err != nil {
-		return nil, err
+	return container.NewTask(ctx, ioCreator, opts...)
+}
+
+func getNewTaskOpts(context *cli.Context) []containerd.NewTaskOpts {
+	if context.Bool("no-pivot") {
+		return []containerd.NewTaskOpts{containerd.WithNoPivotRoot}
 	}
-	return container.NewTask(ctx, cio.Stdio, containerd.WithTaskCheckpoint(im))
+	return nil
 }

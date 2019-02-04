@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package local
 
 import (
@@ -18,6 +34,7 @@ import (
 	"github.com/containerd/containerd/filters"
 	"github.com/containerd/containerd/log"
 	digest "github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
 
@@ -103,15 +120,15 @@ func (s *store) info(dgst digest.Digest, fi os.FileInfo, labels map[string]strin
 }
 
 // ReaderAt returns an io.ReaderAt for the blob.
-func (s *store) ReaderAt(ctx context.Context, dgst digest.Digest) (content.ReaderAt, error) {
-	p := s.blobPath(dgst)
+func (s *store) ReaderAt(ctx context.Context, desc ocispec.Descriptor) (content.ReaderAt, error) {
+	p := s.blobPath(desc.Digest)
 	fi, err := os.Stat(p)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
 		}
 
-		return nil, errors.Wrapf(errdefs.ErrNotFound, "blob %s expected at %s", dgst, p)
+		return nil, errors.Wrapf(errdefs.ErrNotFound, "blob %s expected at %s", desc.Digest, p)
 	}
 
 	fp, err := os.Open(p)
@@ -120,7 +137,7 @@ func (s *store) ReaderAt(ctx context.Context, dgst digest.Digest) (content.Reade
 			return nil, err
 		}
 
-		return nil, errors.Wrapf(errdefs.ErrNotFound, "blob %s expected at %s", dgst, p)
+		return nil, errors.Wrapf(errdefs.ErrNotFound, "blob %s expected at %s", desc.Digest, p)
 	}
 
 	return sizeReaderAt{size: fi.Size(), fp: fp}, nil
@@ -305,6 +322,40 @@ func (s *store) ListStatuses(ctx context.Context, fs ...string) ([]content.Statu
 	return active, nil
 }
 
+// WalkStatusRefs is used to walk all status references
+// Failed status reads will be logged and ignored, if
+// this function is called while references are being altered,
+// these error messages may be produced.
+func (s *store) WalkStatusRefs(ctx context.Context, fn func(string) error) error {
+	fp, err := os.Open(filepath.Join(s.root, "ingest"))
+	if err != nil {
+		return err
+	}
+
+	defer fp.Close()
+
+	fis, err := fp.Readdir(-1)
+	if err != nil {
+		return err
+	}
+
+	for _, fi := range fis {
+		rf := filepath.Join(s.root, "ingest", fi.Name(), "ref")
+
+		ref, err := readFileString(rf)
+		if err != nil {
+			log.G(ctx).WithError(err).WithField("path", rf).Error("failed to read ingest ref")
+			continue
+		}
+
+		if err := fn(ref); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // status works like stat above except uses the path to the ingest.
 func (s *store) status(ingestPath string) (content.Status, error) {
 	dp := filepath.Join(ingestPath, "data")
@@ -384,11 +435,22 @@ func (s *store) total(ingestPath string) int64 {
 // ref at a time.
 //
 // The argument `ref` is used to uniquely identify a long-lived writer transaction.
-func (s *store) Writer(ctx context.Context, ref string, total int64, expected digest.Digest) (content.Writer, error) {
+func (s *store) Writer(ctx context.Context, opts ...content.WriterOpt) (content.Writer, error) {
+	var wOpts content.WriterOpts
+	for _, opt := range opts {
+		if err := opt(&wOpts); err != nil {
+			return nil, err
+		}
+	}
+	// TODO(AkihiroSuda): we could create a random string or one calculated based on the context
+	// https://github.com/containerd/containerd/issues/2129#issuecomment-380255019
+	if wOpts.Ref == "" {
+		return nil, errors.Wrap(errdefs.ErrInvalidArgument, "ref must not be empty")
+	}
 	var lockErr error
 	for count := uint64(0); count < 10; count++ {
 		time.Sleep(time.Millisecond * time.Duration(rand.Intn(1<<count)))
-		if err := tryLock(ref); err != nil {
+		if err := tryLock(wOpts.Ref); err != nil {
 			if !errdefs.IsUnavailable(err) {
 				return nil, err
 			}
@@ -404,9 +466,9 @@ func (s *store) Writer(ctx context.Context, ref string, total int64, expected di
 		return nil, lockErr
 	}
 
-	w, err := s.writer(ctx, ref, total, expected)
+	w, err := s.writer(ctx, wOpts.Ref, wOpts.Desc.Size, wOpts.Desc.Digest)
 	if err != nil {
-		unlock(ref)
+		unlock(wOpts.Ref)
 		return nil, err
 	}
 

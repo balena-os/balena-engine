@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package metadata
 
 import (
@@ -36,7 +52,7 @@ var (
 	bucketKeyObjectSnapshots  = []byte("snapshots")  // stores snapshot references
 	bucketKeyObjectContent    = []byte("content")    // stores content references
 	bucketKeyObjectBlob       = []byte("blob")       // stores content links
-	bucketKeyObjectIngest     = []byte("ingest")     // stores ingest links
+	bucketKeyObjectIngests    = []byte("ingests")    // stores ingest objects
 	bucketKeyObjectLeases     = []byte("leases")     // stores leases
 
 	bucketKeyDigest      = []byte("digest")
@@ -54,6 +70,11 @@ var (
 	bucketKeyTarget      = []byte("target")
 	bucketKeyExtensions  = []byte("extensions")
 	bucketKeyCreatedAt   = []byte("createdat")
+	bucketKeyExpected    = []byte("expected")
+	bucketKeyRef         = []byte("ref")
+	bucketKeyExpireAt    = []byte("expireat")
+
+	deprecatedBucketKeyObjectIngest = []byte("ingest") // stores ingest links, deprecated in v1.2
 )
 
 func getBucket(tx *bolt.Tx, keys ...[]byte) *bolt.Bucket {
@@ -106,13 +127,8 @@ func imagesBucketPath(namespace string) [][]byte {
 	return [][]byte{bucketKeyVersion, []byte(namespace), bucketKeyObjectImages}
 }
 
-func withImagesBucket(tx *bolt.Tx, namespace string, fn func(bkt *bolt.Bucket) error) error {
-	bkt, err := createBucketIfNotExists(tx, imagesBucketPath(namespace)...)
-	if err != nil {
-		return err
-	}
-
-	return fn(bkt)
+func createImagesBucket(tx *bolt.Tx, namespace string) (*bolt.Bucket, error) {
+	return createBucketIfNotExists(tx, imagesBucketPath(namespace)...)
 }
 
 func getImagesBucket(tx *bolt.Tx, namespace string) *bolt.Bucket {
@@ -120,11 +136,7 @@ func getImagesBucket(tx *bolt.Tx, namespace string) *bolt.Bucket {
 }
 
 func createContainersBucket(tx *bolt.Tx, namespace string) (*bolt.Bucket, error) {
-	bkt, err := createBucketIfNotExists(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContainers)
-	if err != nil {
-		return nil, err
-	}
-	return bkt, nil
+	return createBucketIfNotExists(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContainers)
 }
 
 func getContainersBucket(tx *bolt.Tx, namespace string) *bolt.Bucket {
@@ -141,6 +153,10 @@ func createSnapshotterBucket(tx *bolt.Tx, namespace, snapshotter string) (*bolt.
 		return nil, err
 	}
 	return bkt, nil
+}
+
+func getSnapshottersBucket(tx *bolt.Tx, namespace string) *bolt.Bucket {
+	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectSnapshots)
 }
 
 func getSnapshotterBucket(tx *bolt.Tx, namespace, snapshotter string) *bolt.Bucket {
@@ -163,14 +179,18 @@ func getBlobBucket(tx *bolt.Tx, namespace string, dgst digest.Digest) *bolt.Buck
 	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContent, bucketKeyObjectBlob, []byte(dgst.String()))
 }
 
-func createIngestBucket(tx *bolt.Tx, namespace string) (*bolt.Bucket, error) {
-	bkt, err := createBucketIfNotExists(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContent, bucketKeyObjectIngest)
+func getIngestsBucket(tx *bolt.Tx, namespace string) *bolt.Bucket {
+	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContent, bucketKeyObjectIngests)
+}
+
+func createIngestBucket(tx *bolt.Tx, namespace, ref string) (*bolt.Bucket, error) {
+	bkt, err := createBucketIfNotExists(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContent, bucketKeyObjectIngests, []byte(ref))
 	if err != nil {
 		return nil, err
 	}
 	return bkt, nil
 }
 
-func getIngestBucket(tx *bolt.Tx, namespace string) *bolt.Bucket {
-	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContent, bucketKeyObjectIngest)
+func getIngestBucket(tx *bolt.Tx, namespace, ref string) *bolt.Bucket {
+	return getBucket(tx, bucketKeyVersion, []byte(namespace), bucketKeyObjectContent, bucketKeyObjectIngests, []byte(ref))
 }
