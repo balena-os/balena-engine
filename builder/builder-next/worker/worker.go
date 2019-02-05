@@ -454,6 +454,14 @@ func (ld *layerDescriptor) Registered(diffID layer.DiffID) {
 	ld.w.V2MetadataService.Add(diffID, distmetadata.V2Metadata{Digest: ld.desc.Digest})
 }
 
+func (ld *layerDescriptor) DeltaBase() io.ReadSeeker {
+	return nil
+}
+
+func (ld *layerDescriptor) Size() int64 {
+	return ld.desc.Size
+}
+
 func getLayers(ctx context.Context, descs []ocispec.Descriptor) ([]rootfs.Layer, error) {
 	layers := make([]rootfs.Layer, len(descs))
 	for i, desc := range descs {

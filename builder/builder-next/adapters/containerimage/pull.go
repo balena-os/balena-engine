@@ -653,6 +653,14 @@ func (ld *layerDescriptor) Registered(diffID layer.DiffID) {
 	ld.is.MetadataStore.Add(diffID, metadata.V2Metadata{Digest: ld.desc.Digest, SourceRepository: ld.ref.Locator})
 }
 
+func (ld *layerDescriptor) DeltaBase() io.ReadSeeker {
+	return nil
+}
+
+func (ld *layerDescriptor) Size() int64 {
+	return ld.desc.Size
+}
+
 func showProgress(ctx context.Context, ongoing *jobs, cs content.Store, pw progress.Writer) {
 	var (
 		ticker   = time.NewTicker(100 * time.Millisecond)
