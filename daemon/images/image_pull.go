@@ -12,7 +12,6 @@ import (
 	"github.com/docker/docker/distribution"
 	progressutils "github.com/docker/docker/distribution/utils"
 	"github.com/docker/docker/errdefs"
-	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/registry"
 	"github.com/opencontainers/go-digest"
@@ -66,11 +65,6 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 		close(writesDone)
 	}()
 
-	var deltaImageStore image.Store
-	if daemon.deltaStore != nil {
-		deltaImageStore = daemon.deltaStore.imageStore
-	}
-
 	imagePullConfig := &distribution.ImagePullConfig{
 		Config: distribution.Config{
 			MetaHeaders:      metaHeaders,
@@ -79,7 +73,7 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 			RegistryService:  i.registryService,
 			ImageEventLogger: i.LogImageEvent,
 			MetadataStore:    i.distributionMetadataStore,
-			ImageStore:       distribution.NewImageConfigStoreFromStore(i.imageStore, nil),
+			ImageStore:       distribution.NewImageConfigStoreFromStore(i.imageStore, i.deltaStore),
 			ReferenceStore:   i.referenceStore,
 		},
 		DownloadManager: i.downloadManager,
