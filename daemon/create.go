@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
@@ -30,6 +31,7 @@ import (
 	"github.com/docker/docker/runconfig"
 	units "github.com/docker/go-units"
 	"github.com/opencontainers/selinux/go-selinux/label"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -169,7 +171,7 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 	initFunc := setupInitLayer(daemon.idMapping)
 
 	// containers that are meant to be booted from do not need the initLayer
-	if params.HostConfig.Runtim == "bare" {
+	if params.HostConfig.Runtime == "bare" {
 		initFunc = nil
 	}
 
@@ -328,12 +330,12 @@ func verifyNetworkingConfig(nwConfig *networktypes.NetworkingConfig) error {
 func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.ImageDeltaOptions, outStream io.Writer) error {
 	progressOutput := streamformatter.NewJSONProgressOutput(outStream, false)
 
-	srcImg, err := daemon.GetImage(deltaSrc)
+	srcImg, err := daemon.imageService.GetImage(deltaSrc)
 	if err != nil {
 		return errors.Wrapf(err, "no such image: %s", deltaSrc)
 	}
 
-	dstImg, err := daemon.GetImage(deltaDest)
+	dstImg, err := daemon.imageService.GetImage(deltaDest)
 	if err != nil {
 		return errors.Wrapf(err, "no such image: %s", deltaDest)
 	}
@@ -374,7 +376,6 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.Imag
 	for i, diffID := range dstImg.RootFS.DiffIDs {
 		var (
 			layerData io.Reader
-			platform  layer.OS
 		)
 
 		commonLayer := false
@@ -394,7 +395,6 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.Imag
 		// layers for common layers
 		if commonLayer {
 			layerData, _ = layer.EmptyLayer.TarStream()
-			platform = layer.EmptyLayer.OS()
 		} else {
 
 			l, err := ls.Get(dstRootFS.ChainID())
@@ -402,8 +402,6 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.Imag
 				return err
 			}
 			defer layer.ReleaseAndLog(ls, l)
-
-			platform = l.OS()
 
 			input, err := l.TarStream()
 			if err != nil {
@@ -478,7 +476,7 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.Imag
 			}()
 		}
 
-		newLayer, err := ls.Register(layerData, deltaRootFS.ChainID(), platform)
+		newLayer, err := ls.Register(layerData, deltaRootFS.ChainID())
 		if err != nil {
 			return err
 		}
@@ -546,7 +544,7 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.Imag
 
 	ref = reference.TagNameOnly(ref)
 
-	if err := daemon.TagImageWithReference(id, runtime.GOOS, ref); err != nil {
+	if err := daemon.imageService.TagImageWithReference(id, ref); err != nil {
 		return err
 	}
 	logrus.Debugf("Tagged delta %s with %s", id.String(), reference.FamiliarString(ref))
