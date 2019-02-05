@@ -38,6 +38,7 @@ type ImageServiceConfig struct {
 	EventsService             *daemonevents.Events
 	ImageStore                image.Store
 	LayerStores               map[string]layer.Store
+	DeltaStore                image.Store
 	MaxConcurrentDownloads    int
 	MaxConcurrentUploads      int
 	MaxDownloadAttempts       int
@@ -61,6 +62,7 @@ func NewImageService(config ImageServiceConfig) *ImageService {
 		eventsService:             config.EventsService,
 		imageStore:                &imageStoreWithLease{Store: config.ImageStore, leases: config.Leases, ns: config.ContentNamespace},
 		layerStores:               config.LayerStores,
+		deltaStore:                config.DeltaStore,
 		referenceStore:            config.ReferenceStore,
 		registryService:           config.RegistryService,
 		trustKey:                  config.TrustKey,
@@ -79,6 +81,7 @@ type ImageService struct {
 	eventsService             *daemonevents.Events
 	imageStore                image.Store
 	layerStores               map[string]layer.Store // By operating system
+	deltaStore                image.Store
 	pruneRunning              int32
 	referenceStore            dockerreference.Store
 	registryService           registry.Service
@@ -144,6 +147,14 @@ func (i *ImageService) CreateLayer(container *container.Container, initFunc laye
 	// Indexing by OS is safe here as validation of OS has already been performed in create() (the only
 	// caller), and guaranteed non-nil
 	return i.layerStores[container.OS].CreateRWLayer(container.ID, layerID, rwLayerOpts)
+}
+
+func (i *ImageService) ImageStore() image.Store {
+	return i.imageStore
+}
+
+func (i *ImageService) LayerStore(os string) layer.Store {
+	return i.layerStores[os]
 }
 
 // GetLayerByID returns a layer by ID and operating system
