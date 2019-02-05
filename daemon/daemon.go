@@ -96,7 +96,6 @@ type Daemon struct {
 	idMapping             idtools.IdentityMapping
 	graphDriver           string        // TODO: move graphDriver field to an InfoService
 	PluginStore           *plugin.Store // TODO: remove
-	deltaStore            *daemonStore
 	pluginManager         *plugin.Manager
 	linkIndex             *linkIndex
 	containerdCli         *containerd.Client
@@ -962,6 +961,7 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 	// As layerstore initialization may set the driver
 	d.graphDriver = layerStore.DriverName()
 
+	var deltaStore image.Store
 	if config.DeltaRoot != "" && config.DeltaGraphDriver != "" {
 		ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
 			Root:                      config.DeltaRoot,
@@ -976,22 +976,14 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 			return nil, err
 		}
 
-		imageRoot := filepath.Join(config.DeltaRoot, "image", ls.DriverName())
-		ifs, err := image.NewFSStoreBackend(filepath.Join(imageRoot, "imagedb"))
+		ifs, err := image.NewFSStoreBackend(filepath.Join(config.DeltaRoot, "image", ls.DriverName(), "imagedb"))
 		if err != nil {
 			return nil, err
 		}
 
-		is, err := image.NewImageStore(ifs, ls)
+		deltaStore, err = image.NewImageStore(ifs, ls)
 		if err != nil {
 			return nil, err
-		}
-
-		d.deltaStore = &daemonStore{
-			graphDriver: ls.DriverName(),
-			imageRoot:   imageRoot,
-			imageStore:  is,
-			layerStore:  ls,
 		}
 	}
 
@@ -1084,6 +1076,7 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 		EventsService:             d.EventsService,
 		ImageStore:                imageStore,
 		LayerStore:                layerStore,
+		DeltaStore:                deltaStore,
 		MaxConcurrentDownloads:    config.MaxConcurrentDownloads,
 		MaxConcurrentUploads:      config.MaxConcurrentUploads,
 		MaxDownloadAttempts:       config.MaxDownloadAttempts,
