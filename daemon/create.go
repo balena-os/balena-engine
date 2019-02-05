@@ -340,8 +340,8 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.Imag
 		return errors.Wrapf(err, "no such image: %s", deltaDest)
 	}
 
-	is := daemon.stores[dstImg.OperatingSystem()].imageStore
-	ls := daemon.stores[dstImg.OperatingSystem()].layerStore
+	is := daemon.imageService.ImageStore()
+	ls := daemon.imageService.LayerStore(dstImg.OperatingSystem())
 
 	srcData, err := is.GetTarSeekStream(srcImg.ID())
 	if err != nil {

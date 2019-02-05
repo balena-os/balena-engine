@@ -97,7 +97,6 @@ type Daemon struct {
 	graphDrivers map[string]string // By operating system
 
 	PluginStore           *plugin.Store // todo: remove
-	deltaStore            *daemonStore
 	pluginManager         *plugin.Manager
 	linkIndex             *linkIndex
 	containerdCli         *containerd.Client
@@ -800,13 +799,14 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 		}
 	}
 
+	var deltaStore image.Store
 	if config.DeltaRoot != "" && config.DeltaGraphDriver != "" {
 		ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
-			StorePath:                 config.DeltaRoot,
+			Root:                      config.DeltaRoot,
 			MetadataStorePathTemplate: filepath.Join(config.DeltaRoot, "image", "%s", "layerdb"),
 			GraphDriver:               config.DeltaGraphDriver,
 			GraphDriverOptions:        config.DeltaGraphOptions,
-			IDMappings:                idMappings,
+			IDMapping:                 idMapping,
 			PluginGetter:              nil,
 			ExperimentalEnabled:       false,
 			OS:                        runtime.GOOS,
@@ -821,19 +821,15 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 			return nil, err
 		}
 
-		var is image.Store
-		is, err = image.NewImageStore(ifs, runtime.GOOS, ls)
+		lgrMap := make(map[string]image.LayerGetReleaser)
+		lgrMap[runtime.GOOS] = ls
+		ds, err := image.NewImageStore(ifs, lgrMap)
 		if err != nil {
 			return nil, err
 		}
 
-		d.deltaStore = &daemonStore{
-			graphDriver: ls.DriverName(),
-			imageRoot:   imageRoot,
-			imageStore:  is,
-			layerStore:  ls,
-		}
-		graphDrivers = append(graphDrivers, ls.DriverName())
+		deltaStore = ds
+		d.graphDrivers[runtime.GOOS] = ls.DriverName()
 	}
 
 	// As layerstore initialization may set the driver
@@ -948,6 +944,7 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 		EventsService:             d.EventsService,
 		ImageStore:                imageStore,
 		LayerStores:               layerStores,
+		DeltaStore:                deltaStore,
 		MaxConcurrentDownloads:    *config.MaxConcurrentDownloads,
 		MaxConcurrentUploads:      *config.MaxConcurrentUploads,
 		ReferenceStore:            rs,
