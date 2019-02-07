@@ -1,4 +1,4 @@
-// +build dfrunmount dfextall
+// +build dfrunmount
 
 package instructions
 
@@ -14,12 +14,14 @@ const MountTypeBind = "bind"
 const MountTypeCache = "cache"
 const MountTypeTmpfs = "tmpfs"
 const MountTypeSecret = "secret"
+const MountTypeSSH = "ssh"
 
 var allowedMountTypes = map[string]struct{}{
 	MountTypeBind:   {},
 	MountTypeCache:  {},
 	MountTypeTmpfs:  {},
 	MountTypeSecret: {},
+	MountTypeSSH:    {},
 }
 
 const MountSharingShared = "shared"
@@ -44,6 +46,11 @@ func init() {
 func isValidMountType(s string) bool {
 	if s == "secret" {
 		if !isSecretMountsSupported() {
+			return false
+		}
+	}
+	if s == "ssh" {
+		if !isSSHMountsSupported() {
 			return false
 		}
 	}
@@ -100,6 +107,7 @@ type Mount struct {
 	ReadOnly     bool
 	CacheID      string
 	CacheSharing string
+	Required     bool
 }
 
 func parseMount(value string) (*Mount, error) {
@@ -127,6 +135,11 @@ func parseMount(value string) (*Mount, error) {
 				m.ReadOnly = false
 				roAuto = false
 				continue
+			case "required":
+				if m.Type == "secret" || m.Type == "ssh" {
+					m.Required = true
+					continue
+				}
 			}
 		}
 

@@ -55,6 +55,7 @@ var flatOptions = map[string]bool{
 	"runtimes":           true,
 	"default-ulimits":    true,
 	"features":           true,
+	"builder":            true,
 }
 
 // skipValidateOptions contains configuration keys
@@ -62,6 +63,17 @@ var flatOptions = map[string]bool{
 // for unknown flag validation.
 var skipValidateOptions = map[string]bool{
 	"features": true,
+	"builder":  true,
+}
+
+// skipDuplicates contains configuration keys that
+// will be skipped when checking duplicated
+// configuration field defined in both daemon
+// config file and from dockerd cli flags.
+// This allows some configurations to be merged
+// during the parsing.
+var skipDuplicates = map[string]bool{
+	"runtimes": true,
 }
 
 // LogConfig represents the default log configuration.
@@ -218,6 +230,8 @@ type CommonConfig struct {
 	// Features contains a list of feature key value pairs indicating what features are enabled or disabled.
 	// If a certain feature doesn't appear in this list then it's unset (i.e. neither true nor false).
 	Features map[string]bool `json:"features,omitempty"`
+
+	Builder BuilderConfig `json:"builder,omitempty"`
 }
 
 // IsValueSet returns true if a configuration value
@@ -494,13 +508,13 @@ func findConfigurationConflicts(config map[string]interface{}, flags *pflag.Flag
 	duplicatedConflicts := func(f *pflag.Flag) {
 		// search option name in the json configuration payload if the value is a named option
 		if namedOption, ok := f.Value.(opts.NamedOption); ok {
-			if optsValue, ok := config[namedOption.Name()]; ok {
+			if optsValue, ok := config[namedOption.Name()]; ok && !skipDuplicates[namedOption.Name()] {
 				conflicts = append(conflicts, printConflict(namedOption.Name(), f.Value.String(), optsValue))
 			}
 		} else {
 			// search flag name in the json configuration payload
 			for _, name := range []string{f.Name, f.Shorthand} {
-				if value, ok := config[name]; ok {
+				if value, ok := config[name]; ok && !skipDuplicates[name] {
 					conflicts = append(conflicts, printConflict(name, f.Value.String(), value))
 					break
 				}

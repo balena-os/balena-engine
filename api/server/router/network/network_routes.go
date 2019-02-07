@@ -3,6 +3,7 @@ package network // import "github.com/docker/docker/api/server/router/network"
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -169,7 +170,10 @@ func (n *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWr
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		return err
+		if err == io.EOF {
+			return errdefs.InvalidParameter(errors.New("got EOF while reading request body"))
+		}
+		return errdefs.InvalidParameter(err)
 	}
 
 	nw, err := n.backend.CreateNetwork(create)
@@ -199,7 +203,10 @@ func (n *networkRouter) postNetworkConnect(ctx context.Context, w http.ResponseW
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&connect); err != nil {
-		return err
+		if err == io.EOF {
+			return errdefs.InvalidParameter(errors.New("got EOF while reading request body"))
+		}
+		return errdefs.InvalidParameter(err)
 	}
 
 	// Unlike other operations, we does not check ambiguity of the name/ID here.
@@ -220,7 +227,10 @@ func (n *networkRouter) postNetworkDisconnect(ctx context.Context, w http.Respon
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&disconnect); err != nil {
-		return err
+		if err == io.EOF {
+			return errdefs.InvalidParameter(errors.New("got EOF while reading request body"))
+		}
+		return errdefs.InvalidParameter(err)
 	}
 
 	return n.backend.DisconnectContainerFromNetwork(disconnect.Container, vars["id"], disconnect.Force)

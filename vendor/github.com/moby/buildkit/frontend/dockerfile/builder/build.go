@@ -40,6 +40,7 @@ const (
 	keyImageResolveMode   = "image-resolve-mode"
 	keyGlobalAddHosts     = "add-hosts"
 	keyForceNetwork       = "force-network-mode"
+	keyOverrideCopyImage  = "override-copy-image" // remove after CopyOp implemented
 )
 
 var httpPrefix = regexp.MustCompile("^https?://")
@@ -47,6 +48,9 @@ var gitUrlPathWithFragmentSuffix = regexp.MustCompile("\\.git(?:#.+)?$")
 
 func Build(ctx context.Context, c client.Client) (*client.Result, error) {
 	opts := c.BuildOpts().Opts
+	caps := c.BuildOpts().LLBCaps
+
+	marshalOpts := []llb.ConstraintsOpt{llb.WithCaps(caps)}
 
 	defaultBuildPlatform := platforms.DefaultSpec()
 	if workers := c.BuildOpts().Workers; len(workers) > 0 && len(workers[0].Platforms) > 0 {
@@ -92,13 +96,10 @@ func Build(ctx context.Context, c client.Client) (*client.Result, error) {
 		}
 	}
 
-	name := "load Dockerfile"
-	if filename != "Dockerfile" {
-		name += " from " + filename
-	}
+	name := "load build definition from " + filename
 
 	src := llb.Local(LocalNameDockerfile,
-		llb.IncludePatterns([]string{filename}),
+		llb.FollowPaths([]string{filename}),
 		llb.SessionID(c.BuildOpts().SessionID),
 		llb.SharedKeyHint(defaultDockerfileName),
 		dockerfile2llb.WithInternalName(name),
@@ -110,7 +111,7 @@ func Build(ctx context.Context, c client.Client) (*client.Result, error) {
 		buildContext = &src
 	} else if httpPrefix.MatchString(opts[LocalNameContext]) {
 		httpContext := llb.HTTP(opts[LocalNameContext], llb.Filename("context"), dockerfile2llb.WithInternalName("load remote build context"))
-		def, err := httpContext.Marshal()
+		def, err := httpContext.Marshal(marshalOpts...)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to marshal httpcontext")
 		}
@@ -136,7 +137,11 @@ func Build(ctx context.Context, c client.Client) (*client.Result, error) {
 			return nil, errors.Errorf("failed to read downloaded context")
 		}
 		if isArchive(dt) {
-			unpack := llb.Image(dockerfile2llb.CopyImage, dockerfile2llb.WithInternalName("helper image for file operations")).
+			copyImage := opts[keyOverrideCopyImage]
+			if copyImage == "" {
+				copyImage = dockerfile2llb.DefaultCopyImage
+			}
+			unpack := llb.Image(copyImage, dockerfile2llb.WithInternalName("helper image for file operations")).
 				Run(llb.Shlex("copy --unpack /src/context /out/"), llb.ReadonlyRootFS(), dockerfile2llb.WithInternalName("extracting build context"))
 			unpack.AddMount("/src", httpContext, llb.Readonly)
 			src = unpack.AddMount("/out", llb.Scratch())
@@ -149,7 +154,7 @@ func Build(ctx context.Context, c client.Client) (*client.Result, error) {
 		}
 	}
 
-	def, err := src.Marshal()
+	def, err := src.Marshal(marshalOpts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to marshal local source")
 	}
@@ -184,13 +189,13 @@ func Build(ctx context.Context, c client.Client) (*client.Result, error) {
 			if dockerignoreState == nil {
 				st := llb.Local(LocalNameContext,
 					llb.SessionID(c.BuildOpts().SessionID),
-					llb.IncludePatterns([]string{dockerignoreFilename}),
+					llb.FollowPaths([]string{dockerignoreFilename}),
 					llb.SharedKeyHint(dockerignoreFilename),
 					dockerfile2llb.WithInternalName("load "+dockerignoreFilename),
 				)
 				dockerignoreState = &st
 			}
-			def, err := dockerignoreState.Marshal()
+			def, err := dockerignoreState.Marshal(marshalOpts...)
 			if err != nil {
 				return err
 			}
@@ -252,20 +257,22 @@ func Build(ctx context.Context, c client.Client) (*client.Result, error) {
 		func(i int, tp *specs.Platform) {
 			eg.Go(func() error {
 				st, img, err := dockerfile2llb.Dockerfile2LLB(ctx, dtDockerfile, dockerfile2llb.ConvertOpt{
-					Target:           opts[keyTarget],
-					MetaResolver:     c,
-					BuildArgs:        filter(opts, buildArgPrefix),
-					Labels:           filter(opts, labelPrefix),
-					SessionID:        c.BuildOpts().SessionID,
-					BuildContext:     buildContext,
-					Excludes:         excludes,
-					IgnoreCache:      ignoreCache,
-					TargetPlatform:   tp,
-					BuildPlatforms:   buildPlatforms,
-					ImageResolveMode: resolveMode,
-					PrefixPlatform:   exportMap,
-					ExtraHosts:       extraHosts,
-					ForceNetMode:     defaultNetMode,
+					Target:            opts[keyTarget],
+					MetaResolver:      c,
+					BuildArgs:         filter(opts, buildArgPrefix),
+					Labels:            filter(opts, labelPrefix),
+					SessionID:         c.BuildOpts().SessionID,
+					BuildContext:      buildContext,
+					Excludes:          excludes,
+					IgnoreCache:       ignoreCache,
+					TargetPlatform:    tp,
+					BuildPlatforms:    buildPlatforms,
+					ImageResolveMode:  resolveMode,
+					PrefixPlatform:    exportMap,
+					ExtraHosts:        extraHosts,
+					ForceNetMode:      defaultNetMode,
+					OverrideCopyImage: opts[keyOverrideCopyImage],
+					LLBCaps:           &caps,
 				})
 
 				if err != nil {

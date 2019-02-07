@@ -11,9 +11,11 @@ import (
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
+	"github.com/containerd/continuity/fs"
 	"github.com/mitchellh/hashstructure"
 	"github.com/moby/buildkit/executor"
 	"github.com/moby/buildkit/snapshot"
+	"github.com/moby/buildkit/util/network"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 )
@@ -21,7 +23,7 @@ import (
 // Ideally we don't have to import whole containerd just for the default spec
 
 // GenerateSpec generates spec using containerd functionality.
-func GenerateSpec(ctx context.Context, meta executor.Meta, mounts []executor.Mount, id, resolvConf, hostsFile string, hostNetwork bool, opts ...oci.SpecOpts) (*specs.Spec, func(), error) {
+func GenerateSpec(ctx context.Context, meta executor.Meta, mounts []executor.Mount, id, resolvConf, hostsFile string, namespace network.Namespace, opts ...oci.SpecOpts) (*specs.Spec, func(), error) {
 	c := &containers.Container{
 		ID: id,
 	}
@@ -30,24 +32,34 @@ func GenerateSpec(ctx context.Context, meta executor.Meta, mounts []executor.Mou
 		ctx = namespaces.WithNamespace(ctx, "buildkit")
 	}
 
-	if hostNetwork {
-		opts = append(opts, oci.WithHostNamespace(specs.NetworkNamespace))
-	}
-
 	// Note that containerd.GenerateSpec is namespaced so as to make
 	// specs.Linux.CgroupsPath namespaced
 	s, err := oci.GenerateSpec(ctx, nil, c, opts...)
 	if err != nil {
 		return nil, nil, err
 	}
+	// set the networking information on the spec
+	namespace.Set(s)
+
 	s.Process.Args = meta.Args
 	s.Process.Env = meta.Env
 	s.Process.Cwd = meta.Cwd
+	s.Process.Rlimits = nil           // reset open files limit
+	s.Process.NoNewPrivileges = false // reset nonewprivileges
+	s.Hostname = "buildkitsandbox"
 
 	s.Mounts = GetMounts(ctx,
 		withROBind(resolvConf, "/etc/resolv.conf"),
 		withROBind(hostsFile, "/etc/hosts"),
 	)
+
+	s.Mounts = append(s.Mounts, specs.Mount{
+		Destination: "/sys/fs/cgroup",
+		Type:        "cgroup",
+		Source:      "cgroup",
+		Options:     []string{"ro", "nosuid", "noexec", "nodev"},
+	})
+
 	// TODO: User
 
 	sm := &submounts{}
@@ -114,7 +126,11 @@ func (s *submounts) subMount(m mount.Mount, subPath string) (mount.Mount, error)
 		return mount.Mount{}, nil
 	}
 	if mr, ok := s.m[h]; ok {
-		return sub(mr.mount, subPath), nil
+		sm, err := sub(mr.mount, subPath)
+		if err != nil {
+			return mount.Mount{}, nil
+		}
+		return sm, nil
 	}
 
 	lm := snapshot.LocalMounterWithMounts([]mount.Mount{m})
@@ -140,7 +156,11 @@ func (s *submounts) subMount(m mount.Mount, subPath string) (mount.Mount, error)
 		unmount: lm.Unmount,
 	}
 
-	return sub(s.m[h].mount, subPath), nil
+	sm, err := sub(s.m[h].mount, subPath)
+	if err != nil {
+		return mount.Mount{}, err
+	}
+	return sm, nil
 }
 
 func (s *submounts) cleanup() {
@@ -157,7 +177,11 @@ func (s *submounts) cleanup() {
 	wg.Wait()
 }
 
-func sub(m mount.Mount, subPath string) mount.Mount {
-	m.Source = path.Join(m.Source, subPath)
-	return m
+func sub(m mount.Mount, subPath string) (mount.Mount, error) {
+	src, err := fs.RootPath(m.Source, subPath)
+	if err != nil {
+		return mount.Mount{}, err
+	}
+	m.Source = src
+	return m, nil
 }

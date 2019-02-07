@@ -34,6 +34,7 @@ import (
 	"github.com/moby/buildkit/util/flightcontrol"
 	"github.com/moby/buildkit/util/imageutil"
 	"github.com/moby/buildkit/util/progress"
+	"github.com/moby/buildkit/util/resolver"
 	"github.com/moby/buildkit/util/tracing"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
@@ -51,6 +52,7 @@ type SourceOpt struct {
 	DownloadManager distribution.RootFSDownloadManager
 	MetadataStore   metadata.V2MetadataService
 	ImageStore      image.Store
+	ResolverOpt     resolver.ResolveOptionsFunc
 }
 
 type imageSource struct {
@@ -71,17 +73,25 @@ func (is *imageSource) ID() string {
 	return source.DockerImageScheme
 }
 
-func (is *imageSource) getResolver(ctx context.Context) remotes.Resolver {
-	return docker.NewResolver(docker.ResolverOptions{
-		Client:      tracing.DefaultClient,
-		Credentials: is.getCredentialsFromSession(ctx),
-	})
+func (is *imageSource) getResolver(ctx context.Context, rfn resolver.ResolveOptionsFunc, ref string) remotes.Resolver {
+	opt := docker.ResolverOptions{
+		Client: tracing.DefaultClient,
+	}
+	if rfn != nil {
+		opt = rfn(ref)
+	}
+	opt.Credentials = is.getCredentialsFromSession(ctx)
+	r := docker.NewResolver(opt)
+	return r
 }
 
 func (is *imageSource) getCredentialsFromSession(ctx context.Context) func(string) (string, string, error) {
 	id := session.FromContext(ctx)
 	if id == "" {
-		return nil
+		// can be removed after containerd/containerd#2812
+		return func(string) (string, string, error) {
+			return "", "", nil
+		}
 	}
 	return func(host string) (string, string, error) {
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -118,7 +128,7 @@ func (is *imageSource) resolveRemote(ctx context.Context, ref string, platform *
 		dt   []byte
 	}
 	res, err := is.g.Do(ctx, ref, func(ctx context.Context) (interface{}, error) {
-		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx), is.ContentStore, platform)
+		dgst, dt, err := imageutil.Config(ctx, ref, is.getResolver(ctx, is.ResolverOpt, ref), is.ContentStore, platform)
 		if err != nil {
 			return nil, err
 		}
@@ -181,7 +191,7 @@ func (is *imageSource) Resolve(ctx context.Context, id source.Identifier) (sourc
 	p := &puller{
 		src:      imageIdentifier,
 		is:       is,
-		resolver: is.getResolver(ctx),
+		resolver: is.getResolver(ctx, is.ResolverOpt, imageIdentifier.Reference.String()),
 		platform: platform,
 	}
 	return p, nil
@@ -514,6 +524,15 @@ func (p *puller) Snapshot(ctx context.Context) (cache.ImmutableRef, error) {
 	release()
 	if err != nil {
 		return nil, err
+	}
+
+	// TODO: handle windows layers for cross platform builds
+
+	if p.src.RecordType != "" && cache.GetRecordType(ref) == "" {
+		if err := cache.SetRecordType(ref, p.src.RecordType); err != nil {
+			ref.Release(context.TODO())
+			return nil, err
+		}
 	}
 
 	return ref, nil

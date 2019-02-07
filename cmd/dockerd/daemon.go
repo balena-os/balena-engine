@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	containerddefaults "github.com/containerd/containerd/defaults"
 	"github.com/docker/distribution/uuid"
 	"github.com/docker/docker/api"
 	apiserver "github.com/docker/docker/api/server"
@@ -23,7 +24,6 @@ import (
 	sessionrouter "github.com/docker/docker/api/server/router/session"
 	systemrouter "github.com/docker/docker/api/server/router/system"
 	"github.com/docker/docker/api/server/router/volume"
-	"github.com/docker/docker/api/types"
 	buildkit "github.com/docker/docker/builder/builder-next"
 	"github.com/docker/docker/builder/dockerfile"
 	"github.com/docker/docker/builder/fscache"
@@ -135,22 +135,25 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	if cli.Config.ContainerdAddr == "" && runtime.GOOS != "windows" {
-		opts, err := cli.getContainerdDaemonOpts()
-		if err != nil {
-			cancel()
-			return fmt.Errorf("Failed to generate containerd options: %v", err)
+		if !systemContainerdRunning() {
+			opts, err := cli.getContainerdDaemonOpts()
+			if err != nil {
+				cancel()
+				return fmt.Errorf("Failed to generate containerd options: %v", err)
+			}
+
+			r, err := supervisor.Start(ctx, filepath.Join(cli.Config.Root, "containerd"), filepath.Join(cli.Config.ExecRoot, "containerd"), opts...)
+			if err != nil {
+				cancel()
+				return fmt.Errorf("Failed to start containerd: %v", err)
+			}
+			cli.Config.ContainerdAddr = r.Address()
+
+			// Try to wait for containerd to shutdown
+			defer r.WaitTimeout(10 * time.Second)
+		} else {
+			cli.Config.ContainerdAddr = containerddefaults.DefaultAddress
 		}
-
-		r, err := supervisor.Start(ctx, filepath.Join(cli.Config.Root, "containerd"), filepath.Join(cli.Config.ExecRoot, "containerd"), opts...)
-		if err != nil {
-			cancel()
-			return fmt.Errorf("Failed to start containerd: %v", err)
-		}
-
-		cli.Config.ContainerdAddr = r.Address()
-
-		// Try to wait for containerd to shutdown
-		defer r.WaitTimeout(10 * time.Second)
 	}
 	defer cancel()
 
@@ -232,13 +235,13 @@ type routerOptions struct {
 	sessionManager *session.Manager
 	buildBackend   *buildbackend.Backend
 	buildCache     *fscache.FSCache // legacy
+	features       *map[string]bool
 	buildkit       *buildkit.Builder
-	builderVersion types.BuilderVersion
 	daemon         *daemon.Daemon
 	api            *apiserver.Server
 }
 
-func newRouterOptions(config *config.Config, daemon *daemon.Daemon) (routerOptions, error) {
+func newRouterOptions(config *config.Config, d *daemon.Daemon) (routerOptions, error) {
 	opts := routerOptions{}
 	sm, err := session.NewManager()
 	if err != nil {
@@ -259,39 +262,35 @@ func newRouterOptions(config *config.Config, daemon *daemon.Daemon) (routerOptio
 		return opts, errors.Wrap(err, "failed to create fscache")
 	}
 
-	manager, err := dockerfile.NewBuildManager(daemon.BuilderBackend(), sm, buildCache, daemon.IdentityMapping())
+	manager, err := dockerfile.NewBuildManager(d.BuilderBackend(), sm, buildCache, d.IdentityMapping())
 	if err != nil {
 		return opts, err
 	}
+	cgroupParent := newCgroupParent(config)
 	bk, err := buildkit.New(buildkit.Opt{
-		SessionManager:    sm,
-		Root:              filepath.Join(config.Root, "buildkit"),
-		Dist:              daemon.DistributionServices(),
-		NetworkController: daemon.NetworkController(),
+		SessionManager:      sm,
+		Root:                filepath.Join(config.Root, "buildkit"),
+		Dist:                d.DistributionServices(),
+		NetworkController:   d.NetworkController(),
+		DefaultCgroupParent: cgroupParent,
+		ResolverOpt:         d.NewResolveOptionsFunc(),
+		BuilderConfig:       config.Builder,
 	})
 	if err != nil {
 		return opts, err
 	}
 
-	bb, err := buildbackend.NewBackend(daemon.ImageService(), manager, buildCache, bk)
+	bb, err := buildbackend.NewBackend(d.ImageService(), manager, buildCache, bk)
 	if err != nil {
 		return opts, errors.Wrap(err, "failed to create buildmanager")
-	}
-	var bv types.BuilderVersion
-	if v, ok := config.Features["buildkit"]; ok {
-		if v {
-			bv = types.BuilderBuildKit
-		} else {
-			bv = types.BuilderV1
-		}
 	}
 	return routerOptions{
 		sessionManager: sm,
 		buildBackend:   bb,
 		buildCache:     buildCache,
 		buildkit:       bk,
-		builderVersion: bv,
-		daemon:         daemon,
+		features:       d.Features(),
+		daemon:         d,
 	}, nil
 }
 
@@ -463,9 +462,9 @@ func initRouter(opts routerOptions) {
 		// we need to add the checkpoint router before the container router or the DELETE gets masked
 		container.NewRouter(opts.daemon, decoder),
 		image.NewRouter(opts.daemon.ImageService()),
-		systemrouter.NewRouter(opts.daemon, opts.buildCache, opts.buildkit, opts.builderVersion),
+		systemrouter.NewRouter(opts.daemon, opts.buildCache, opts.buildkit, opts.features),
 		volume.NewRouter(opts.daemon.VolumesService()),
-		build.NewRouter(opts.buildBackend, opts.daemon, opts.builderVersion),
+		build.NewRouter(opts.buildBackend, opts.daemon, opts.features),
 		sessionrouter.NewRouter(opts.sessionManager),
 		distributionrouter.NewRouter(opts.daemon.ImageService()),
 	}
@@ -640,4 +639,9 @@ func validateAuthzPlugins(requestedPlugins []string, pg plugingetter.PluginGette
 		}
 	}
 	return nil
+}
+
+func systemContainerdRunning() bool {
+	_, err := os.Lstat(containerddefaults.DefaultAddress)
+	return err == nil
 }

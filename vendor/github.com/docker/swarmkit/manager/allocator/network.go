@@ -1,6 +1,7 @@
 package allocator
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/docker/swarmkit/manager/state/store"
 	"github.com/docker/swarmkit/protobuf/ptypes"
 	"github.com/pkg/errors"
-	"golang.org/x/net/context"
 )
 
 const (
@@ -68,7 +68,15 @@ type networkContext struct {
 }
 
 func (a *Allocator) doNetworkInit(ctx context.Context) (err error) {
-	na, err := cnmallocator.New(a.pluginGetter, a.defaultAddrPool, a.subnetSize)
+	var netConfig *cnmallocator.NetworkConfig
+	if a.networkConfig != nil && a.networkConfig.DefaultAddrPool != nil {
+		netConfig = &cnmallocator.NetworkConfig{
+			DefaultAddrPool: a.networkConfig.DefaultAddrPool,
+			SubnetSize:      a.networkConfig.SubnetSize,
+		}
+	}
+
+	na, err := cnmallocator.New(a.pluginGetter, netConfig)
 	if err != nil {
 		return err
 	}
@@ -990,6 +998,10 @@ func (a *Allocator) allocateNode(ctx context.Context, node *api.Node, existingAd
 		}
 
 		if lbAttachment == nil {
+			// if we're restoring state, we should not add an attachment here.
+			if existingAddressesOnly {
+				continue
+			}
 			lbAttachment = &api.NetworkAttachment{}
 			node.Attachments = append(node.Attachments, lbAttachment)
 		}

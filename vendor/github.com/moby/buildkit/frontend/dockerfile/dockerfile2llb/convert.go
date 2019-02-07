@@ -23,6 +23,8 @@ import (
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
 	gw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
+	"github.com/moby/buildkit/util/apicaps"
+	"github.com/moby/buildkit/util/system"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
@@ -33,7 +35,7 @@ const (
 	localNameContext = "context"
 	historyComment   = "buildkit.dockerfile.v0"
 
-	CopyImage = "tonistiigi/copy:v0.1.3@sha256:e57a3b4d6240f55bac26b655d2cfb751f8b9412d6f7bb1f787e946391fb4b21b"
+	DefaultCopyImage = "docker/dockerfile-copy:v0.1.9@sha256:e8f159d3f00786604b93c675ee2783f8dc194bb565e61ca5788f6a6e9d304061"
 )
 
 type ConvertOpt struct {
@@ -48,13 +50,15 @@ type ConvertOpt struct {
 	// Empty slice means ignore cache for all stages. Nil doesn't disable cache.
 	IgnoreCache []string
 	// CacheIDNamespace scopes the IDs for different cache mounts
-	CacheIDNamespace string
-	ImageResolveMode llb.ResolveMode
-	TargetPlatform   *specs.Platform
-	BuildPlatforms   []specs.Platform
-	PrefixPlatform   bool
-	ExtraHosts       []llb.HostIP
-	ForceNetMode     pb.NetMode
+	CacheIDNamespace  string
+	ImageResolveMode  llb.ResolveMode
+	TargetPlatform    *specs.Platform
+	BuildPlatforms    []specs.Platform
+	PrefixPlatform    bool
+	ExtraHosts        []llb.HostIP
+	ForceNetMode      pb.NetMode
+	OverrideCopyImage string
+	LLBCaps           *apicaps.CapSet
 }
 
 func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State, *Image, error) {
@@ -81,11 +85,14 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 		return nil, nil, err
 	}
 
+	shlex := shell.NewLex(dockerfile.EscapeToken)
+
 	for _, metaArg := range metaArgs {
+		if metaArg.Value != nil {
+			*metaArg.Value, _ = shlex.ProcessWordWithMap(*metaArg.Value, metaArgsToMap(optMetaArgs))
+		}
 		optMetaArgs = append(optMetaArgs, setKVValue(metaArg.KeyValuePairOptional, opt.BuildArgs))
 	}
-
-	shlex := shell.NewLex(dockerfile.EscapeToken)
 
 	metaResolver := opt.MetaResolver
 	if metaResolver == nil {
@@ -129,8 +136,12 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 			}
 			ds.platform = &p
 		}
+		allDispatchStates.addState(ds)
 
-		total := 1
+		total := 0
+		if ds.stage.BaseName != emptyImageName && ds.base == nil {
+			total = 1
+		}
 		for _, cmd := range ds.stage.Commands {
 			switch cmd.(type) {
 			case *instructions.AddCommand, *instructions.CopyCommand, *instructions.RunCommand:
@@ -139,7 +150,6 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 		}
 		ds.cmdTotal = total
 
-		allDispatchStates.addState(ds)
 		if opt.IgnoreCache != nil {
 			if len(opt.IgnoreCache) == 0 {
 				ds.ignoreCache = true
@@ -202,7 +212,7 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 				eg.Go(func() error {
 					ref, err := reference.ParseNormalizedNamed(d.stage.BaseName)
 					if err != nil {
-						return err
+						return errors.Wrapf(err, "failed to parse stage name %q", d.stage.BaseName)
 					}
 					platform := d.platform
 					if platform == nil {
@@ -211,10 +221,15 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 					d.stage.BaseName = reference.TagNameOnly(ref).String()
 					var isScratch bool
 					if metaResolver != nil && reachable && !d.unregistered {
+						prefix := "["
+						if opt.PrefixPlatform && platform != nil {
+							prefix += platforms.Format(*platform) + " "
+						}
+						prefix += "internal]"
 						dgst, dt, err := metaResolver.ResolveImageConfig(ctx, d.stage.BaseName, gw.ResolveImageConfigOpt{
 							Platform:    platform,
 							ResolveMode: opt.ImageResolveMode.String(),
-							LogName:     fmt.Sprintf("[internal] load metadata for %s", d.stage.BaseName),
+							LogName:     fmt.Sprintf("%s load metadata for %s", prefix, d.stage.BaseName),
 						})
 						if err == nil { // handle the error while builder is actually running
 							var img Image
@@ -235,9 +250,15 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 								}
 							}
 							d.stage.BaseName = ref.String()
-							_ = ref
 							if len(img.RootFS.DiffIDs) == 0 {
 								isScratch = true
+								// schema1 images can't return diffIDs so double check :(
+								for _, h := range img.History {
+									if !h.EmptyLayer {
+										isScratch = false
+										break
+									}
+								}
 							}
 						}
 					}
@@ -270,6 +291,11 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 			d.image = clone(d.base.image)
 		}
 
+		// make sure that PATH is always set
+		if _, ok := shell.BuildEnvs(d.image.Config.Env)["PATH"]; !ok {
+			d.image.Config.Env = append(d.image.Config.Env, "PATH="+system.DefaultPathEnv)
+		}
+
 		// initialize base metadata from image conf
 		for _, env := range d.image.Config.Env {
 			k, v := parseKeyValue(env)
@@ -299,6 +325,11 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 			buildPlatforms:    platformOpt.buildPlatforms,
 			targetPlatform:    platformOpt.targetPlatform,
 			extraHosts:        opt.ExtraHosts,
+			copyImage:         opt.OverrideCopyImage,
+			llbCaps:           opt.LLBCaps,
+		}
+		if opt.copyImage == "" {
+			opt.copyImage = DefaultCopyImage
 		}
 
 		if err = dispatchOnBuild(d, d.image.Config.OnBuild, opt); err != nil {
@@ -339,7 +370,13 @@ func Dockerfile2LLB(ctx context.Context, dt []byte, opt ConvertOpt) (*llb.State,
 	}
 	buildContext.Output = bc.Output()
 
-	st := target.state.SetMarhalDefaults(llb.Platform(platformOpt.targetPlatform))
+	defaults := []llb.ConstraintsOpt{
+		llb.Platform(platformOpt.targetPlatform),
+	}
+	if opt.LLBCaps != nil {
+		defaults = append(defaults, llb.WithCaps(*opt.LLBCaps))
+	}
+	st := target.state.SetMarshalDefaults(defaults...)
 
 	if !platformOpt.implicitTarget {
 		target.image.OS = platformOpt.targetPlatform.OS
@@ -403,6 +440,8 @@ type dispatchOpt struct {
 	targetPlatform    specs.Platform
 	buildPlatforms    []specs.Platform
 	extraHosts        []llb.HostIP
+	copyImage         string
+	llbCaps           *apicaps.CapSet
 }
 
 func dispatch(d *dispatchState, cmd command, opt dispatchOpt) error {
@@ -429,7 +468,9 @@ func dispatch(d *dispatchState, cmd command, opt dispatchOpt) error {
 		err = dispatchCopy(d, c.SourcesAndDest, opt.buildContext, true, c, "", opt)
 		if err == nil {
 			for _, src := range c.Sources() {
-				d.ctxPaths[path.Join("/", filepath.ToSlash(src))] = struct{}{}
+				if !strings.HasPrefix(src, "http://") && !strings.HasPrefix(src, "https://") {
+					d.ctxPaths[path.Join("/", filepath.ToSlash(src))] = struct{}{}
+				}
 			}
 		}
 	case *instructions.LabelCommand:
@@ -569,11 +610,11 @@ func dispatchRun(d *dispatchState, c *instructions.RunCommand, proxy *llb.ProxyE
 	var args []string = c.CmdLine
 	if c.PrependShell {
 		args = withShell(d.image, args)
-	} else if d.image.Config.Entrypoint != nil {
-		args = append(d.image.Config.Entrypoint, args...)
 	}
+	env := d.state.Env()
 	opt := []llb.RunOption{llb.Args(args)}
 	for _, arg := range d.buildArgs {
+		env = append(env, fmt.Sprintf("%s=%s", arg.Key, arg.ValueString()))
 		opt = append(opt, llb.AddEnv(arg.Key, arg.ValueString()))
 	}
 	opt = append(opt, dfCmd(c))
@@ -589,7 +630,12 @@ func dispatchRun(d *dispatchState, c *instructions.RunCommand, proxy *llb.ProxyE
 		return err
 	}
 	opt = append(opt, runMounts...)
-	opt = append(opt, llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(dopt.shlex, c.String(), d.state.Run(opt...).Env())), d.prefixPlatform, d.state.GetPlatform())))
+
+	shlex := *dopt.shlex
+	shlex.RawQuotes = true
+	shlex.SkipUnsetEnv = true
+
+	opt = append(opt, llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(&shlex, c.String(), env)), d.prefixPlatform, d.state.GetPlatform())))
 	for _, h := range dopt.extraHosts {
 		opt = append(opt, llb.AddExtraHost(h.Host, h.IP))
 	}
@@ -612,10 +658,10 @@ func dispatchWorkdir(d *dispatchState, c *instructions.WorkdirCommand, commit bo
 
 func dispatchCopy(d *dispatchState, c instructions.SourcesAndDest, sourceState llb.State, isAddCommand bool, cmdToPrint fmt.Stringer, chown string, opt dispatchOpt) error {
 	// TODO: this should use CopyOp instead. Current implementation is inefficient
-	img := llb.Image(CopyImage, llb.MarkImageInternal, llb.Platform(opt.buildPlatforms[0]), WithInternalName("helper image for file operations"))
+	img := llb.Image(opt.copyImage, llb.MarkImageInternal, llb.Platform(opt.buildPlatforms[0]), WithInternalName("helper image for file operations"))
 
 	dest := path.Join(".", pathRelativeToWorkingDir(d.state, c.Dest()))
-	if c.Dest() == "." || c.Dest()[len(c.Dest())-1] == filepath.Separator {
+	if c.Dest() == "." || c.Dest() == "" || c.Dest()[len(c.Dest())-1] == filepath.Separator {
 		dest += string(filepath.Separator)
 	}
 	args := []string{"copy"}
@@ -682,16 +728,24 @@ func dispatchCopy(d *dispatchState, c instructions.SourcesAndDest, sourceState l
 		args = append(args[:1], append([]string{"--unpack"}, args[1:]...)...)
 	}
 
-	runOpt := []llb.RunOption{llb.Args(args), llb.Dir("/dest"), llb.ReadonlyRootFS(), dfCmd(cmdToPrint), llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(opt.shlex, cmdToPrint.String(), d.state.Env())), d.prefixPlatform, d.state.GetPlatform()))}
+	platform := opt.targetPlatform
+	if d.platform != nil {
+		platform = *d.platform
+	}
+
+	runOpt := []llb.RunOption{llb.Args(args), llb.Dir("/dest"), llb.ReadonlyRootFS(), dfCmd(cmdToPrint), llb.WithCustomName(prefixCommand(d, uppercaseCmd(processCmdEnv(opt.shlex, cmdToPrint.String(), d.state.Env())), d.prefixPlatform, &platform))}
 	if d.ignoreCache {
 		runOpt = append(runOpt, llb.IgnoreCache)
 	}
-	run := img.Run(append(runOpt, mounts...)...)
-	d.state = run.AddMount("/dest", d.state).Platform(opt.targetPlatform)
 
-	if d.platform != nil {
-		d.state = d.state.Platform(*d.platform)
+	if opt.llbCaps != nil {
+		if err := opt.llbCaps.Supports(pb.CapExecMetaNetwork); err == nil {
+			runOpt = append(runOpt, llb.Network(llb.NetModeNone))
+		}
 	}
+
+	run := img.Run(append(runOpt, mounts...)...)
+	d.state = run.AddMount("/dest", d.state).Platform(platform)
 
 	return commitToHistory(&d.image, commitMessage.String(), true, &d.state)
 }

@@ -3,41 +3,47 @@
 package buildkit
 
 import (
-	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/docker/libnetwork"
 	"github.com/moby/buildkit/executor"
 	"github.com/moby/buildkit/executor/runcexecutor"
 	"github.com/moby/buildkit/identity"
+	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/network"
-	"github.com/pkg/errors"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 )
 
 const networkName = "bridge"
 
-func newExecutor(root string, net libnetwork.NetworkController) (executor.Executor, error) {
-	// FIXME: fix bridge networking
-	_ = bridgeProvider{}
+func newExecutor(root, cgroupParent string, net libnetwork.NetworkController) (executor.Executor, error) {
+	networkProviders := map[pb.NetMode]network.Provider{
+		pb.NetMode_UNSET: &bridgeProvider{NetworkController: net},
+		pb.NetMode_HOST:  network.NewHostProvider(),
+		pb.NetMode_NONE:  network.NewNoneProvider(),
+	}
 	return runcexecutor.New(runcexecutor.Opt{
-		Root:              filepath.Join(root, "executor"),
-		CommandCandidates: []string{"docker-runc", "runc"},
-	}, nil)
+		Root:                filepath.Join(root, "executor"),
+		CommandCandidates:   []string{"runc"},
+		DefaultCgroupParent: cgroupParent,
+	}, networkProviders)
 }
 
 type bridgeProvider struct {
 	libnetwork.NetworkController
 }
 
-func (p *bridgeProvider) NewInterface() (network.Interface, error) {
+func (p *bridgeProvider) New() (network.Namespace, error) {
 	n, err := p.NetworkByName(networkName)
 	if err != nil {
 		return nil, err
 	}
 
-	iface := &lnInterface{ready: make(chan struct{})}
+	iface := &lnInterface{ready: make(chan struct{}), provider: p}
 	iface.Once.Do(func() {
 		go iface.init(p.NetworkController, n)
 	})
@@ -45,46 +51,26 @@ func (p *bridgeProvider) NewInterface() (network.Interface, error) {
 	return iface, nil
 }
 
-func (p *bridgeProvider) Release(iface network.Interface) error {
-	go func() {
-		if err := p.release(iface); err != nil {
-			logrus.Errorf("%s", err)
-		}
-	}()
-	return nil
-}
-
-func (p *bridgeProvider) release(iface network.Interface) error {
-	li, ok := iface.(*lnInterface)
-	if !ok {
-		return errors.Errorf("invalid interface %T", iface)
-	}
-	err := li.sbx.Delete()
-	if err1 := li.ep.Delete(true); err1 != nil && err == nil {
-		err = err1
-	}
-	return err
-}
-
 type lnInterface struct {
 	ep  libnetwork.Endpoint
 	sbx libnetwork.Sandbox
 	sync.Once
-	err   error
-	ready chan struct{}
+	err      error
+	ready    chan struct{}
+	provider *bridgeProvider
 }
 
 func (iface *lnInterface) init(c libnetwork.NetworkController, n libnetwork.Network) {
 	defer close(iface.ready)
 	id := identity.NewID()
 
-	ep, err := n.CreateEndpoint(id)
+	ep, err := n.CreateEndpoint(id, libnetwork.CreateOptionDisableResolution())
 	if err != nil {
 		iface.err = err
 		return
 	}
 
-	sbx, err := c.NewSandbox(id)
+	sbx, err := c.NewSandbox(id, libnetwork.OptionUseExternalKey())
 	if err != nil {
 		iface.err = err
 		return
@@ -99,14 +85,26 @@ func (iface *lnInterface) init(c libnetwork.NetworkController, n libnetwork.Netw
 	iface.ep = ep
 }
 
-func (iface *lnInterface) Set(pid int) error {
+func (iface *lnInterface) Set(s *specs.Spec) {
 	<-iface.ready
 	if iface.err != nil {
-		return iface.err
+		return
 	}
-	return iface.sbx.SetKey(fmt.Sprintf("/proc/%d/ns/net", pid))
+	// attach netns to bridge within the container namespace, using reexec in a prestart hook
+	s.Hooks = &specs.Hooks{
+		Prestart: []specs.Hook{{
+			Path: filepath.Join("/proc", strconv.Itoa(os.Getpid()), "exe"),
+			Args: []string{"libnetwork-setkey", iface.sbx.ContainerID(), iface.provider.NetworkController.ID()},
+		}},
+	}
 }
 
-func (iface *lnInterface) Remove(pid int) error {
-	return nil
+func (iface *lnInterface) Close() error {
+	<-iface.ready
+	go func() {
+		if err := iface.sbx.Delete(); err != nil {
+			logrus.Errorf("failed to delete builder network sandbox: %v", err)
+		}
+	}()
+	return iface.err
 }

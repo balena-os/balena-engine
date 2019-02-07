@@ -181,8 +181,10 @@ func (c *controller) defaultGwNetwork() (Network, error) {
 	defer func() { <-procGwNetwork }()
 
 	n, err := c.NetworkByName(libnGWNetwork)
-	if _, ok := err.(types.NotFoundError); ok {
-		n, err = c.createGWNetwork()
+	if err != nil {
+		if _, ok := err.(types.NotFoundError); ok {
+			n, err = c.createGWNetwork()
+		}
 	}
 	return n, err
 }

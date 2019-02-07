@@ -448,7 +448,6 @@ func (s *Service) Checkpoint(ctx context.Context, r *shimapi.CheckpointTaskReque
 		AllowTerminal:            options.Terminal,
 		FileLocks:                options.FileLocks,
 		EmptyNamespaces:          options.EmptyNamespaces,
-		WorkDir:                  options.WorkPath,
 	}); err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
@@ -658,11 +657,5 @@ func newInit(ctx context.Context, path, workDir, runtimeRoot, namespace, criu st
 	p.IoGID = int(options.IoGid)
 	p.NoPivotRoot = options.NoPivotRoot
 	p.NoNewKeyring = options.NoNewKeyring
-	p.CriuWorkPath = options.CriuWorkPath
-	if p.CriuWorkPath == "" {
-		// if criu work path not set, use container WorkDir
-		p.CriuWorkPath = p.WorkDir
-	}
-
 	return p, nil
 }

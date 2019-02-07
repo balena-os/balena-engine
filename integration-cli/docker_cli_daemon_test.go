@@ -44,6 +44,8 @@ import (
 	"gotest.tools/icmd"
 )
 
+const containerdSocket = "/var/run/docker/containerd/balena-engine-containerd.sock"
+
 // TestLegacyDaemonCommand test starting docker daemon using "deprecated" docker daemon
 // command. Remove this test when we remove this.
 func (s *DockerDaemonSuite) TestLegacyDaemonCommand(c *check.C) {
@@ -1595,7 +1597,7 @@ func (s *DockerDaemonSuite) TestCleanupMountsAfterDaemonAndContainerKill(c *chec
 	c.Assert(d.Kill(), check.IsNil)
 
 	// kill the container
-	icmd.RunCommand(ctrBinary, "--address", "/var/run/docker/containerd/balena-engine-containerd.sock",
+	icmd.RunCommand(ctrBinary, "--address", containerdSocket,
 		"--namespace", moby_daemon.ContainersNamespace, "tasks", "kill", id).Assert(c, icmd.Success)
 
 	// restart daemon.
@@ -2175,7 +2177,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithKilledRunningContainer(t *check
 	}
 
 	// kill the container
-	icmd.RunCommand(ctrBinary, "--address", "/var/run/docker/containerd/balena-engine-containerd.sock",
+	icmd.RunCommand(ctrBinary, "--address", containerdSocket,
 		"--namespace", moby_daemon.ContainersNamespace, "tasks", "kill", cid).Assert(t, icmd.Success)
 
 	// Give time to containerd to process the command if we don't
@@ -2284,7 +2286,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithUnpausedRunningContainer(t *che
 	// resume the container
 	result := icmd.RunCommand(
 		ctrBinary,
-		"--address", "/var/run/docker/containerd/balena-engine-containerd.sock",
+		"--address", containerdSocket,
 		"--namespace", moby_daemon.ContainersNamespace,
 		"tasks", "resume", cid)
 	result.Assert(t, icmd.Success)

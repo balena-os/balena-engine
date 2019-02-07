@@ -3,13 +3,13 @@ package blobmapping
 import (
 	"context"
 
-	"github.com/boltdb/bolt"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/moby/buildkit/cache/metadata"
 	"github.com/moby/buildkit/snapshot"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 )
 
 const blobKey = "blobmapping.blob"
@@ -107,9 +107,20 @@ func (s *Snapshotter) GetBlob(ctx context.Context, key string) (digest.Digest, d
 // Checks that there is a blob in the content store.
 // If same blob has already been set then this is a noop.
 func (s *Snapshotter) SetBlob(ctx context.Context, key string, diffID, blobsum digest.Digest) error {
-	_, err := s.opt.Content.Info(ctx, blobsum)
+	info, err := s.opt.Content.Info(ctx, blobsum)
 	if err != nil {
 		return err
+	}
+	if _, ok := info.Labels["containerd.io/uncompressed"]; !ok {
+		labels := map[string]string{
+			"containerd.io/uncompressed": diffID.String(),
+		}
+		if _, err := s.opt.Content.Update(ctx, content.Info{
+			Digest: blobsum,
+			Labels: labels,
+		}, "labels.containerd.io/uncompressed"); err != nil {
+			return err
+		}
 	}
 	md, _ := s.opt.MetadataStore.Get(key)
 

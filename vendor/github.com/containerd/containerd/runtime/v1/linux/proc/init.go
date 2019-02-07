@@ -76,7 +76,6 @@ type Init struct {
 	IoGID        int
 	NoPivotRoot  bool
 	NoNewKeyring bool
-	CriuWorkPath string
 }
 
 // NewRunc returns a new runc instance for a process
@@ -133,7 +132,7 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) error {
 		opts := &runc.RestoreOpts{
 			CheckpointOpts: runc.CheckpointOpts{
 				ImagePath:  r.Checkpoint,
-				WorkDir:    p.CriuWorkPath,
+				WorkDir:    p.WorkDir,
 				ParentPath: r.ParentCheckpoint,
 			},
 			PidFile:     pidFile,
@@ -428,12 +427,8 @@ func (p *Init) checkpoint(ctx context.Context, r *CheckpointConfig) error {
 	if !r.Exit {
 		actions = append(actions, runc.LeaveRunning)
 	}
-	// keep criu work directory if criu work dir is set
-	work := r.WorkDir
-	if work == "" {
-		work = filepath.Join(p.WorkDir, "criu-work")
-		defer os.RemoveAll(work)
-	}
+	work := filepath.Join(p.WorkDir, "criu-work")
+	defer os.RemoveAll(work)
 	if err := p.runtime.Checkpoint(ctx, p.id, &runc.CheckpointOpts{
 		WorkDir:                  work,
 		ImagePath:                r.Path,

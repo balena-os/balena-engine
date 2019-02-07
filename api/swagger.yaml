@@ -1473,11 +1473,9 @@ definitions:
             type: "string"
       Options:
         description: "Driver-specific options, specified as a map."
-        type: "array"
-        items:
-          type: "object"
-          additionalProperties:
-            type: "string"
+        type: "object"
+        additionalProperties:
+          type: "string"
 
   NetworkContainer:
     type: "object"
@@ -1512,6 +1510,31 @@ definitions:
         $ref: "#/definitions/ProgressDetail"
       aux:
         $ref: "#/definitions/ImageID"
+
+  BuildCache:
+    type: "object"
+    properties:
+      ID:
+        type: "string"
+      Parent:
+        type: "string"
+      Type:
+        type: "string"
+      Description:
+        type: "string"
+      InUse:
+        type: "boolean"
+      Shared:
+        type: "boolean"
+      Size:
+        type: "integer"
+      CreatedAt:
+        type: "integer"
+      LastUsedAt:
+        type: "integer"
+        x-nullable: true
+      UsageCount:
+        type: "integer"
 
   ImageID:
     type: "object"
@@ -2434,6 +2457,22 @@ definitions:
         description: "Whether there is currently a root CA rotation in progress for the swarm"
         type: "boolean"
         example: false
+      DefaultAddrPool:
+        description: |
+          Default Address Pool specifies default subnet pools for global scope networks.
+        type: "array"
+        items:
+          type: "string"
+          format: "CIDR"
+          example: ["10.10.0.0/16", "20.20.0.0/16"]
+      SubnetSize:
+        description: |
+          SubnetSize specifies the subnet size of the networks created from the default subnet pool
+        type: "integer"
+        format: "uint32"
+        maximum: 29
+        default: 24
+        example: 24
 
   JoinTokens:
     description: |
@@ -3722,18 +3761,22 @@ definitions:
         description: |
           HTTP-proxy configured for the daemon. This value is obtained from the
           [`HTTP_PROXY`](https://www.gnu.org/software/wget/manual/html_node/Proxies.html) environment variable.
+          Credentials ([user info component](https://tools.ietf.org/html/rfc3986#section-3.2.1)) in the proxy URL
+          are masked in the API response.
 
           Containers do not automatically inherit this configuration.
         type: "string"
-        example: "http://user:pass@proxy.corp.example.com:8080"
+        example: "http://xxxxx:xxxxx@proxy.corp.example.com:8080"
       HttpsProxy:
         description: |
           HTTPS-proxy configured for the daemon. This value is obtained from the
           [`HTTPS_PROXY`](https://www.gnu.org/software/wget/manual/html_node/Proxies.html) environment variable.
+          Credentials ([user info component](https://tools.ietf.org/html/rfc3986#section-3.2.1)) in the proxy URL
+          are masked in the API response.
 
           Containers do not automatically inherit this configuration.
         type: "string"
-        example: "https://user:pass@proxy.corp.example.com:4443"
+        example: "https://xxxxx:xxxxx@proxy.corp.example.com:4443"
       NoProxy:
         description: |
           Comma-separated list of domain extensions for which no proxy should be
@@ -3823,10 +3866,10 @@ definitions:
           $ref: "#/definitions/Runtime"
         default:
           runc:
-            path: "docker-runc"
+            path: "runc"
         example:
           runc:
-            path: "docker-runc"
+            path: "runc"
           runc-master:
             path: "/go/bin/runc"
           custom:
@@ -6358,6 +6401,29 @@ paths:
       produces:
         - "application/json"
       operationId: "BuildPrune"
+      parameters:
+        - name: "keep-storage"
+          in: "query"
+          description: "Amount of disk space in bytes to keep for cache"
+          type: "integer"
+          format: "int64"
+        - name: "all"
+          in: "query"
+          type: "boolean"
+          description: "Remove all types of build cache"
+        - name: "filters"
+          in: "query"
+          type: "string"
+          description: |
+            A JSON encoded value of the filters (a `map[string][]string`) to process on the list of build cache objects. Available filters:
+            - `until=<duration>`: duration relative to daemon's time, during which build cache was not used, in Go's duration format (e.g., '24h')
+            - `id=<id>`
+            - `parent=<id>`
+            - `type=<string>`
+            - `description=<string>`
+            - `inuse`
+            - `shared`
+            - `private`
       responses:
         200:
           description: "No error"
@@ -6365,6 +6431,11 @@ paths:
             type: "object"
             title: "BuildPruneResponse"
             properties:
+              CachesDeleted:
+                type: "array"
+                items:
+                  description: "ID of build cache object"
+                  type: "string"
               SpaceReclaimed:
                 description: "Disk space reclaimed in bytes"
                 type: "integer"
@@ -7230,6 +7301,10 @@ paths:
                 type: "array"
                 items:
                   $ref: "#/definitions/Volume"
+              BuildCache:
+                type: "array"
+                items:
+                  $ref: "#/definitions/BuildCache"
             example:
               LayersSize: 1092588
               Images:
@@ -9315,7 +9390,10 @@ paths:
 
         - name: "version"
           in: "query"
-          description: "The version number of the service object being updated. This is required to avoid conflicting writes."
+          description: "The version number of the service object being updated.
+          This is required to avoid conflicting writes.
+          This version number should be the value as currently set on the service *before* the update.
+          You can find the current version by calling `GET /services/{id}`"
           required: true
           type: "integer"
         - name: "registryAuthFrom"

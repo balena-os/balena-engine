@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
+	"time"
 
 	"github.com/containerd/containerd/contrib/seccomp"
 	"github.com/containerd/containerd/mount"
@@ -26,7 +26,6 @@ import (
 	"github.com/moby/buildkit/util/network"
 	rootlessspecconv "github.com/moby/buildkit/util/rootless/specconv"
 	"github.com/moby/buildkit/util/system"
-	runcsystem "github.com/opencontainers/runc/libcontainer/system"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -38,19 +37,22 @@ type Opt struct {
 	CommandCandidates []string
 	// without root privileges (has nothing to do with Opt.Root directory)
 	Rootless bool
+	// DefaultCgroupParent is the cgroup-parent name for executor
+	DefaultCgroupParent string
 }
 
 var defaultCommandCandidates = []string{"buildkit-runc", "runc"}
 
 type runcExecutor struct {
-	runc            *runc.Runc
-	root            string
-	cmd             string
-	rootless        bool
-	networkProvider network.Provider
+	runc             *runc.Runc
+	root             string
+	cmd              string
+	cgroupParent     string
+	rootless         bool
+	networkProviders map[pb.NetMode]network.Provider
 }
 
-func New(opt Opt, networkProvider network.Provider) (executor.Executor, error) {
+func New(opt Opt, networkProviders map[pb.NetMode]network.Provider) (executor.Executor, error) {
 	cmds := opt.CommandCandidates
 	if cmds == nil {
 		cmds = defaultCommandCandidates
@@ -70,10 +72,6 @@ func New(opt Opt, networkProvider network.Provider) (executor.Executor, error) {
 
 	root := opt.Root
 
-	if err := setSubReaper(); err != nil {
-		return nil, err
-	}
-
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, errors.Wrapf(err, "failed to create %s", root)
 	}
@@ -87,47 +85,44 @@ func New(opt Opt, networkProvider network.Provider) (executor.Executor, error) {
 		return nil, err
 	}
 
+	// clean up old hosts/resolv.conf file. ignore errors
+	os.RemoveAll(filepath.Join(root, "hosts"))
+	os.RemoveAll(filepath.Join(root, "resolv.conf"))
+
 	runtime := &runc.Runc{
 		Command:      cmd,
 		Log:          filepath.Join(root, "runc-log.json"),
 		LogFormat:    runc.JSON,
-		PdeathSignal: syscall.SIGKILL,
+		PdeathSignal: syscall.SIGKILL, // this can still leak the process
 		Setpgid:      true,
 		// we don't execute runc with --rootless=(true|false) explicitly,
 		// so as to support non-runc runtimes
 	}
 
 	w := &runcExecutor{
-		runc:            runtime,
-		root:            root,
-		rootless:        opt.Rootless,
-		networkProvider: networkProvider,
+		runc:             runtime,
+		root:             root,
+		cgroupParent:     opt.DefaultCgroupParent,
+		rootless:         opt.Rootless,
+		networkProviders: networkProviders,
 	}
 	return w, nil
 }
 
 func (w *runcExecutor) Exec(ctx context.Context, meta executor.Meta, root cache.Mountable, mounts []executor.Mount, stdin io.ReadCloser, stdout, stderr io.WriteCloser) error {
-	var iface network.Interface
-	// FIXME: still uses host if no provider configured
-	if meta.NetMode == pb.NetMode_UNSET {
-		if w.networkProvider != nil {
-			var err error
-			iface, err = w.networkProvider.NewInterface()
-			if err != nil || iface == nil {
-				meta.NetMode = pb.NetMode_HOST
-			}
-		} else {
-			meta.NetMode = pb.NetMode_HOST
-		}
+	provider, ok := w.networkProviders[meta.NetMode]
+	if !ok {
+		return errors.Errorf("unknown network mode %s", meta.NetMode)
 	}
+	namespace, err := provider.New()
+	if err != nil {
+		return err
+	}
+	defer namespace.Close()
+
 	if meta.NetMode == pb.NetMode_HOST {
 		logrus.Info("enabling HostNetworking")
 	}
-	defer func() {
-		if iface != nil {
-			w.networkProvider.Release(iface)
-		}
-	}()
 
 	resolvConf, err := oci.GetResolvConf(ctx, w.root)
 	if err != nil {
@@ -187,7 +182,18 @@ func (w *runcExecutor) Exec(ctx context.Context, meta executor.Meta, root cache.
 	if meta.ReadonlyRootFS {
 		opts = append(opts, containerdoci.WithRootFSReadonly())
 	}
-	spec, cleanup, err := oci.GenerateSpec(ctx, meta, mounts, id, resolvConf, hostsFile, meta.NetMode == pb.NetMode_HOST, opts...)
+
+	if w.cgroupParent != "" {
+		var cgroupsPath string
+		lastSeparator := w.cgroupParent[len(w.cgroupParent)-1:]
+		if strings.Contains(w.cgroupParent, ".slice") && lastSeparator == ":" {
+			cgroupsPath = w.cgroupParent + id
+		} else {
+			cgroupsPath = filepath.Join("/", w.cgroupParent, "buildkit", id)
+		}
+		opts = append(opts, containerdoci.WithCgroup(cgroupsPath))
+	}
+	spec, cleanup, err := oci.GenerateSpec(ctx, meta, mounts, id, resolvConf, hostsFile, namespace, opts...)
 	if err != nil {
 		return err
 	}
@@ -219,196 +225,73 @@ func (w *runcExecutor) Exec(ctx context.Context, meta executor.Meta, root cache.
 		return err
 	}
 
-	forwardIO, err := newForwardIO(stdin, stdout, stderr)
-	if err != nil {
-		return errors.Wrap(err, "creating new forwarding IO")
-	}
-	defer forwardIO.Close()
-
-	pidFilePath := filepath.Join(w.root, "runc_pid_"+identity.NewID())
-	defer os.RemoveAll(pidFilePath)
-
-	logrus.Debugf("> creating %s %v", id, meta.Args)
-	err = w.runc.Create(ctx, id, bundle, &runc.CreateOpts{
-		PidFile: pidFilePath,
-		IO:      forwardIO,
-	})
-	if err != nil {
-		return err
-	}
-	forwardIO.release()
-
-	defer func() {
-		go func() {
-			if err := w.runc.Delete(context.TODO(), id, &runc.DeleteOpts{}); err != nil {
-				logrus.Errorf("failed to delete %s: %+v", id, err)
-			}
-		}()
-	}()
-
-	dt, err := ioutil.ReadFile(pidFilePath)
-	if err != nil {
-		return err
-	}
-	pid, err := strconv.Atoi(string(dt))
-	if err != nil {
-		return err
-	}
+	// runCtx/killCtx is used for extra check in case the kill command blocks
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
 
 	done := make(chan struct{})
-	defer close(done)
-
 	go func() {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			syscall.Kill(-pid, syscall.SIGKILL)
+		for {
+			select {
+			case <-ctx.Done():
+				killCtx, timeout := context.WithTimeout(context.Background(), 7*time.Second)
+				if err := w.runc.Kill(killCtx, id, int(syscall.SIGKILL), nil); err != nil {
+					logrus.Errorf("failed to kill runc %s: %+v", id, err)
+					select {
+					case <-killCtx.Done():
+						timeout()
+						cancelRun()
+						return
+					default:
+					}
+				}
+				timeout()
+				select {
+				case <-time.After(50 * time.Millisecond):
+				case <-done:
+					return
+				}
+			case <-done:
+				return
+			}
 		}
 	}()
 
-	if iface != nil {
-		if err := iface.Set(pid); err != nil {
-			return errors.Wrap(err, "could not set the network")
-		}
-		defer func() {
-			iface.Remove(pid)
-		}()
-	}
-
-	err = w.runc.Start(ctx, id)
+	logrus.Debugf("> creating %s %v", id, meta.Args)
+	status, err := w.runc.Run(runCtx, id, bundle, &runc.CreateOpts{
+		IO: &forwardIO{stdin: stdin, stdout: stdout, stderr: stderr},
+	})
+	close(done)
 	if err != nil {
 		return err
 	}
 
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-
-	status := 0
-	ps, err := p.Wait()
-	if err != nil {
-		status = 255
-	}
-
-	if ws, ok := ps.Sys().(syscall.WaitStatus); ok {
-		status = ws.ExitStatus()
-	}
 	if status != 0 {
-		return errors.Errorf("exit code: %d", status)
+		err := errors.Errorf("exit code: %d", status)
+		select {
+		case <-ctx.Done():
+			return errors.Wrapf(ctx.Err(), err.Error())
+		default:
+			return err
+		}
 	}
 
 	return nil
 }
 
 type forwardIO struct {
-	stdin, stdout, stderr *os.File
-	toRelease             []io.Closer
-	toClose               []io.Closer
-}
-
-func newForwardIO(stdin io.ReadCloser, stdout, stderr io.WriteCloser) (f *forwardIO, err error) {
-	fio := &forwardIO{}
-	defer func() {
-		if err != nil {
-			fio.Close()
-		}
-	}()
-	if stdin != nil {
-		fio.stdin, err = fio.readCloserToFile(stdin)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if stdout != nil {
-		fio.stdout, err = fio.writeCloserToFile(stdout)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if stderr != nil {
-		fio.stderr, err = fio.writeCloserToFile(stderr)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return fio, nil
+	stdin          io.ReadCloser
+	stdout, stderr io.WriteCloser
 }
 
 func (s *forwardIO) Close() error {
-	s.release()
-	var err error
-	for _, cl := range s.toClose {
-		if err1 := cl.Close(); err == nil {
-			err = err1
-		}
-	}
-	s.toClose = nil
-	return err
-}
-
-// release releases active FDs if the process doesn't need them any more
-func (s *forwardIO) release() {
-	for _, cl := range s.toRelease {
-		cl.Close()
-	}
-	s.toRelease = nil
+	return nil
 }
 
 func (s *forwardIO) Set(cmd *exec.Cmd) {
 	cmd.Stdin = s.stdin
 	cmd.Stdout = s.stdout
 	cmd.Stderr = s.stderr
-}
-
-func (s *forwardIO) readCloserToFile(rc io.ReadCloser) (*os.File, error) {
-	if f, ok := rc.(*os.File); ok {
-		return f, nil
-	}
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-	s.toClose = append(s.toClose, pw)
-	s.toRelease = append(s.toRelease, pr)
-	go func() {
-		_, err := io.Copy(pw, rc)
-		if err1 := pw.Close(); err == nil {
-			err = err1
-		}
-		_ = err
-	}()
-	return pr, nil
-}
-
-func (s *forwardIO) writeCloserToFile(wc io.WriteCloser) (*os.File, error) {
-	if f, ok := wc.(*os.File); ok {
-		return f, nil
-	}
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		return nil, err
-	}
-	s.toClose = append(s.toClose, pr)
-	s.toRelease = append(s.toRelease, pw)
-	go func() {
-		_, err := io.Copy(wc, pr)
-		if err1 := pw.Close(); err == nil {
-			err = err1
-		}
-		_ = err
-	}()
-	return pw, nil
-}
-
-var subReaperOnce sync.Once
-var subReaperError error
-
-func setSubReaper() error {
-	subReaperOnce.Do(func() {
-		subReaperError = runcsystem.SetSubreaper(1)
-	})
-	return subReaperError
 }
 
 func (s *forwardIO) Stdin() io.WriteCloser {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containerd/containerd/platforms"
 	"github.com/docker/distribution/reference"
 	"github.com/moby/buildkit/cache"
 	"github.com/moby/buildkit/cache/remotecache"
@@ -49,7 +50,7 @@ func (b *llbBridge) Solve(ctx context.Context, req frontend.SolveRequest) (res *
 			func(ref string) {
 				cm = newLazyCacheManager(ref, func() (solver.CacheManager, error) {
 					var cmNew solver.CacheManager
-					if err := inVertexContext(b.builder.Context(ctx), "importing cache manifest from "+ref, func(ctx context.Context) error {
+					if err := inVertexContext(b.builder.Context(ctx), "importing cache manifest from "+ref, "", func(ctx context.Context) error {
 						if b.resolveCacheImporter == nil {
 							return errors.New("no cache importer is available")
 						}
@@ -74,6 +75,10 @@ func (b *llbBridge) Solve(ctx context.Context, req frontend.SolveRequest) (res *
 		b.cmsMu.Unlock()
 	}
 
+	if req.Definition != nil && req.Definition.Def != nil && req.Frontend != "" {
+		return nil, errors.New("cannot solve with both Definition and Frontend specified")
+	}
+
 	if req.Definition != nil && req.Definition.Def != nil {
 		ent, err := loadEntitlements(b.builder)
 		if err != nil {
@@ -90,8 +95,7 @@ func (b *llbBridge) Solve(ctx context.Context, req frontend.SolveRequest) (res *
 		}
 
 		res = &frontend.Result{Ref: ref}
-	}
-	if req.Frontend != "" {
+	} else if req.Frontend != "" {
 		f, ok := b.frontends[req.Frontend]
 		if !ok {
 			return nil, errors.Errorf("invalid frontend: %s", req.Frontend)
@@ -101,9 +105,7 @@ func (b *llbBridge) Solve(ctx context.Context, req frontend.SolveRequest) (res *
 			return nil, err
 		}
 	} else {
-		if req.Definition == nil || req.Definition.Def == nil {
-			return &frontend.Result{}, nil
-		}
+		return &frontend.Result{}, nil
 	}
 
 	if err := res.EachRef(func(r solver.CachedResult) error {
@@ -142,7 +144,13 @@ func (s *llbBridge) ResolveImageConfig(ctx context.Context, ref string, opt gw.R
 	if opt.LogName == "" {
 		opt.LogName = fmt.Sprintf("resolve image config for %s", ref)
 	}
-	err = inVertexContext(s.builder.Context(ctx), opt.LogName, func(ctx context.Context) error {
+	id := ref // make a deterministic ID for avoiding duplicates
+	if platform := opt.Platform; platform == nil {
+		id += platforms.Format(platforms.DefaultSpec())
+	} else {
+		id += platforms.Format(*platform)
+	}
+	err = inVertexContext(s.builder.Context(ctx), opt.LogName, id, func(ctx context.Context) error {
 		dgst, config, err = w.ResolveImageConfig(ctx, ref, opt)
 		return err
 	})

@@ -2,6 +2,7 @@ package llbsolver
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/moby/buildkit/cache"
@@ -106,6 +107,7 @@ func (s *Solver) Solve(ctx context.Context, id string, req frontend.SolveRequest
 	var res *frontend.Result
 	if s.gatewayForwarder != nil && req.Definition == nil && req.Frontend == "" {
 		fwd := gateway.NewBridgeForwarder(ctx, s.Bridge(j), s.workerController)
+		defer fwd.Discard()
 		if err := s.gatewayForwarder.RegisterBuild(ctx, id, fwd); err != nil {
 			return nil, err
 		}
@@ -166,7 +168,7 @@ func (s *Solver) Solve(ctx context.Context, id string, req frontend.SolveRequest
 			inp.Refs = m
 		}
 
-		if err := inVertexContext(j.Context(ctx), exp.Name(), func(ctx context.Context) error {
+		if err := inVertexContext(j.Context(ctx), exp.Name(), "", func(ctx context.Context) error {
 			exporterResponse, err = exp.Export(ctx, inp)
 			return err
 		}); err != nil {
@@ -175,7 +177,7 @@ func (s *Solver) Solve(ctx context.Context, id string, req frontend.SolveRequest
 	}
 
 	if e := exp.CacheExporter; e != nil {
-		if err := inVertexContext(j.Context(ctx), "exporting cache", func(ctx context.Context) error {
+		if err := inVertexContext(j.Context(ctx), "exporting cache", "", func(ctx context.Context) error {
 			prepareDone := oneOffProgress(ctx, "preparing build cache for export")
 			if err := res.EachRef(func(res solver.CachedResult) error {
 				// all keys have same export chain so exporting others is not needed
@@ -191,6 +193,16 @@ func (s *Solver) Solve(ctx context.Context, id string, req frontend.SolveRequest
 			return e.Finalize(ctx)
 		}); err != nil {
 			return nil, err
+		}
+	}
+
+	if exporterResponse == nil {
+		exporterResponse = make(map[string]string)
+	}
+
+	for k, v := range res.Metadata {
+		if strings.HasPrefix(k, "frontend.") {
+			exporterResponse[k] = string(v)
 		}
 	}
 
@@ -231,9 +243,12 @@ func oneOffProgress(ctx context.Context, id string) func(err error) error {
 	}
 }
 
-func inVertexContext(ctx context.Context, name string, f func(ctx context.Context) error) error {
+func inVertexContext(ctx context.Context, name, id string, f func(ctx context.Context) error) error {
+	if id == "" {
+		id = identity.NewID()
+	}
 	v := client.Vertex{
-		Digest: digest.FromBytes([]byte(identity.NewID())),
+		Digest: digest.FromBytes([]byte(id)),
 		Name:   name,
 	}
 	pw, _, ctx := progress.FromContext(ctx, progress.WithMetadata("vertex", v.Digest))

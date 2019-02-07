@@ -14,16 +14,18 @@ import (
 	"github.com/pkg/errors"
 )
 
-type IngesterProvider interface {
+type ContentCache interface {
 	content.Ingester
 	content.Provider
 }
 
-func Config(ctx context.Context, str string, resolver remotes.Resolver, ingester IngesterProvider, platform *specs.Platform) (digest.Digest, []byte, error) {
-	// TODO: fix containerd to take struct instead of string
-	platformStr := platforms.Default()
-	if platform != nil {
-		platformStr = platforms.Format(*platform)
+func Config(ctx context.Context, str string, resolver remotes.Resolver, cache ContentCache, p *specs.Platform) (digest.Digest, []byte, error) {
+	// TODO: fix buildkit to take interface instead of struct
+	var platform platforms.MatchComparer
+	if p != nil {
+		platform = platforms.Only(*p)
+	} else {
+		platform = platforms.Default()
 	}
 	ref, err := reference.Parse(str)
 	if err != nil {
@@ -34,7 +36,7 @@ func Config(ctx context.Context, str string, resolver remotes.Resolver, ingester
 		Digest: ref.Digest(),
 	}
 	if desc.Digest != "" {
-		ra, err := ingester.ReaderAt(ctx, desc)
+		ra, err := cache.ReaderAt(ctx, desc)
 		if err == nil {
 			desc.Size = ra.Size()
 			mt, err := DetectManifestMediaType(ra)
@@ -56,19 +58,23 @@ func Config(ctx context.Context, str string, resolver remotes.Resolver, ingester
 		return "", nil, err
 	}
 
+	if desc.MediaType == images.MediaTypeDockerSchema1Manifest {
+		return readSchema1Config(ctx, ref.String(), desc, fetcher, cache)
+	}
+
 	handlers := []images.Handler{
-		remotes.FetchHandler(ingester, fetcher),
-		childrenConfigHandler(ingester, platformStr),
+		remotes.FetchHandler(cache, fetcher),
+		childrenConfigHandler(cache, platform),
 	}
 	if err := images.Dispatch(ctx, images.Handlers(handlers...), desc); err != nil {
 		return "", nil, err
 	}
-	config, err := images.Config(ctx, ingester, desc, platformStr)
+	config, err := images.Config(ctx, cache, desc, platform)
 	if err != nil {
 		return "", nil, err
 	}
 
-	dt, err := content.ReadBlob(ctx, ingester, config)
+	dt, err := content.ReadBlob(ctx, cache, config)
 	if err != nil {
 		return "", nil, err
 	}
@@ -76,7 +82,7 @@ func Config(ctx context.Context, str string, resolver remotes.Resolver, ingester
 	return desc.Digest, dt, nil
 }
 
-func childrenConfigHandler(provider content.Provider, platform string) images.HandlerFunc {
+func childrenConfigHandler(provider content.Provider, platform platforms.MatchComparer) images.HandlerFunc {
 	return func(ctx context.Context, desc specs.Descriptor) ([]specs.Descriptor, error) {
 		var descs []specs.Descriptor
 		switch desc.MediaType {
@@ -105,15 +111,9 @@ func childrenConfigHandler(provider content.Provider, platform string) images.Ha
 				return nil, err
 			}
 
-			if platform != "" {
-				pf, err := platforms.Parse(platform)
-				if err != nil {
-					return nil, err
-				}
-				matcher := platforms.NewMatcher(pf)
-
+			if platform != nil {
 				for _, d := range index.Manifests {
-					if d.Platform == nil || matcher.Match(*d.Platform) {
+					if d.Platform == nil || platform.Match(*d.Platform) {
 						descs = append(descs, d)
 					}
 				}

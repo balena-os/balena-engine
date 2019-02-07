@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/containerd/containerd/mount"
 	"github.com/docker/docker/pkg/locker"
 	"github.com/moby/buildkit/cache"
@@ -26,16 +25,21 @@ import (
 	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/session/secrets"
+	"github.com/moby/buildkit/session/sshforward"
 	"github.com/moby/buildkit/snapshot"
 	"github.com/moby/buildkit/solver"
 	"github.com/moby/buildkit/solver/llbsolver"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/progress/logs"
+	utilsystem "github.com/moby/buildkit/util/system"
 	"github.com/moby/buildkit/worker"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/runc/libcontainer/system"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const execCacheType = "buildkit.exec.v0"
@@ -279,6 +283,85 @@ func (e *execOp) getRefCacheDirNoCache(ctx context.Context, key string, ref cach
 	return mRef, nil
 }
 
+func (e *execOp) getSSHMountable(ctx context.Context, m *pb.Mount) (cache.Mountable, error) {
+	sessionID := session.FromContext(ctx)
+	if sessionID == "" {
+		return nil, errors.New("could not access local files without session")
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	caller, err := e.sm.Get(timeoutCtx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := sshforward.CheckSSHID(ctx, caller, m.SSHOpt.ID); err != nil {
+		if m.SSHOpt.Optional {
+			return nil, nil
+		}
+		if st, ok := status.FromError(err); ok && st.Code() == codes.Unimplemented {
+			return nil, errors.Errorf("no SSH key %q forwarded from the client", m.SSHOpt.ID)
+		}
+		return nil, err
+	}
+
+	return &sshMount{mount: m, caller: caller}, nil
+}
+
+type sshMount struct {
+	mount  *pb.Mount
+	caller session.Caller
+}
+
+func (sm *sshMount) Mount(ctx context.Context, readonly bool) (snapshot.Mountable, error) {
+	return &sshMountInstance{sm: sm}, nil
+}
+
+type sshMountInstance struct {
+	sm      *sshMount
+	cleanup func() error
+}
+
+func (sm *sshMountInstance) Mount() ([]mount.Mount, error) {
+	ctx, cancel := context.WithCancel(context.TODO())
+
+	sock, cleanup, err := sshforward.MountSSHSocket(ctx, sm.sm.caller, sshforward.SocketOpt{
+		ID:   sm.sm.mount.SSHOpt.ID,
+		UID:  int(sm.sm.mount.SSHOpt.Uid),
+		GID:  int(sm.sm.mount.SSHOpt.Gid),
+		Mode: int(sm.sm.mount.SSHOpt.Mode),
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	sm.cleanup = func() error {
+		var err error
+		if cleanup != nil {
+			err = cleanup()
+		}
+		cancel()
+		return err
+	}
+
+	return []mount.Mount{{
+		Type:    "bind",
+		Source:  sock,
+		Options: []string{"rbind"},
+	}}, nil
+}
+
+func (sm *sshMountInstance) Release() error {
+	if sm.cleanup != nil {
+		if err := sm.cleanup(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (e *execOp) getSecretMountable(ctx context.Context, m *pb.Mount) (cache.Mountable, error) {
 	if m.SecretOpt == nil {
 		return nil, errors.Errorf("invalid sercet mount options")
@@ -385,6 +468,15 @@ func (sm *secretMountInstance) Release() error {
 	return nil
 }
 
+func addDefaultEnvvar(env []string, k, v string) []string {
+	for _, e := range env {
+		if strings.HasPrefix(e, k+"=") {
+			return env
+		}
+	}
+	return append(env, k+"="+v)
+}
+
 func (e *execOp) Exec(ctx context.Context, inputs []solver.Result) ([]solver.Result, error) {
 	var mounts []executor.Mount
 	var root cache.Mountable
@@ -482,6 +574,17 @@ func (e *execOp) Exec(ctx context.Context, inputs []solver.Result) ([]solver.Res
 				continue
 			}
 			mountable = secretMount
+
+		case pb.MountType_SSH:
+			sshMount, err := e.getSSHMountable(ctx, m)
+			if err != nil {
+				return nil, err
+			}
+			if sshMount == nil {
+				continue
+			}
+			mountable = sshMount
+
 		default:
 			return nil, errors.Errorf("mount type %s not implemented", m.MountType)
 		}
@@ -533,6 +636,7 @@ func (e *execOp) Exec(ctx context.Context, inputs []solver.Result) ([]solver.Res
 	if e.op.Meta.ProxyEnv != nil {
 		meta.Env = append(meta.Env, proxyEnvList(e.op.Meta.ProxyEnv)...)
 	}
+	meta.Env = addDefaultEnvvar(meta.Env, "PATH", utilsystem.DefaultPathEnv)
 
 	stdout, stderr := logs.NewLogStreams(ctx, os.Getenv("BUILDKIT_DEBUG_EXEC_OUTPUT") == "1")
 	defer stdout.Close()

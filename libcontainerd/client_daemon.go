@@ -29,7 +29,7 @@ import (
 	"github.com/containerd/typeurl"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/ioutils"
-	"github.com/opencontainers/image-spec/specs-go/v1"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -328,6 +328,13 @@ func (c *client) Start(ctx context.Context, id, checkpointDir string, withStdin 
 	return int(t.Pid()), nil
 }
 
+// Exec creates exec process.
+//
+// The containerd client calls Exec to register the exec config in the shim side.
+// When the client calls Start, the shim will create stdin fifo if needs. But
+// for the container main process, the stdin fifo will be created in Create not
+// the Start call. stdinCloseSync channel should be closed after Start exec
+// process.
 func (c *client) Exec(ctx context.Context, containerID, processID string, spec *specs.Process, withStdin bool, attachStdio StdioCallback) (int, error) {
 	ctr := c.getContainer(containerID)
 	if ctr == nil {
@@ -372,10 +379,17 @@ func (c *client) Exec(ctx context.Context, containerID, processID string, spec *
 	ctr.addProcess(processID, p)
 
 	// Signal c.createIO that it can call CloseIO
-	close(stdinCloseSync)
+	//
+	// the stdin of exec process will be created after p.Start in containerd
+	defer close(stdinCloseSync)
 
 	if err = p.Start(ctx); err != nil {
-		p.Delete(context.Background())
+		// use new context for cleanup because old one may be cancelled by user, but leave a timeout to make sure
+		// we are not waiting forever if containerd is unresponsive or to work around fifo cancelling issues in
+		// older containerd-shim
+		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		defer cancel()
+		p.Delete(ctx)
 		ctr.deleteProcess(processID)
 		return -1, wrapError(err)
 	}

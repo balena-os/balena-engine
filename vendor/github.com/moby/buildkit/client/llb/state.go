@@ -2,14 +2,15 @@ package llb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/apicaps"
-	"github.com/moby/buildkit/util/system"
 	digest "github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -34,7 +35,6 @@ func NewState(o Output) State {
 		ctx: context.Background(),
 	}
 	s = dir("/")(s)
-	s = addEnv("PATH", system.DefaultPathEnv)(s)
 	s = s.ensurePlatform()
 	return s
 }
@@ -67,7 +67,7 @@ func (s State) Value(k interface{}) interface{} {
 	return s.ctx.Value(k)
 }
 
-func (s State) SetMarhalDefaults(co ...ConstraintsOpt) State {
+func (s State) SetMarshalDefaults(co ...ConstraintsOpt) State {
 	s.opts = co
 	return s
 }
@@ -173,6 +173,31 @@ func (s State) WithOutput(o Output) State {
 	return s
 }
 
+func (s State) WithImageConfig(c []byte) (State, error) {
+	var img struct {
+		Config struct {
+			Env        []string `json:"Env,omitempty"`
+			WorkingDir string   `json:"WorkingDir,omitempty"`
+			User       string   `json:"User,omitempty"`
+		} `json:"config,omitempty"`
+	}
+	if err := json.Unmarshal(c, &img); err != nil {
+		return State{}, err
+	}
+	for _, env := range img.Config.Env {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts[0]) > 0 {
+			var v string
+			if len(parts) > 1 {
+				v = parts[1]
+			}
+			s = s.AddEnv(parts[0], v)
+		}
+	}
+	s = s.Dir(img.Config.WorkingDir)
+	return s, nil
+}
+
 func (s State) Run(ro ...RunOption) ExecState {
 	ei := &ExecInfo{State: s}
 	if p := s.GetPlatform(); p != nil {
@@ -196,6 +221,7 @@ func (s State) Run(ro ...RunOption) ExecState {
 		exec.AddMount(m.Target, m.Source, m.Opts...)
 	}
 	exec.secrets = ei.Secrets
+	exec.ssh = ei.SSH
 
 	return ExecState{
 		State: s.WithOutput(exec.Output()),
@@ -410,6 +436,13 @@ func WithoutDefaultExportCache() ConstraintsOpt {
 	})
 }
 
+// WithCaps exposes supported LLB caps to the marshaler
+func WithCaps(caps apicaps.CapSet) ConstraintsOpt {
+	return constraintsOptFunc(func(c *Constraints) {
+		c.Caps = &caps
+	})
+}
+
 type constraintsWrapper struct {
 	Constraints
 }
@@ -423,6 +456,7 @@ type Constraints struct {
 	WorkerConstraints []string
 	Metadata          pb.OpMetadata
 	LocalUniqueID     string
+	Caps              *apicaps.CapSet
 }
 
 func Platform(p specs.Platform) ConstraintsOpt {

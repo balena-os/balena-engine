@@ -10,6 +10,9 @@ import (
 	"github.com/docker/docker/pkg/discovery"
 	// Including KV
 	_ "github.com/docker/docker/pkg/discovery/kv"
+	"github.com/docker/libkv/store/consul"
+	"github.com/docker/libkv/store/etcd"
+	"github.com/docker/libkv/store/zookeeper"
 	"github.com/docker/libnetwork/types"
 )
 
@@ -18,6 +21,12 @@ type hostDiscovery struct {
 	nodes    mapset.Set
 	stopChan chan struct{}
 	sync.Mutex
+}
+
+func init() {
+	consul.Register()
+	etcd.Register()
+	zookeeper.Register()
 }
 
 // NewHostDiscovery function creates a host discovery object
