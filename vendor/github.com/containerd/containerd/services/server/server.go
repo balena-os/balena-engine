@@ -29,7 +29,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/boltdb/bolt"
 	csapi "github.com/containerd/containerd/api/services/content/v1"
 	ssapi "github.com/containerd/containerd/api/services/snapshots/v1"
 	"github.com/containerd/containerd/content"
@@ -41,31 +40,38 @@ import (
 	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/pkg/dialer"
 	"github.com/containerd/containerd/plugin"
+	srvconfig "github.com/containerd/containerd/services/server/config"
 	"github.com/containerd/containerd/snapshots"
 	ssproxy "github.com/containerd/containerd/snapshots/proxy"
 	metrics "github.com/docker/go-metrics"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 	"google.golang.org/grpc"
 )
 
-// New creates and initializes a new containerd server
-func New(ctx context.Context, config *Config) (*Server, error) {
+// CreateTopLevelDirectories creates the top-level root and state directories.
+func CreateTopLevelDirectories(config *srvconfig.Config) error {
 	switch {
 	case config.Root == "":
-		return nil, errors.New("root must be specified")
+		return errors.New("root must be specified")
 	case config.State == "":
-		return nil, errors.New("state must be specified")
+		return errors.New("state must be specified")
 	case config.Root == config.State:
-		return nil, errors.New("root and state must be different paths")
+		return errors.New("root and state must be different paths")
 	}
 
 	if err := os.MkdirAll(config.Root, 0711); err != nil {
-		return nil, err
+		return err
 	}
 	if err := os.MkdirAll(config.State, 0711); err != nil {
-		return nil, err
+		return err
 	}
+	return nil
+}
+
+// New creates and initializes a new containerd server
+func New(ctx context.Context, config *srvconfig.Config) (*Server, error) {
 	if err := apply(ctx, config); err != nil {
 		return nil, err
 	}
@@ -124,7 +130,7 @@ func New(ctx context.Context, config *Config) (*Server, error) {
 		instance, err := result.Instance()
 		if err != nil {
 			if plugin.IsSkipPlugin(err) {
-				log.G(ctx).WithField("type", p.Type).Infof("skip loading plugin %q...", id)
+				log.G(ctx).WithError(err).WithField("type", p.Type).Infof("skip loading plugin %q...", id)
 			} else {
 				log.G(ctx).WithError(err).Warnf("failed to load plugin %s", id)
 			}
@@ -149,7 +155,7 @@ func New(ctx context.Context, config *Config) (*Server, error) {
 type Server struct {
 	rpc     *grpc.Server
 	events  *exchange.Exchange
-	config  *Config
+	config  *srvconfig.Config
 	plugins []*plugin.Plugin
 }
 
@@ -211,7 +217,7 @@ func (s *Server) Stop() {
 
 // LoadPlugins loads all plugins into containerd and generates an ordered graph
 // of all plugins.
-func LoadPlugins(ctx context.Context, config *Config) ([]*plugin.Registration, error) {
+func LoadPlugins(ctx context.Context, config *srvconfig.Config) ([]*plugin.Registration, error) {
 	// load all plugins into containerd
 	if err := plugin.Load(filepath.Join(config.Root, "plugins")); err != nil {
 		return nil, err
@@ -232,6 +238,9 @@ func LoadPlugins(ctx context.Context, config *Config) ([]*plugin.Registration, e
 			plugin.ContentPlugin,
 			plugin.SnapshotPlugin,
 		},
+		Config: &srvconfig.BoltConfig{
+			ContentSharingPolicy: srvconfig.SharingPolicyShared,
+		},
 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
 			if err := os.MkdirAll(ic.Root, 0711); err != nil {
 				return nil, err
@@ -250,11 +259,29 @@ func LoadPlugins(ctx context.Context, config *Config) ([]*plugin.Registration, e
 			for name, sn := range snapshottersRaw {
 				sn, err := sn.Instance()
 				if err != nil {
-					log.G(ic.Context).WithError(err).
-						Warnf("could not use snapshotter %v in metadata plugin", name)
+					if !plugin.IsSkipPlugin(err) {
+						log.G(ic.Context).WithError(err).
+							Warnf("could not use snapshotter %v in metadata plugin", name)
+					}
 					continue
 				}
 				snapshotters[name] = sn.(snapshots.Snapshotter)
+			}
+
+			shared := true
+			ic.Meta.Exports["policy"] = srvconfig.SharingPolicyShared
+			if cfg, ok := ic.Config.(*srvconfig.BoltConfig); ok {
+				if cfg.ContentSharingPolicy != "" {
+					if err := cfg.Validate(); err != nil {
+						return nil, err
+					}
+					if cfg.ContentSharingPolicy == srvconfig.SharingPolicyIsolated {
+						ic.Meta.Exports["policy"] = srvconfig.SharingPolicyIsolated
+						shared = false
+					}
+
+					log.L.WithField("policy", cfg.ContentSharingPolicy).Info("metadata content store policy set")
+				}
 			}
 
 			path := filepath.Join(ic.Root, "meta.db")
@@ -264,7 +291,12 @@ func LoadPlugins(ctx context.Context, config *Config) ([]*plugin.Registration, e
 			if err != nil {
 				return nil, err
 			}
-			mdb := metadata.NewDB(db, cs.(content.Store), snapshotters)
+
+			var dbopts []metadata.DBOpt
+			if !shared {
+				dbopts = append(dbopts, metadata.WithPolicyIsolated)
+			}
+			mdb := metadata.NewDB(db, cs.(content.Store), snapshotters, dbopts...)
 			if err := mdb.Init(ic.Context); err != nil {
 				return nil, err
 			}

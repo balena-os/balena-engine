@@ -86,9 +86,10 @@ func parseMountFlag(m string) (specs.Mount, error) {
 
 // Command runs a container
 var Command = cli.Command{
-	Name:      "run",
-	Usage:     "run a container",
-	ArgsUsage: "[flags] Image|RootFS ID [COMMAND] [ARG...]",
+	Name:           "run",
+	Usage:          "run a container",
+	ArgsUsage:      "[flags] Image|RootFS ID [COMMAND] [ARG...]",
+	SkipArgReorder: true,
 	Flags: append([]cli.Flag{
 		cli.BoolFlag{
 			Name:  "rm",
@@ -106,19 +107,34 @@ var Command = cli.Command{
 			Name:  "fifo-dir",
 			Usage: "directory used for storing IO FIFOs",
 		},
-	}, append(commands.SnapshotterFlags, commands.ContainerFlags...)...),
+		cli.StringFlag{
+			Name:  "cgroup",
+			Usage: "cgroup path (To disable use of cgroup, set to \"\" explicitly)",
+		},
+	}, append(platformRunFlags, append(commands.SnapshotterFlags, commands.ContainerFlags...)...)...),
 	Action: func(context *cli.Context) error {
 		var (
 			err error
+			id  string
+			ref string
 
-			id     = context.Args().Get(1)
-			ref    = context.Args().First()
 			tty    = context.Bool("tty")
 			detach = context.Bool("detach")
+			config = context.IsSet("config")
 		)
 
-		if ref == "" {
-			return errors.New("image ref must be provided")
+		if config {
+			id = context.Args().First()
+			if context.NArg() > 1 {
+				return errors.New("with spec config file, only container id should be provided")
+			}
+		} else {
+			id = context.Args().Get(1)
+			ref = context.Args().First()
+
+			if ref == "" {
+				return errors.New("image ref must be provided")
+			}
 		}
 		if id == "" {
 			return errors.New("container id must be provided")
@@ -135,9 +151,17 @@ var Command = cli.Command{
 		if context.Bool("rm") && !detach {
 			defer container.Delete(ctx, containerd.WithSnapshotCleanup)
 		}
+		var con console.Console
+		if tty {
+			con = console.Current()
+			defer con.Reset()
+			if err := con.SetRaw(); err != nil {
+				return err
+			}
+		}
 		opts := getNewTaskOpts(context)
 		ioOpts := []cio.Opt{cio.WithFIFODir(context.String("fifo-dir"))}
-		task, err := tasks.NewTask(ctx, client, container, context.String("checkpoint"), tty, context.Bool("null-io"), ioOpts, opts...)
+		task, err := tasks.NewTask(ctx, client, container, context.String("checkpoint"), con, context.Bool("null-io"), ioOpts, opts...)
 		if err != nil {
 			return err
 		}
@@ -150,14 +174,6 @@ var Command = cli.Command{
 		}
 		if context.IsSet("pid-file") {
 			if err := commands.WritePidFile(context.String("pid-file"), int(task.Pid())); err != nil {
-				return err
-			}
-		}
-		var con console.Console
-		if tty {
-			con = console.Current()
-			defer con.Reset()
-			if err := con.SetRaw(); err != nil {
 				return err
 			}
 		}

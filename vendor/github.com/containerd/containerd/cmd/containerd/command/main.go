@@ -24,11 +24,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/services/server"
+	srvconfig "github.com/containerd/containerd/services/server/config"
 	"github.com/containerd/containerd/sys"
 	"github.com/containerd/containerd/version"
 	"github.com/pkg/errors"
@@ -90,6 +92,7 @@ func App() *cli.App {
 			Usage: "containerd state directory",
 		},
 	}
+	app.Flags = append(app.Flags, serviceFlags()...)
 	app.Commands = []cli.Command{
 		configCommand,
 		publishCommand,
@@ -104,18 +107,34 @@ func App() *cli.App {
 			config  = defaultConfig()
 		)
 
+		if err := srvconfig.LoadConfig(context.GlobalString("config"), config); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+
+		// Apply flags to the config
+		if err := applyFlags(context, config); err != nil {
+			return err
+		}
+
+		// Make sure top-level directories are created early.
+		if err := server.CreateTopLevelDirectories(config); err != nil {
+			return err
+		}
+
+		// Stop if we are registering or unregistering against Windows SCM.
+		stop, err := registerUnregisterService(config.Root)
+		if err != nil {
+			logrus.Fatal(err)
+		}
+		if stop {
+			return nil
+		}
+
 		done := handleSignals(ctx, signals, serverC)
 		// start the signal handler as soon as we can to make sure that
 		// we don't miss any signals during boot
 		signal.Notify(signals, handledSignals...)
 
-		if err := server.LoadConfig(context.GlobalString("config"), config); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		// apply flags to the config
-		if err := applyFlags(context, config); err != nil {
-			return err
-		}
 		// cleanup temp mounts
 		if err := mount.SetTempMountLocation(filepath.Join(config.Root, "tmpmounts")); err != nil {
 			return errors.Wrap(err, "creating temp mount location")
@@ -141,7 +160,14 @@ func App() *cli.App {
 		if err != nil {
 			return err
 		}
+
+		// Launch as a Windows Service if necessary
+		if err := launchService(server, done); err != nil {
+			logrus.Fatal(err)
+		}
+
 		serverC <- server
+
 		if config.Debug.Address != "" {
 			var l net.Listener
 			if filepath.IsAbs(config.Debug.Address) {
@@ -187,7 +213,7 @@ func serve(ctx gocontext.Context, l net.Listener, serveFunc func(net.Listener) e
 	}()
 }
 
-func applyFlags(context *cli.Context, config *server.Config) error {
+func applyFlags(context *cli.Context, config *srvconfig.Config) error {
 	// the order for config vs flag values is that flags will always override
 	// the config values if they are set
 	if err := setLevel(context, config); err != nil {
@@ -214,10 +240,13 @@ func applyFlags(context *cli.Context, config *server.Config) error {
 			*v.d = s
 		}
 	}
+
+	applyPlatformFlags(context)
+
 	return nil
 }
 
-func setLevel(context *cli.Context, config *server.Config) error {
+func setLevel(context *cli.Context, config *srvconfig.Config) error {
 	l := context.GlobalString("log-level")
 	if l == "" {
 		l = config.Debug.Level
@@ -230,4 +259,19 @@ func setLevel(context *cli.Context, config *server.Config) error {
 		logrus.SetLevel(lvl)
 	}
 	return nil
+}
+
+func dumpStacks() {
+	var (
+		buf       []byte
+		stackSize int
+	)
+	bufferLen := 16384
+	for stackSize == len(buf) {
+		buf = make([]byte, bufferLen)
+		stackSize = runtime.Stack(buf, true)
+		bufferLen *= 2
+	}
+	buf = buf[:stackSize]
+	logrus.Infof("=== BEGIN goroutine stack dump ===\n%s\n=== END goroutine stack dump ===", buf)
 }

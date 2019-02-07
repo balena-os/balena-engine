@@ -72,10 +72,6 @@ var (
 			Usage: "path to the runtime-specific spec config file",
 		},
 		cli.StringFlag{
-			Name:  "checkpoint",
-			Usage: "provide the checkpoint digest to restore the container",
-		},
-		cli.StringFlag{
 			Name:  "cwd",
 			Usage: "specify the working directory of the process",
 		},
@@ -123,6 +119,14 @@ var (
 		cli.IntFlag{
 			Name:  "gpus",
 			Usage: "add gpus to the container",
+		},
+		cli.BoolFlag{
+			Name:  "allow-new-privs",
+			Usage: "turn off OCI spec's NoNewPrivileges feature flag",
+		},
+		cli.Uint64Flag{
+			Name:  "memory-limit",
+			Usage: "memory limit (in bytes) for the container",
 		},
 	}
 )

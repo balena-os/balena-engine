@@ -42,7 +42,7 @@ func newSignCommand(dockerCli command.Cli) *cobra.Command {
 func runSignImage(cli command.Cli, options signOptions) error {
 	imageName := options.imageName
 	ctx := context.Background()
-	imgRefAndAuth, err := trust.GetImageReferencesAndAuth(ctx, image.AuthResolver(cli), imageName)
+	imgRefAndAuth, err := trust.GetImageReferencesAndAuth(ctx, nil, image.AuthResolver(cli), imageName)
 	if err != nil {
 		return err
 	}
@@ -243,8 +243,5 @@ func addStagedSigner(notaryRepo client.Repository, newSigner data.RoleName, sign
 	if err := notaryRepo.AddDelegationRoleAndKeys(trust.ReleasesRole, signerKeys); err != nil {
 		return err
 	}
-	if err := notaryRepo.AddDelegationPaths(trust.ReleasesRole, []string{""}); err != nil {
-		return err
-	}
-	return nil
+	return notaryRepo.AddDelegationPaths(trust.ReleasesRole, []string{""})
 }

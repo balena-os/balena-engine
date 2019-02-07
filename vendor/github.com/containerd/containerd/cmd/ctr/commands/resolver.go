@@ -79,11 +79,6 @@ func GetResolver(ctx gocontext.Context, clicontext *cli.Context) (remotes.Resolv
 		secret = rt
 	}
 
-	options.Credentials = func(host string) (string, string, error) {
-		// Only one host
-		return username, secret, nil
-	}
-
 	tr := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -95,7 +90,7 @@ func GetResolver(ctx gocontext.Context, clicontext *cli.Context) (remotes.Resolv
 		IdleConnTimeout:     30 * time.Second,
 		TLSHandshakeTimeout: 10 * time.Second,
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: clicontext.Bool("insecure"),
+			InsecureSkipVerify: clicontext.Bool("skip-verify"),
 		},
 		ExpectContinueTimeout: 5 * time.Second,
 	}
@@ -103,6 +98,12 @@ func GetResolver(ctx gocontext.Context, clicontext *cli.Context) (remotes.Resolv
 	options.Client = &http.Client{
 		Transport: tr,
 	}
+
+	credentials := func(host string) (string, string, error) {
+		// Only one host
+		return username, secret, nil
+	}
+	options.Authorizer = docker.NewAuthorizer(options.Client, credentials)
 
 	return docker.NewResolver(options), nil
 }

@@ -21,12 +21,12 @@ package linux
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/boltdb/bolt"
 	eventstypes "github.com/containerd/containerd/api/events"
 	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/containers"
@@ -41,6 +41,7 @@ import (
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/runtime"
 	"github.com/containerd/containerd/runtime/linux/runctypes"
+	"github.com/containerd/containerd/runtime/v1"
 	"github.com/containerd/containerd/runtime/v1/linux/proc"
 	shim "github.com/containerd/containerd/runtime/v1/shim/v1"
 	runc "github.com/containerd/go-runc"
@@ -49,6 +50,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 	"golang.org/x/sys/unix"
 )
 
@@ -204,7 +206,7 @@ func (r *Runtime) Create(ctx context.Context, id string, opts runtime.CreateOpts
 				log.G(ctx).WithError(err).WithFields(logrus.Fields{
 					"id":        id,
 					"namespace": namespace,
-				}).Warn("failed to clen up after killed shim")
+				}).Warn("failed to clean up after killed shim")
 			}
 		}
 		shimopt = ShimRemote(r.config, r.address, cgroup, exitHandler)
@@ -248,8 +250,7 @@ func (r *Runtime) Create(ctx context.Context, id string, opts runtime.CreateOpts
 	if err != nil {
 		return nil, errdefs.FromGRPC(err)
 	}
-	t, err := newTask(id, namespace, int(cr.Pid), s, r.events,
-		proc.NewRunc(ropts.RuntimeRoot, sopts.Bundle, namespace, rt, ropts.CriuPath, ropts.SystemdCgroup), r.tasks, bundle)
+	t, err := newTask(id, namespace, int(cr.Pid), s, r.events, r.tasks, bundle)
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +290,10 @@ func (r *Runtime) restoreTasks(ctx context.Context) ([]*Task, error) {
 			continue
 		}
 		name := namespace.Name()
+		// skip hidden directories
+		if len(name) > 0 && name[0] == '.' {
+			continue
+		}
 		log.G(ctx).WithField("namespace", name).Debug("loading tasks in namespace")
 		tasks, err := r.loadTasks(ctx, name)
 		if err != nil {
@@ -341,15 +346,32 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
 			}
 			continue
 		}
-		ropts, err := r.getRuncOptions(ctx, id)
+
+		logDirPath := filepath.Join(r.root, ns, id)
+
+		shimStdoutLog, err := v1.OpenShimStdoutLog(ctx, logDirPath)
 		if err != nil {
-			log.G(ctx).WithError(err).WithField("id", id).
-				Error("get runtime options")
+			log.G(ctx).WithError(err).WithFields(logrus.Fields{
+				"id":         id,
+				"namespace":  ns,
+				"logDirPath": logDirPath,
+			}).Error("opening shim stdout log pipe")
 			continue
 		}
+		go io.Copy(os.Stdout, shimStdoutLog)
 
-		t, err := newTask(id, ns, pid, s, r.events,
-			proc.NewRunc(ropts.RuntimeRoot, bundle.path, ns, ropts.Runtime, ropts.CriuPath, ropts.SystemdCgroup), r.tasks, bundle)
+		shimStderrLog, err := v1.OpenShimStderrLog(ctx, logDirPath)
+		if err != nil {
+			log.G(ctx).WithError(err).WithFields(logrus.Fields{
+				"id":         id,
+				"namespace":  ns,
+				"logDirPath": logDirPath,
+			}).Error("opening shim stderr log pipe")
+			continue
+		}
+		go io.Copy(os.Stderr, shimStderrLog)
+
+		t, err := newTask(id, ns, pid, s, r.events, r.tasks, bundle)
 		if err != nil {
 			log.G(ctx).WithError(err).Error("loading task type")
 			continue

@@ -26,17 +26,17 @@ const (
 var (
 	dockerCertPath  = os.Getenv("DOCKER_CERT_PATH")
 	dockerTLSVerify = os.Getenv("DOCKER_TLS_VERIFY") != ""
+	dockerTLS       = os.Getenv("DOCKER_TLS") != ""
 )
 
 // CommonOptions are options common to both the client and the daemon.
 type CommonOptions struct {
-	Debug        bool
-	Hosts        []string
-	Orchestrator string
-	LogLevel     string
-	TLS          bool
-	TLSVerify    bool
-	TLSOptions   *tlsconfig.Options
+	Debug      bool
+	Hosts      []string
+	LogLevel   string
+	TLS        bool
+	TLSVerify  bool
+	TLSOptions *tlsconfig.Options
 }
 
 // NewCommonOptions returns a new CommonOptions
@@ -52,10 +52,8 @@ func (commonOpts *CommonOptions) InstallFlags(flags *pflag.FlagSet) {
 
 	flags.BoolVarP(&commonOpts.Debug, "debug", "D", false, "Enable debug mode")
 	flags.StringVarP(&commonOpts.LogLevel, "log-level", "l", "info", `Set the logging level ("debug"|"info"|"warn"|"error"|"fatal")`)
-	flags.BoolVar(&commonOpts.TLS, "tls", false, "Use TLS; implied by --tlsverify")
+	flags.BoolVar(&commonOpts.TLS, "tls", dockerTLS, "Use TLS; implied by --tlsverify")
 	flags.BoolVar(&commonOpts.TLSVerify, FlagTLSVerify, dockerTLSVerify, "Use TLS and verify the remote")
-	flags.StringVar(&commonOpts.Orchestrator, "orchestrator", "", "Which orchestrator to use with the docker cli (swarm|kubernetes) (default swarm) (experimental)")
-	flags.SetAnnotation("orchestrator", "experimentalCLI", nil)
 
 	// TODO use flag flags.String("identity"}, "i", "", "Path to libtrust key file")
 
@@ -69,7 +67,8 @@ func (commonOpts *CommonOptions) InstallFlags(flags *pflag.FlagSet) {
 	flags.Var(opts.NewQuotedString(&tlsOptions.CertFile), "tlscert", "Path to TLS certificate file")
 	flags.Var(opts.NewQuotedString(&tlsOptions.KeyFile), "tlskey", "Path to TLS key file")
 
-	hostOpt := opts.NewNamedListOptsRef("hosts", &commonOpts.Hosts, opts.ValidateHost)
+	// opts.ValidateHost is not used here, so as to allow connection helpers
+	hostOpt := opts.NewNamedListOptsRef("hosts", &commonOpts.Hosts, nil)
 	flags.VarP(hostOpt, "host", "H", "Daemon socket(s) to connect to")
 }
 

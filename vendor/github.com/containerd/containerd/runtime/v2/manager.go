@@ -23,17 +23,15 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/boltdb/bolt"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/events/exchange"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
-	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/runtime"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	bolt "go.etcd.io/bbolt"
 )
 
 func init() {
@@ -44,7 +42,7 @@ func init() {
 			plugin.MetadataPlugin,
 		},
 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			ic.Meta.Platforms = []ocispec.Platform{platforms.DefaultSpec()}
+			ic.Meta.Platforms = supportedPlatforms()
 			if err := os.MkdirAll(ic.Root, 0711); err != nil {
 				return nil, err
 			}
@@ -147,6 +145,10 @@ func (m *TaskManager) loadExistingTasks(ctx context.Context) error {
 			continue
 		}
 		ns := nsd.Name()
+		// skip hidden directories
+		if len(ns) > 0 && ns[0] == '.' {
+			continue
+		}
 		log.G(ctx).WithField("namespace", ns).Debug("loading tasks in namespace")
 		if err := m.loadTasks(namespaces.WithNamespace(ctx, ns)); err != nil {
 			log.G(ctx).WithField("namespace", ns).WithError(err).Error("loading tasks in namespace")

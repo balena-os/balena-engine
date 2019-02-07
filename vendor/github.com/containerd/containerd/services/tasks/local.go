@@ -26,7 +26,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/boltdb/bolt"
 	api "github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/api/types/task"
@@ -42,12 +41,15 @@ import (
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/runtime"
+	"github.com/containerd/containerd/runtime/linux/runctypes"
 	"github.com/containerd/containerd/runtime/v2"
+	"github.com/containerd/containerd/runtime/v2/runc/options"
 	"github.com/containerd/containerd/services"
 	"github.com/containerd/typeurl"
 	ptypes "github.com/gogo/protobuf/types"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -123,11 +125,16 @@ type local struct {
 }
 
 func (l *local) Create(ctx context.Context, r *api.CreateTaskRequest, _ ...grpc.CallOption) (*api.CreateTaskResponse, error) {
-	var (
-		checkpointPath string
-		err            error
-	)
-	if r.Checkpoint != nil {
+	container, err := l.getContainer(ctx, r.ContainerID)
+	if err != nil {
+		return nil, errdefs.ToGRPC(err)
+	}
+	checkpointPath, err := getRestorePath(container.Runtime.Name, r.Options)
+	if err != nil {
+		return nil, err
+	}
+	// jump get checkpointPath from checkpoint image
+	if checkpointPath != "" && r.Checkpoint != nil {
 		checkpointPath, err = ioutil.TempDir(os.Getenv("XDG_RUNTIME_DIR"), "ctrd-checkpoint")
 		if err != nil {
 			return nil, err
@@ -149,10 +156,6 @@ func (l *local) Create(ctx context.Context, r *api.CreateTaskRequest, _ ...grpc.
 			return nil, err
 		}
 	}
-	container, err := l.getContainer(ctx, r.ContainerID)
-	if err != nil {
-		return nil, errdefs.ToGRPC(err)
-	}
 	opts := runtime.CreateOpts{
 		Spec: container.Spec,
 		IO: runtime.IO{
@@ -173,11 +176,14 @@ func (l *local) Create(ctx context.Context, r *api.CreateTaskRequest, _ ...grpc.
 			Options: m.Options,
 		})
 	}
-	runtime, err := l.getRuntime(container.Runtime.Name)
+	rtime, err := l.getRuntime(container.Runtime.Name)
 	if err != nil {
 		return nil, err
 	}
-	c, err := runtime.Create(ctx, r.ContainerID, opts)
+	if _, err := rtime.Get(ctx, r.ContainerID); err != runtime.ErrTaskNotExists {
+		return nil, errdefs.ToGRPC(fmt.Errorf("task %s already exists", r.ContainerID))
+	}
+	c, err := rtime.Create(ctx, r.ContainerID, opts)
 	if err != nil {
 		return nil, errdefs.ToGRPC(err)
 	}
@@ -460,7 +466,7 @@ func (l *local) CloseIO(ctx context.Context, r *api.CloseIORequest, _ ...grpc.Ca
 	}
 	if r.Stdin {
 		if err := p.CloseIO(ctx); err != nil {
-			return nil, err
+			return nil, errdefs.ToGRPC(err)
 		}
 	}
 	return empty, nil
@@ -475,13 +481,26 @@ func (l *local) Checkpoint(ctx context.Context, r *api.CheckpointTaskRequest, _ 
 	if err != nil {
 		return nil, err
 	}
-	image, err := ioutil.TempDir(os.Getenv("XDG_RUNTIME_DIR"), "ctd-checkpoint")
+	image, err := getCheckpointPath(container.Runtime.Name, r.Options)
 	if err != nil {
-		return nil, errdefs.ToGRPC(err)
+		return nil, err
 	}
-	defer os.RemoveAll(image)
+	checkpointImageExists := false
+	if image == "" {
+		checkpointImageExists = true
+		image, err = ioutil.TempDir(os.Getenv("XDG_RUNTIME_DIR"), "ctd-checkpoint")
+		if err != nil {
+			return nil, errdefs.ToGRPC(err)
+		}
+		defer os.RemoveAll(image)
+	}
 	if err := t.Checkpoint(ctx, image, r.Options); err != nil {
 		return nil, errdefs.ToGRPC(err)
+	}
+	// do not commit checkpoint image if checkpoint ImagePath is passed,
+	// return if checkpointImageExists is false
+	if !checkpointImageExists {
+		return &api.CheckpointTaskResponse{}, nil
 	}
 	// write checkpoint to the content store
 	tar := archive.Diff(ctx, "", image)
@@ -659,4 +678,72 @@ func (l *local) allRuntimes() (o []runtime.PlatformRuntime) {
 	}
 	o = append(o, l.v2Runtime)
 	return o
+}
+
+// getCheckpointPath only suitable for runc runtime now
+func getCheckpointPath(runtime string, option *ptypes.Any) (string, error) {
+	if option == nil {
+		return "", nil
+	}
+
+	var checkpointPath string
+	switch runtime {
+	case "io.containerd.runc.v1":
+		v, err := typeurl.UnmarshalAny(option)
+		if err != nil {
+			return "", err
+		}
+		opts, ok := v.(*options.CheckpointOptions)
+		if !ok {
+			return "", fmt.Errorf("invalid task checkpoint option for %s", runtime)
+		}
+		checkpointPath = opts.ImagePath
+
+	case "io.containerd.runtime.v1.linux":
+		v, err := typeurl.UnmarshalAny(option)
+		if err != nil {
+			return "", err
+		}
+		opts, ok := v.(*runctypes.CheckpointOptions)
+		if !ok {
+			return "", fmt.Errorf("invalid task checkpoint option for %s", runtime)
+		}
+		checkpointPath = opts.ImagePath
+	}
+
+	return checkpointPath, nil
+}
+
+// getRestorePath only suitable for runc runtime now
+func getRestorePath(runtime string, option *ptypes.Any) (string, error) {
+	if option == nil {
+		return "", nil
+	}
+
+	var restorePath string
+	switch runtime {
+	case "io.containerd.runc.v1":
+		v, err := typeurl.UnmarshalAny(option)
+		if err != nil {
+			return "", err
+		}
+		opts, ok := v.(*options.Options)
+		if !ok {
+			return "", fmt.Errorf("invalid task create option for %s", runtime)
+		}
+		restorePath = opts.CriuImagePath
+
+	case "io.containerd.runtime.v1.linux":
+		v, err := typeurl.UnmarshalAny(option)
+		if err != nil {
+			return "", err
+		}
+		opts, ok := v.(*runctypes.CreateOptions)
+		if !ok {
+			return "", fmt.Errorf("invalid task create option for %s", runtime)
+		}
+		restorePath = opts.CriuImagePath
+	}
+
+	return restorePath, nil
 }

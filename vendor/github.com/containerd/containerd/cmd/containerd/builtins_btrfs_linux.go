@@ -1,4 +1,4 @@
-// +build !no_btrfs
+// +build btrfs
 
 /*
    Copyright The containerd Authors.

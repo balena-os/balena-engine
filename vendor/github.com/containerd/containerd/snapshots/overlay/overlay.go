@@ -168,7 +168,7 @@ func (o *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, e
 	upperPath := o.upperPath(id)
 
 	if info.Kind == snapshots.KindActive {
-		du, err := fs.DiskUsage(upperPath)
+		du, err := fs.DiskUsage(ctx, upperPath)
 		if err != nil {
 			// TODO(stevvooe): Consider not reporting an error in this case.
 			return snapshots.Usage{}, err
@@ -225,7 +225,7 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 		return err
 	}
 
-	usage, err := fs.DiskUsage(o.upperPath(id))
+	usage, err := fs.DiskUsage(ctx, o.upperPath(id))
 	if err != nil {
 		return err
 	}
@@ -350,7 +350,7 @@ func (o *snapshotter) getCleanupDirectories(ctx context.Context, t storage.Trans
 	return cleanup, nil
 }
 
-func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts []snapshots.Opt) ([]mount.Mount, error) {
+func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts []snapshots.Opt) (_ []mount.Mount, err error) {
 	ctx, t, err := o.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return nil, err
@@ -426,7 +426,7 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 }
 
 func (o *snapshotter) prepareDirectory(ctx context.Context, snapshotDir string, kind snapshots.Kind) (string, error) {
-	td, err := ioutil.TempDir(filepath.Join(o.root, "snapshots"), "new-")
+	td, err := ioutil.TempDir(snapshotDir, "new-")
 	if err != nil {
 		return "", errors.Wrap(err, "failed to create temp dir")
 	}

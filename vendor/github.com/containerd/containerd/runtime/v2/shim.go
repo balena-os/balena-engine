@@ -66,7 +66,7 @@ func loadShim(ctx context.Context, bundle *Bundle, events *exchange.Exchange, rt
 		}
 	}()
 	// open the log pipe and block until the writer is ready
-	// this helps with syncronization of the shim
+	// this helps with synchronization of the shim
 	// copy the shim's logs to containerd's output
 	go func() {
 		defer f.Close()
@@ -112,7 +112,7 @@ func (s *shim) Shutdown(ctx context.Context) error {
 	_, err := s.task.Shutdown(ctx, &task.ShutdownRequest{
 		ID: s.ID(),
 	})
-	if err != nil && err != ttrpc.ErrClosed {
+	if err != nil && errors.Cause(err) != ttrpc.ErrClosed {
 		return errdefs.FromGRPC(err)
 	}
 	return nil

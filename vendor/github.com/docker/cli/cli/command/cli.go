@@ -1,29 +1,37 @@
 package command
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/docker/cli/cli"
+	"github.com/docker/cli/cli/config"
 	cliconfig "github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
+	"github.com/docker/cli/cli/connhelper"
 	cliflags "github.com/docker/cli/cli/flags"
+	manifeststore "github.com/docker/cli/cli/manifest/store"
+	registryclient "github.com/docker/cli/cli/registry/client"
 	"github.com/docker/cli/cli/trust"
 	dopts "github.com/docker/cli/opts"
+	clitypes "github.com/docker/cli/types"
 	"github.com/docker/docker/api"
+	"github.com/docker/docker/api/types"
+	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
-	"github.com/docker/go-connections/sockets"
 	"github.com/docker/go-connections/tlsconfig"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"github.com/theupdateframework/notary"
 	notaryclient "github.com/theupdateframework/notary/client"
 	"github.com/theupdateframework/notary/passphrase"
-	"golang.org/x/net/context"
 )
 
 // Streams is an interface which exposes the standard input and output streams
@@ -45,18 +53,24 @@ type Cli interface {
 	ClientInfo() ClientInfo
 	NotaryClient(imgRefAndAuth trust.ImageRefAndAuth, actions []string) (notaryclient.Repository, error)
 	DefaultVersion() string
+	ManifestStore() manifeststore.Store
+	RegistryClient(bool) registryclient.RegistryClient
+	ContentTrustEnabled() bool
+	NewContainerizedEngineClient(sockPath string) (clitypes.ContainerizedClient, error)
 }
 
 // DockerCli is an instance the docker command line client.
 // Instances of the client can be returned from NewDockerCli.
 type DockerCli struct {
-	configFile *configfile.ConfigFile
-	in         *InStream
-	out        *OutStream
-	err        io.Writer
-	client     client.APIClient
-	serverInfo ServerInfo
-	clientInfo ClientInfo
+	configFile            *configfile.ConfigFile
+	in                    *InStream
+	out                   *OutStream
+	err                   io.Writer
+	client                client.APIClient
+	serverInfo            ServerInfo
+	clientInfo            ClientInfo
+	contentTrust          bool
+	newContainerizeClient func(string) (clitypes.ContainerizedClient, error)
 }
 
 // DefaultVersion returns api.defaultVersion or DOCKER_API_VERSION if specified.
@@ -114,6 +128,41 @@ func (cli *DockerCli) ClientInfo() ClientInfo {
 	return cli.clientInfo
 }
 
+// ContentTrustEnabled returns whether content trust has been enabled by an
+// environment variable.
+func (cli *DockerCli) ContentTrustEnabled() bool {
+	return cli.contentTrust
+}
+
+// BuildKitEnabled returns whether buildkit is enabled either through a daemon setting
+// or otherwise the client-side DOCKER_BUILDKIT environment variable
+func BuildKitEnabled(si ServerInfo) (bool, error) {
+	buildkitEnabled := si.BuildkitVersion == types.BuilderBuildKit
+	if buildkitEnv := os.Getenv("DOCKER_BUILDKIT"); buildkitEnv != "" {
+		var err error
+		buildkitEnabled, err = strconv.ParseBool(buildkitEnv)
+		if err != nil {
+			return false, errors.Wrap(err, "DOCKER_BUILDKIT environment variable expects boolean value")
+		}
+	}
+	return buildkitEnabled, nil
+}
+
+// ManifestStore returns a store for local manifests
+func (cli *DockerCli) ManifestStore() manifeststore.Store {
+	// TODO: support override default location from config file
+	return manifeststore.NewStore(filepath.Join(config.Dir(), "manifests"))
+}
+
+// RegistryClient returns a client for communicating with a Docker distribution
+// registry
+func (cli *DockerCli) RegistryClient(allowInsecure bool) registryclient.RegistryClient {
+	resolver := func(ctx context.Context, index *registrytypes.IndexInfo) types.AuthConfig {
+		return ResolveAuthConfig(ctx, cli, index)
+	}
+	return registryclient.NewRegistryClient(resolver, UserAgent(), allowInsecure)
+}
+
 // Initialize the dockerCli runs initialization that must happen after command
 // line flags are parsed.
 func (cli *DockerCli) Initialize(opts *cliflags.ClientOptions) error {
@@ -132,15 +181,18 @@ func (cli *DockerCli) Initialize(opts *cliflags.ClientOptions) error {
 	if err != nil {
 		return err
 	}
-	hasExperimental, err := isEnabled(cli.configFile.Experimental)
+	var experimentalValue string
+	// Environment variable always overrides configuration
+	if experimentalValue = os.Getenv("DOCKER_CLI_EXPERIMENTAL"); experimentalValue == "" {
+		experimentalValue = cli.configFile.Experimental
+	}
+	hasExperimental, err := isEnabled(experimentalValue)
 	if err != nil {
 		return errors.Wrap(err, "Experimental field")
 	}
-	orchestrator := GetOrchestrator(hasExperimental, opts.Common.Orchestrator, cli.configFile.Orchestrator)
 	cli.clientInfo = ClientInfo{
 		DefaultVersion:  cli.client.ClientVersion(),
 		HasExperimental: hasExperimental,
-		Orchestrator:    orchestrator,
 	}
 	cli.initializeFromClient()
 	return nil
@@ -172,6 +224,7 @@ func (cli *DockerCli) initializeFromClient() {
 	cli.serverInfo = ServerInfo{
 		HasExperimental: ping.Experimental,
 		OSType:          ping.OSType,
+		BuildkitVersion: ping.BuilderVersion,
 	}
 	cli.client.NegotiateAPIVersionPing(ping)
 }
@@ -195,28 +248,28 @@ func (cli *DockerCli) NotaryClient(imgRefAndAuth trust.ImageRefAndAuth, actions 
 	return trust.GetNotaryRepository(cli.In(), cli.Out(), UserAgent(), imgRefAndAuth.RepoInfo(), imgRefAndAuth.AuthConfig(), actions...)
 }
 
+// NewContainerizedEngineClient returns a containerized engine client
+func (cli *DockerCli) NewContainerizedEngineClient(sockPath string) (clitypes.ContainerizedClient, error) {
+	return cli.newContainerizeClient(sockPath)
+}
+
 // ServerInfo stores details about the supported features and platform of the
 // server
 type ServerInfo struct {
 	HasExperimental bool
 	OSType          string
+	BuildkitVersion types.BuilderVersion
 }
 
 // ClientInfo stores details about the supported features of the client
 type ClientInfo struct {
 	HasExperimental bool
 	DefaultVersion  string
-	Orchestrator    Orchestrator
-}
-
-// HasKubernetes checks if kubernetes orchestrator is enabled
-func (c ClientInfo) HasKubernetes() bool {
-	return c.HasExperimental && c.Orchestrator == OrchestratorKubernetes
 }
 
 // NewDockerCli returns a DockerCli instance with IO output and error streams set by in, out and err.
-func NewDockerCli(in io.ReadCloser, out, err io.Writer) *DockerCli {
-	return &DockerCli{in: NewInStream(in), out: NewOutStream(out), err: err}
+func NewDockerCli(in io.ReadCloser, out, err io.Writer, isTrusted bool, containerizedFn func(string) (clitypes.ContainerizedClient, error)) *DockerCli {
+	return &DockerCli{in: NewInStream(in), out: NewOutStream(out), err: err, contentTrust: isTrusted, newContainerizeClient: containerizedFn}
 }
 
 // NewAPIClientFromFlags creates a new APIClient from command line flags
@@ -225,24 +278,43 @@ func NewAPIClientFromFlags(opts *cliflags.CommonOptions, configFile *configfile.
 	if err != nil {
 		return &client.Client{}, err
 	}
+	var clientOpts []func(*client.Client) error
+	helper, err := connhelper.GetConnectionHelper(host)
+	if err != nil {
+		return &client.Client{}, err
+	}
+	if helper == nil {
+		clientOpts = append(clientOpts, withHTTPClient(opts.TLSOptions))
+		clientOpts = append(clientOpts, client.WithHost(host))
+	} else {
+		clientOpts = append(clientOpts, func(c *client.Client) error {
+			httpClient := &http.Client{
+				// No tls
+				// No proxy
+				Transport: &http.Transport{
+					DialContext: helper.Dialer,
+				},
+			}
+			return client.WithHTTPClient(httpClient)(c)
+		})
+		clientOpts = append(clientOpts, client.WithHost(helper.Host))
+		clientOpts = append(clientOpts, client.WithDialContext(helper.Dialer))
+	}
 
 	customHeaders := configFile.HTTPHeaders
 	if customHeaders == nil {
 		customHeaders = map[string]string{}
 	}
 	customHeaders["User-Agent"] = UserAgent()
+	clientOpts = append(clientOpts, client.WithHTTPHeaders(customHeaders))
 
 	verStr := api.DefaultVersion
 	if tmpStr := os.Getenv("DOCKER_API_VERSION"); tmpStr != "" {
 		verStr = tmpStr
 	}
+	clientOpts = append(clientOpts, client.WithVersion(verStr))
 
-	httpClient, err := newHTTPClient(host, opts.TLSOptions)
-	if err != nil {
-		return &client.Client{}, err
-	}
-
-	return client.NewClient(host, verStr, httpClient, customHeaders)
+	return client.NewClientWithOpts(clientOpts...)
 }
 
 func getServerHost(hosts []string, tlsOptions *tlsconfig.Options) (string, error) {
@@ -259,35 +331,32 @@ func getServerHost(hosts []string, tlsOptions *tlsconfig.Options) (string, error
 	return dopts.ParseHost(tlsOptions != nil, host)
 }
 
-func newHTTPClient(host string, tlsOptions *tlsconfig.Options) (*http.Client, error) {
-	if tlsOptions == nil {
-		// let the api client configure the default transport.
-		return nil, nil
-	}
-	opts := *tlsOptions
-	opts.ExclusiveRootPools = true
-	config, err := tlsconfig.Client(opts)
-	if err != nil {
-		return nil, err
-	}
-	tr := &http.Transport{
-		TLSClientConfig: config,
-		DialContext: (&net.Dialer{
-			KeepAlive: 30 * time.Second,
-			Timeout:   30 * time.Second,
-		}).DialContext,
-	}
-	proto, addr, _, err := client.ParseHost(host)
-	if err != nil {
-		return nil, err
-	}
+func withHTTPClient(tlsOpts *tlsconfig.Options) func(*client.Client) error {
+	return func(c *client.Client) error {
+		if tlsOpts == nil {
+			// Use the default HTTPClient
+			return nil
+		}
 
-	sockets.ConfigureTransport(tr, proto, addr)
+		opts := *tlsOpts
+		opts.ExclusiveRootPools = true
+		tlsConfig, err := tlsconfig.Client(opts)
+		if err != nil {
+			return err
+		}
 
-	return &http.Client{
-		Transport:     tr,
-		CheckRedirect: client.CheckRedirect,
-	}, nil
+		httpClient := &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+				DialContext: (&net.Dialer{
+					KeepAlive: 30 * time.Second,
+					Timeout:   30 * time.Second,
+				}).DialContext,
+			},
+			CheckRedirect: client.CheckRedirect,
+		}
+		return client.WithHTTPClient(httpClient)(c)
+	}
 }
 
 // UserAgent returns the user agent string used for making API requests

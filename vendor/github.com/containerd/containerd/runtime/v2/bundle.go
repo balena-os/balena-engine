@@ -18,6 +18,7 @@ package v2
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -58,16 +59,7 @@ func NewBundle(ctx context.Context, root, state, id string, spec []byte) (b *Bun
 		Path:      filepath.Join(state, ns, id),
 		Namespace: ns,
 	}
-	paths := []string{b.Path, work}
-	// create base directories
-	for _, d := range paths {
-		if err := os.MkdirAll(filepath.Dir(d), 0711); err != nil {
-			return nil, err
-		}
-		if err := os.Mkdir(d, 0711); err != nil {
-			return nil, err
-		}
-	}
+	var paths []string
 	defer func() {
 		if err != nil {
 			for _, d := range paths {
@@ -75,6 +67,28 @@ func NewBundle(ctx context.Context, root, state, id string, spec []byte) (b *Bun
 			}
 		}
 	}()
+	// create state directory for the bundle
+	if err := os.MkdirAll(filepath.Dir(b.Path), 0711); err != nil {
+		return nil, err
+	}
+	if err := os.Mkdir(b.Path, 0711); err != nil {
+		return nil, err
+	}
+	paths = append(paths, b.Path)
+	// create working directory for the bundle
+	if err := os.MkdirAll(filepath.Dir(work), 0711); err != nil {
+		return nil, err
+	}
+	if err := os.Mkdir(work, 0711); err != nil {
+		if !os.IsExist(err) {
+			return nil, err
+		}
+		os.RemoveAll(work)
+		if err := os.Mkdir(work, 0711); err != nil {
+			return nil, err
+		}
+	}
+	paths = append(paths, work)
 	// create rootfs dir
 	if err := os.Mkdir(filepath.Join(b.Path, "rootfs"), 0711); err != nil {
 		return nil, err
@@ -101,20 +115,30 @@ type Bundle struct {
 // Delete a bundle atomically
 func (b *Bundle) Delete() error {
 	work, werr := os.Readlink(filepath.Join(b.Path, "work"))
-	err := os.RemoveAll(b.Path)
+	err := atomicDelete(b.Path)
 	if err == nil {
 		if werr == nil {
-			return os.RemoveAll(work)
+			return atomicDelete(work)
 		}
 		return nil
 	}
 	// error removing the bundle path; still attempt removing work dir
 	var err2 error
 	if werr == nil {
-		err2 = os.RemoveAll(work)
+		err2 = atomicDelete(work)
 		if err2 == nil {
 			return err
 		}
 	}
 	return errors.Wrapf(err, "failed to remove both bundle and workdir locations: %v", err2)
+}
+
+// atomicDelete renames the path to a hidden file before removal
+func atomicDelete(path string) error {
+	// create a hidden dir for an atomic removal
+	atomicPath := filepath.Join(filepath.Dir(path), fmt.Sprintf(".%s", filepath.Base(path)))
+	if err := os.Rename(path, atomicPath); err != nil {
+		return err
+	}
+	return os.RemoveAll(atomicPath)
 }

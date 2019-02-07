@@ -141,6 +141,15 @@ func NewCreator(opts ...Opt) Creator {
 		if err != nil {
 			return nil, err
 		}
+		if streams.Stdin == nil {
+			fifos.Stdin = ""
+		}
+		if streams.Stdout == nil {
+			fifos.Stdout = ""
+		}
+		if streams.Stderr == nil {
+			fifos.Stderr = ""
+		}
 		return copyIO(fifos, streams)
 	}
 }
@@ -265,4 +274,8 @@ func Load(set *FIFOSet) (IO, error) {
 		config:  set.Config,
 		closers: []io.Closer{set},
 	}, nil
+}
+
+func (p *pipes) closers() []io.Closer {
+	return []io.Closer{p.Stdin, p.Stdout, p.Stderr}
 }

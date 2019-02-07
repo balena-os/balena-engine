@@ -1,4 +1,4 @@
-// +build linux,!no_btrfs
+// +build linux,btrfs
 
 /*
    Copyright The containerd Authors.
@@ -33,6 +33,7 @@ import (
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/storage"
 	"github.com/containerd/continuity/fs"
+
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -76,7 +77,7 @@ func NewSnapshotter(root string) (snapshots.Snapshotter, error) {
 		return nil, err
 	}
 	if mnt.FSType != "btrfs" {
-		return nil, fmt.Errorf("path %s must be a btrfs filesystem to be used with the btrfs snapshotter", root)
+		return nil, errors.Wrapf(plugin.ErrSkipPlugin, "path %s must be a btrfs filesystem to be used with the btrfs snapshotter", root)
 	}
 	var (
 		active    = filepath.Join(root, "active")
@@ -171,7 +172,7 @@ func (b *snapshotter) usage(ctx context.Context, key string) (snapshots.Usage, e
 		if parentID != "" {
 			du, err = fs.DiffUsage(ctx, filepath.Join(b.root, "snapshots", parentID), p)
 		} else {
-			du, err = fs.DiskUsage(p)
+			du, err = fs.DiskUsage(ctx, p)
 		}
 		if err != nil {
 			// TODO(stevvooe): Consider not reporting an error in this case.

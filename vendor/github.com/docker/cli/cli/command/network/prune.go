@@ -1,13 +1,13 @@
 package network
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/opts"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/context"
 )
 
 type pruneOptions struct {
@@ -70,7 +70,7 @@ func runPrune(dockerCli command.Cli, options pruneOptions) (output string, err e
 
 // RunPrune calls the Network Prune API
 // This returns the amount of space reclaimed and a detailed output string
-func RunPrune(dockerCli command.Cli, filter opts.FilterOpt) (uint64, string, error) {
+func RunPrune(dockerCli command.Cli, all bool, filter opts.FilterOpt) (uint64, string, error) {
 	output, err := runPrune(dockerCli, pruneOptions{force: true, filter: filter})
 	return 0, output, err
 }

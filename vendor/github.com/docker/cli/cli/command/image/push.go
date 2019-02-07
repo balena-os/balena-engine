@@ -1,7 +1,7 @@
 package image
 
 import (
-	"golang.org/x/net/context"
+	"context"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
@@ -11,26 +11,35 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type pushOptions struct {
+	remote    string
+	untrusted bool
+}
+
 // NewPushCommand creates a new `docker push` command
 func NewPushCommand(dockerCli command.Cli) *cobra.Command {
+	var opts pushOptions
+
 	cmd := &cobra.Command{
 		Use:   "push [OPTIONS] NAME[:TAG]",
 		Short: "Push an image or a repository to a registry",
 		Args:  cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPush(dockerCli, args[0])
+			opts.remote = args[0]
+			return RunPush(dockerCli, opts)
 		},
 	}
 
 	flags := cmd.Flags()
 
-	command.AddTrustSigningFlags(flags)
+	command.AddTrustSigningFlags(flags, &opts.untrusted, dockerCli.ContentTrustEnabled())
 
 	return cmd
 }
 
-func runPush(dockerCli command.Cli, remote string) error {
-	ref, err := reference.ParseNormalizedNamed(remote)
+// RunPush performs a push against the engine based on the specified options
+func RunPush(dockerCli command.Cli, opts pushOptions) error {
+	ref, err := reference.ParseNormalizedNamed(opts.remote)
 	if err != nil {
 		return err
 	}
@@ -47,7 +56,7 @@ func runPush(dockerCli command.Cli, remote string) error {
 	authConfig := command.ResolveAuthConfig(ctx, dockerCli, repoInfo.Index)
 	requestPrivilege := command.RegistryAuthenticationPrivilegedFunc(dockerCli, repoInfo.Index, "push")
 
-	if command.IsTrusted() {
+	if !opts.untrusted {
 		return TrustedPush(ctx, dockerCli, repoInfo, ref, authConfig, requestPrivilege)
 	}
 

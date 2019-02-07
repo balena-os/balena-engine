@@ -30,17 +30,17 @@ import (
 )
 
 // WithProfile receives the name of a file stored on disk comprising a json
-// formated seccomp profile, as specified by the opencontainers/runtime-spec.
+// formatted seccomp profile, as specified by the opencontainers/runtime-spec.
 // The profile is read from the file, unmarshaled, and set to the spec.
 func WithProfile(profile string) oci.SpecOpts {
 	return func(_ context.Context, _ oci.Client, _ *containers.Container, s *specs.Spec) error {
 		s.Linux.Seccomp = &specs.LinuxSeccomp{}
 		f, err := ioutil.ReadFile(profile)
 		if err != nil {
-			return fmt.Errorf("Cannot load seccomp profile %q: %v", profile, err)
+			return fmt.Errorf("cannot load seccomp profile %q: %v", profile, err)
 		}
 		if err := json.Unmarshal(f, s.Linux.Seccomp); err != nil {
-			return fmt.Errorf("Decoding seccomp profile failed %q: %v", profile, err)
+			return fmt.Errorf("decoding seccomp profile failed %q: %v", profile, err)
 		}
 		return nil
 	}

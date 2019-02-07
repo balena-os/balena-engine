@@ -175,12 +175,18 @@ func mountsToLayerAndParents(mounts []mount.Mount) (string, []string, error) {
 	if len(mounts) != 1 {
 		return "", nil, errors.Wrap(errdefs.ErrInvalidArgument, "number of mounts should always be 1 for Windows layers")
 	}
-	layer := mounts[0].Source
+	mnt := mounts[0]
+	if mnt.Type != "windows-layer" {
+		// This is a special case error. When this is received the diff service
+		// will attempt the next differ in the chain which for Windows is the
+		// lcow differ that we want.
+		return "", nil, errdefs.ErrNotImplemented
+	}
 
-	parentLayerPaths, err := mounts[0].GetParentPaths()
+	parentLayerPaths, err := mnt.GetParentPaths()
 	if err != nil {
 		return "", nil, err
 	}
 
-	return layer, parentLayerPaths, nil
+	return mnt.Source, parentLayerPaths, nil
 }

@@ -1,4 +1,4 @@
-// +build !no_cri
+// +build cri
 
 /*
    Copyright The containerd Authors.
@@ -16,7 +16,7 @@
    limitations under the License.
 */
 
-package main
+package ctr
 
 import "github.com/containerd/cri/cli"
 

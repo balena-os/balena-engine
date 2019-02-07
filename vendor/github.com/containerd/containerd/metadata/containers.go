@@ -21,7 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/filters"
@@ -32,6 +31,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 )
 
 type containerStore struct {
@@ -72,7 +72,7 @@ func (s *containerStore) List(ctx context.Context, fs ...string) ([]containers.C
 
 	filter, err := filters.ParseAll(fs...)
 	if err != nil {
-		return nil, errors.Wrapf(errdefs.ErrInvalidArgument, err.Error())
+		return nil, errors.Wrap(errdefs.ErrInvalidArgument, err.Error())
 	}
 
 	bkt := getContainersBucket(s.tx, namespace)

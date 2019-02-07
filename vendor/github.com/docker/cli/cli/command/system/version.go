@@ -1,18 +1,23 @@
 package system
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"sort"
+	"text/tabwriter"
 	"text/template"
 	"time"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/kubernetes"
 	"github.com/docker/cli/templates"
 	"github.com/docker/docker/api/types"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/context"
+	kubernetesClient "k8s.io/client-go/kubernetes"
 )
 
 var versionTemplate = `{{with .Client -}}
@@ -24,7 +29,6 @@ Client:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
  Built:	{{.BuildTime}}
  OS/Arch:	{{.Os}}/{{.Arch}}
  Experimental:	{{.Experimental}}
- Orchestrator:	{{.Orchestrator}}
 {{- end}}
 
 {{- if .ServerOK}}{{with .Server}}
@@ -44,14 +48,15 @@ Server:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
   Version:	{{$component.Version}}
   {{- $detailsOrder := getDetailsOrder $component}}
   {{- range $key := $detailsOrder}}
-  {{$key}}:		{{index $component.Details $key}}
+  {{$key}}:	{{index $component.Details $key}}
    {{- end}}
   {{- end}}
  {{- end}}
-{{- end}}{{end}}`
+ {{- end}}{{- end}}`
 
 type versionOptions struct {
-	format string
+	format     string
+	kubeConfig string
 }
 
 // versionInfo contains version information of both the Client, and Server
@@ -72,7 +77,11 @@ type clientVersion struct {
 	Arch              string
 	BuildTime         string `json:",omitempty"`
 	Experimental      bool
-	Orchestrator      string `json:",omitempty"`
+}
+
+type kubernetesVersion struct {
+	Kubernetes string
+	StackAPI   string
 }
 
 // ServerOK returns true when the client could connect to the docker server
@@ -95,8 +104,9 @@ func NewVersionCommand(dockerCli command.Cli) *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-
 	flags.StringVarP(&opts.format, "format", "f", "", "Format the output using the given Go template")
+	flags.StringVar(&opts.kubeConfig, "kubeconfig", "", "Kubernetes config file")
+	flags.SetAnnotation("kubeconfig", "kubernetes", nil)
 
 	return cmd
 }
@@ -110,19 +120,15 @@ func reformatDate(buildTime string) string {
 }
 
 func runVersion(dockerCli command.Cli, opts *versionOptions) error {
-	templateFormat := versionTemplate
-	tmpl := templates.New("version")
-	if opts.format != "" {
-		templateFormat = opts.format
-	} else {
-		tmpl = tmpl.Funcs(template.FuncMap{"getDetailsOrder": getDetailsOrder})
+	var err error
+	tmpl, err := newVersionTemplate(opts.format)
+	if err != nil {
+		return cli.StatusError{StatusCode: 64, Status: err.Error()}
 	}
 
-	var err error
-	tmpl, err = tmpl.Parse(templateFormat)
+	orchestrator, err := command.GetStackOrchestrator("", dockerCli.ConfigFile().StackOrchestrator, dockerCli.Err())
 	if err != nil {
-		return cli.StatusError{StatusCode: 64,
-			Status: "Template parsing error: " + err.Error()}
+		return cli.StatusError{StatusCode: 64, Status: err.Error()}
 	}
 
 	vd := versionInfo{
@@ -137,22 +143,31 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 			Os:                runtime.GOOS,
 			Arch:              runtime.GOARCH,
 			Experimental:      dockerCli.ClientInfo().HasExperimental,
-			Orchestrator:      string(dockerCli.ClientInfo().Orchestrator),
 		},
 	}
 
 	sv, err := dockerCli.Client().ServerVersion(context.Background())
 	if err == nil {
 		vd.Server = &sv
+		var kubeVersion *kubernetesVersion
+		if orchestrator.HasKubernetes() {
+			kubeVersion = getKubernetesVersion(opts.kubeConfig)
+		}
 		foundEngine := false
+		foundKubernetes := false
 		for _, component := range sv.Components {
-			if component.Name == "Engine" {
+			switch component.Name {
+			case "Engine":
 				foundEngine = true
 				buildTime, ok := component.Details["BuildTime"]
 				if ok {
 					component.Details["BuildTime"] = reformatDate(buildTime)
 				}
-				break
+			case "Kubernetes":
+				foundKubernetes = true
+				if _, ok := component.Details["StackAPI"]; !ok && kubeVersion != nil {
+					component.Details["StackAPI"] = kubeVersion.StackAPI
+				}
 			}
 		}
 
@@ -172,13 +187,38 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 				},
 			})
 		}
+		if !foundKubernetes && kubeVersion != nil {
+			vd.Server.Components = append(vd.Server.Components, types.ComponentVersion{
+				Name:    "Kubernetes",
+				Version: kubeVersion.Kubernetes,
+				Details: map[string]string{
+					"StackAPI": kubeVersion.StackAPI,
+				},
+			})
+		}
 	}
-
-	if err2 := tmpl.Execute(dockerCli.Out(), vd); err2 != nil && err == nil {
+	if err2 := prettyPrintVersion(dockerCli, vd, tmpl); err2 != nil && err == nil {
 		err = err2
 	}
-	dockerCli.Out().Write([]byte{'\n'})
 	return err
+}
+
+func prettyPrintVersion(dockerCli command.Cli, vd versionInfo, tmpl *template.Template) error {
+	t := tabwriter.NewWriter(dockerCli.Out(), 20, 1, 1, ' ', 0)
+	err := tmpl.Execute(t, vd)
+	t.Write([]byte("\n"))
+	t.Flush()
+	return err
+}
+
+func newVersionTemplate(templateFormat string) (*template.Template, error) {
+	if templateFormat == "" {
+		templateFormat = versionTemplate
+	}
+	tmpl := templates.New("version").Funcs(template.FuncMap{"getDetailsOrder": getDetailsOrder})
+	tmpl, err := tmpl.Parse(templateFormat)
+
+	return tmpl, errors.Wrap(err, "Template parsing error")
 }
 
 func getDetailsOrder(v types.ComponentVersion) []string {
@@ -188,4 +228,43 @@ func getDetailsOrder(v types.ComponentVersion) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func getKubernetesVersion(kubeConfig string) *kubernetesVersion {
+	version := kubernetesVersion{
+		Kubernetes: "Unknown",
+		StackAPI:   "Unknown",
+	}
+	clientConfig := kubernetes.NewKubernetesConfig(kubeConfig)
+	config, err := clientConfig.ClientConfig()
+	if err != nil {
+		logrus.Debugf("failed to get Kubernetes configuration: %s", err)
+		return &version
+	}
+	kubeClient, err := kubernetesClient.NewForConfig(config)
+	if err != nil {
+		logrus.Debugf("failed to get Kubernetes client: %s", err)
+		return &version
+	}
+	version.StackAPI = getStackVersion(kubeClient)
+	version.Kubernetes = getKubernetesServerVersion(kubeClient)
+	return &version
+}
+
+func getStackVersion(client *kubernetesClient.Clientset) string {
+	apiVersion, err := kubernetes.GetStackAPIVersion(client)
+	if err != nil {
+		logrus.Debugf("failed to get Stack API version: %s", err)
+		return "Unknown"
+	}
+	return string(apiVersion)
+}
+
+func getKubernetesServerVersion(client *kubernetesClient.Clientset) string {
+	kubeVersion, err := client.DiscoveryClient.ServerVersion()
+	if err != nil {
+		logrus.Debugf("failed to get Kubernetes server version: %s", err)
+		return "Unknown"
+	}
+	return kubeVersion.String()
 }

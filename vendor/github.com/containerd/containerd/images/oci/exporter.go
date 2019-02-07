@@ -25,6 +25,7 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/platforms"
 	ocispecs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -37,6 +38,36 @@ import (
 //                    e.g. application/vnd.docker.image.rootfs.diff.tar.gzip
 //                         -> application/vnd.oci.image.layer.v1.tar+gzip
 type V1Exporter struct {
+	AllPlatforms bool
+}
+
+// V1ExporterOpt allows the caller to set additional options to a new V1Exporter
+type V1ExporterOpt func(c *V1Exporter) error
+
+// DefaultV1Exporter return a default V1Exporter pointer
+func DefaultV1Exporter() *V1Exporter {
+	return &V1Exporter{
+		AllPlatforms: false,
+	}
+}
+
+// ResolveV1ExportOpt return a new V1Exporter with V1ExporterOpt
+func ResolveV1ExportOpt(opts ...V1ExporterOpt) (*V1Exporter, error) {
+	exporter := DefaultV1Exporter()
+	for _, o := range opts {
+		if err := o(exporter); err != nil {
+			return exporter, err
+		}
+	}
+	return exporter, nil
+}
+
+// WithAllPlatforms set V1Exporter`s AllPlatforms option
+func WithAllPlatforms(allPlatforms bool) V1ExporterOpt {
+	return func(c *V1Exporter) error {
+		c.AllPlatforms = allPlatforms
+		return nil
+	}
 }
 
 // Export implements Exporter.
@@ -56,8 +87,15 @@ func (oe *V1Exporter) Export(ctx context.Context, store content.Provider, desc o
 		return nil, nil
 	}
 
+	childrenHandler := images.ChildrenHandler(store)
+
+	if !oe.AllPlatforms {
+		// get local default platform to fetch image manifest
+		childrenHandler = images.FilterPlatforms(childrenHandler, platforms.Any(platforms.DefaultSpec()))
+	}
+
 	handlers := images.Handlers(
-		images.ChildrenHandler(store),
+		childrenHandler,
 		images.HandlerFunc(exportHandler),
 	)
 
@@ -94,7 +132,7 @@ func blobRecord(cs content.Provider, desc ocispec.Descriptor) tarRecord {
 		CopyTo: func(ctx context.Context, w io.Writer) (int64, error) {
 			r, err := cs.ReaderAt(ctx, desc)
 			if err != nil {
-				return 0, err
+				return 0, errors.Wrap(err, "failed to get reader")
 			}
 			defer r.Close()
 
@@ -103,7 +141,7 @@ func blobRecord(cs content.Provider, desc ocispec.Descriptor) tarRecord {
 
 			n, err := io.Copy(io.MultiWriter(w, dgstr.Hash()), content.NewReader(r))
 			if err != nil {
-				return 0, err
+				return 0, errors.Wrap(err, "failed to copy to tar")
 			}
 			if dgstr.Digest() != desc.Digest {
 				return 0, errors.Errorf("unexpected digest %s copied", dgstr.Digest())

@@ -24,5 +24,4 @@ import (
 	_ "github.com/containerd/containerd/runtime/v2/runc/options"
 	_ "github.com/containerd/containerd/snapshots/native"
 	_ "github.com/containerd/containerd/snapshots/overlay"
-	_ "github.com/containerd/zfs"
 )
