@@ -1,9 +1,8 @@
 language: minimal
 
-branches:
-  except:
-    - gh-pages
-    - /^(.*)-build-[a-f0-9]{40}$/
+# only run for non-push actions
+# with the exception of master and version branches
+if: type != push OR branch = master OR branch =~ /^\d{2}\.\d{2}-(.*)$/
 
 sudo: required
 services:
