@@ -242,16 +242,12 @@ COPY --from=gotestsum /build/ /usr/local/bin/
 COPY --from=tomlv /build/ /usr/local/bin/
 COPY --from=vndr /build/ /usr/local/bin/
 COPY --from=tini /build/ /usr/local/bin/
-COPY --from=runc /build/ /usr/local/bin/
-COPY --from=containerd /build/ /usr/local/bin/
 COPY --from=proxy /build/ /usr/local/bin/
-COPY --from=dockercli /build/ /usr/local/cli
 COPY --from=registry /build/registry* /usr/local/bin/
 COPY --from=criu /build/ /usr/local/
 COPY --from=rootlesskit /build/ /usr/local/bin/
 COPY --from=djs55/vpnkit@sha256:e508a17cfacc8fd39261d5b4e397df2b953690da577e2c987a47630cd0c42f8e /vpnkit /usr/local/bin/vpnkit.x86_64
 
-ENV PATH=/usr/local/cli:$PATH
 ENV DOCKER_BUILDTAGS apparmor seccomp selinux
 WORKDIR /go/src/github.com/docker/docker
 VOLUME /var/lib/balena-engine

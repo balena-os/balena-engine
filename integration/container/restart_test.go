@@ -64,7 +64,8 @@ func TestDaemonRestartKillContainers(t *testing.T) {
 					liveRestoreEnabled := liveRestoreEnabled
 					stopDaemon := stopDaemon
 
-					t.Parallel()
+					// TODO(robertgzr): need to find the cause for the flaky behavior when these are run in parallel
+					// t.Parallel()
 
 					d := daemon.New(t)
 					client := d.NewClientT(t)

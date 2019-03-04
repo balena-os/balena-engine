@@ -12,11 +12,14 @@ import (
 	"github.com/docker/docker/integration/internal/network"
 	"github.com/docker/docker/integration/internal/swarm"
 	"github.com/docker/docker/internal/test/daemon"
+	"github.com/docker/libnetwork/drivers/bridge"
 	"gotest.tools/assert"
 	"gotest.tools/icmd"
 	"gotest.tools/poll"
 	"gotest.tools/skip"
 )
+
+const defaultNetworkBridge = bridge.DefaultBridgeName
 
 // delInterface removes given network interface
 func delInterface(t *testing.T, ifName string) {
@@ -52,7 +55,6 @@ func TestDaemonDefaultNetworkPools(t *testing.T) {
 	// Remove docker0 bridge and the start daemon defining the predefined address pools
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
-	defaultNetworkBridge := "docker0"
 	delInterface(t, defaultNetworkBridge)
 	d := daemon.New(t)
 	defer d.Stop(t)
@@ -94,7 +96,6 @@ func TestDaemonRestartWithExistingNetwork(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
-	defaultNetworkBridge := "docker0"
 	d := daemon.New(t)
 	d.Start(t)
 	defer d.Stop(t)
@@ -127,7 +128,6 @@ func TestDaemonRestartWithExistingNetworkWithDefaultPoolRange(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
-	defaultNetworkBridge := "docker0"
 	d := daemon.New(t)
 	d.Start(t)
 	defer d.Stop(t)
@@ -177,7 +177,6 @@ func TestDaemonWithBipAndDefaultNetworkPool(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
-	defaultNetworkBridge := "docker0"
 	d := daemon.New(t)
 	defer d.Stop(t)
 	d.Start(t,

@@ -75,7 +75,7 @@ case "$(go env GOOS)/$(go env GOARCH)" in
 	windows/*|linux/mips*)
 		;;
 	*)
-		BUILDFLAGS+=( "-buildmode=pie" )
+		# BUILDFLAGS+=( "-buildmode=pie" )
 		;;
 esac
 
