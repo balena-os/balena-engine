@@ -583,7 +583,7 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 		}
 	}
 
-	configRootFS, _, err := p.config.ImageStore.RootFSAndOSFromConfig(configJSON)
+	configRootFS, err := p.config.ImageStore.RootFSFromConfig(configJSON)
 	if err == nil && configRootFS == nil {
 		return "", errRootFSInvalid
 	}

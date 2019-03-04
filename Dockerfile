@@ -446,7 +446,7 @@ FROM containerutil-windows-${TARGETARCH} AS containerutil-windows
 FROM containerutil-${TARGETOS} AS containerutil
 
 FROM base AS dev-systemd-false
-COPY --from=dockercli     /build/ /usr/local/cli
+# COPY --from=dockercli     /build/ /usr/local/cli
 COPY --from=frozen-images /build/ /docker-frozen-images
 COPY --from=swagger       /build/ /usr/local/bin/
 COPY --from=delve         /build/ /usr/local/bin/
@@ -463,8 +463,8 @@ COPY --from=registry      /build/ /usr/local/bin/
 COPY --from=gotestsum     /build/ /usr/local/bin/
 COPY --from=golangci_lint /build/ /usr/local/bin/
 COPY --from=shfmt         /build/ /usr/local/bin/
-COPY --from=runc          /build/ /usr/local/bin/
-COPY --from=containerd    /build/ /usr/local/bin/
+# COPY --from=runc          /build/ /usr/local/bin/
+# COPY --from=containerd    /build/ /usr/local/bin/
 COPY --from=rootlesskit   /build/ /usr/local/bin/
 COPY --from=vpnkit        /       /usr/local/bin/
 COPY --from=containerutil /build/ /usr/local/bin/
