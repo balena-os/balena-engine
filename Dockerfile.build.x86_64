@@ -1,4 +1,4 @@
-FROM resin/amd64-golang:1.9
+FROM balenalib/amd64-golang:1.10.8
 
 RUN apt-get update \
 	&& apt-get install -y \

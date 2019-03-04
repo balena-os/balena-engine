@@ -1,4 +1,4 @@
-FROM resin/raspberrypi3-golang:1.9
+FROM balenalib/raspberrypi3-golang:1.10.8
 
 # Enable QEMU emulation
 ENTRYPOINT [ "qemu-arm-static", "-execve" ]
