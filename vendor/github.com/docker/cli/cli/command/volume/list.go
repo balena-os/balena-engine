@@ -1,24 +1,16 @@
 package volume
 
 import (
+	"context"
 	"sort"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/command/formatter"
 	"github.com/docker/cli/opts"
-	"github.com/docker/docker/api/types"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/context"
+	"vbom.ml/util/sortorder"
 )
-
-type byVolumeName []*types.Volume
-
-func (r byVolumeName) Len() int      { return len(r) }
-func (r byVolumeName) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
-func (r byVolumeName) Less(i, j int) bool {
-	return r[i].Name < r[j].Name
-}
 
 type listOptions struct {
 	quiet  bool
@@ -63,7 +55,9 @@ func runList(dockerCli command.Cli, options listOptions) error {
 		}
 	}
 
-	sort.Sort(byVolumeName(volumes.Volumes))
+	sort.Slice(volumes.Volumes, func(i, j int) bool {
+		return sortorder.NaturalLess(volumes.Volumes[i].Name, volumes.Volumes[j].Name)
+	})
 
 	volumeCtx := formatter.Context{
 		Output: dockerCli.Out(),

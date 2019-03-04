@@ -1,5 +1,21 @@
 // +build !windows
 
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package containerdShim
 
 import (
@@ -7,26 +23,29 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/containerd/containerd/events"
-	"github.com/containerd/containerd/linux/proc"
-	"github.com/containerd/containerd/linux/shim"
-	shimapi "github.com/containerd/containerd/linux/shim/v1"
 	"github.com/containerd/containerd/namespaces"
-	"github.com/containerd/containerd/reaper"
+	shimlog "github.com/containerd/containerd/runtime/v1"
+	"github.com/containerd/containerd/runtime/v1/linux/proc"
+	"github.com/containerd/containerd/runtime/v1/shim"
+	shimapi "github.com/containerd/containerd/runtime/v1/shim/v1"
+	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl"
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/stevvooe/ttrpc"
 	"golang.org/x/sys/unix"
 )
 
@@ -61,6 +80,13 @@ func init() {
 func Main() {
 	flag.Parse()
 
+	debug.SetGCPercent(40)
+	go func() {
+		for range time.Tick(30 * time.Second) {
+			debug.FreeOSMemory()
+		}
+	}()
+
 	if debugFlag {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
@@ -71,10 +97,36 @@ func Main() {
 		runtime.GOMAXPROCS(2)
 	}
 
+	stdout, stderr, err := openStdioKeepAlivePipes(workdirFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "containerd-shim: %s\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		stdout.Close()
+		stderr.Close()
+	}()
+
 	if err := executeShim(); err != nil {
 		fmt.Fprintf(os.Stderr, "containerd-shim: %s\n", err)
 		os.Exit(1)
 	}
+}
+
+// If containerd server process dies, we need the shim to keep stdout/err reader
+// FDs so that Linux does not SIGPIPE the shim process if it tries to use its end of
+// these pipes.
+func openStdioKeepAlivePipes(dir string) (io.ReadCloser, io.ReadCloser, error) {
+	background := context.Background()
+	keepStdoutAlive, err := shimlog.OpenShimStdoutLog(background, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	keepStderrAlive, err := shimlog.OpenShimStderrLog(background, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return keepStdoutAlive, keepStderrAlive, nil
 }
 
 func executeShim() error {
@@ -113,7 +165,7 @@ func executeShim() error {
 	shimapi.RegisterShimService(server, sv)
 
 	socket := socketFlag
-	if err := serve(server, socket); err != nil {
+	if err := serve(context.Background(), server, socket); err != nil {
 		return err
 	}
 	logger := logrus.WithFields(logrus.Fields{
@@ -131,7 +183,7 @@ func executeShim() error {
 
 // serve serves the ttrpc API over a unix socket at the provided path
 // this function does not block
-func serve(server *ttrpc.Server, path string) error {
+func serve(ctx context.Context, server *ttrpc.Server, path string) error {
 	var (
 		l   net.Listener
 		err error
@@ -140,6 +192,9 @@ func serve(server *ttrpc.Server, path string) error {
 		l, err = net.FileListener(os.NewFile(3, "socket"))
 		path = "[inherited from parent]"
 	} else {
+		if len(path) > 106 {
+			return errors.Errorf("%q: unix socket path too long (> 106)", path)
+		}
 		l, err = net.Listen("unix", "\x00"+path)
 	}
 	if err != nil {
@@ -148,7 +203,7 @@ func serve(server *ttrpc.Server, path string) error {
 	logrus.WithField("socket", path).Debug("serving api on unix socket")
 	go func() {
 		defer l.Close()
-		if err := server.Serve(l); err != nil &&
+		if err := server.Serve(ctx, l); err != nil &&
 			!strings.Contains(err.Error(), "use of closed network connection") {
 			logrus.WithError(err).Fatal("containerd-shim: ttrpc server failure")
 		}
@@ -169,7 +224,7 @@ func handleSignals(logger *logrus.Entry, signals chan os.Signal, server *ttrpc.S
 		case s := <-signals:
 			switch s {
 			case unix.SIGCHLD:
-				if err := reaper.Reap(); err != nil {
+				if err := shim.Reap(); err != nil {
 					logger.WithError(err).Error("reap exit status")
 				}
 			case unix.SIGTERM, unix.SIGINT:
@@ -186,6 +241,7 @@ func handleSignals(logger *logrus.Entry, signals chan os.Signal, server *ttrpc.S
 					sv.Delete(context.Background(), &ptypes.Empty{})
 					close(done)
 				})
+			case unix.SIGPIPE:
 			}
 		}
 	}
@@ -223,11 +279,11 @@ func (l *remoteEventsPublisher) Publish(ctx context.Context, topic string, event
 	cmd := exec.CommandContext(ctx, containerdBinaryFlag, "--address", l.address, "publish", "--topic", topic, "--namespace", ns)
 	cmd.Args[0] = containerdBinaryArgv0Flag
 	cmd.Stdin = bytes.NewReader(data)
-	c, err := reaper.Default.Start(cmd)
+	c, err := shim.Default.Start(cmd)
 	if err != nil {
 		return err
 	}
-	status, err := reaper.Default.Wait(cmd, c)
+	status, err := shim.Default.Wait(cmd, c)
 	if err != nil {
 		return err
 	}

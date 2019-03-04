@@ -1,14 +1,30 @@
 // +build darwin
 
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package containerdShim
 
 import (
 	"os"
 	"os/signal"
 
-	"github.com/containerd/containerd/reaper"
+	"github.com/containerd/containerd/runtime/v1/shim"
 	runc "github.com/containerd/go-runc"
-	"github.com/stevvooe/ttrpc"
+	"github.com/containerd/ttrpc"
 )
 
 // setupSignals creates a new signal handler for all signals and sets the shim as a
@@ -18,7 +34,7 @@ func setupSignals() (chan os.Signal, error) {
 	signal.Notify(signals)
 	// make sure runc is setup to use the monitor
 	// for waiting on processes
-	runc.Monitor = reaper.Default
+	runc.Monitor = shim.Default
 	return signals, nil
 }
 

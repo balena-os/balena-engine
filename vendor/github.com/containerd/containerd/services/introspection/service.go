@@ -1,14 +1,31 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package introspection
 
 import (
+	context "context"
+
 	api "github.com/containerd/containerd/api/services/introspection/v1"
 	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/filters"
 	"github.com/containerd/containerd/plugin"
-	"github.com/containerd/containerd/protobuf/google/rpc"
+	"github.com/gogo/googleapis/google/rpc"
 	ptypes "github.com/gogo/protobuf/types"
-	context "golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 )
@@ -73,9 +90,9 @@ func adaptPlugin(o interface{}) filters.Adaptor {
 
 		switch fieldpath[0] {
 		case "type":
-			return string(obj.Type), len(obj.Type) > 0
+			return obj.Type, len(obj.Type) > 0
 		case "id":
-			return string(obj.ID), len(obj.ID) > 0
+			return obj.ID, len(obj.ID) > 0
 		case "platforms":
 			// TODO(stevvooe): Another case here where have multiple values.
 			// May need to refactor the filter system to allow filtering by
@@ -126,7 +143,7 @@ func pluginsToPB(plugins []*plugin.Plugin) []api.Plugin {
 				}
 			} else {
 				initErr = &rpc.Status{
-					Code:    int32(rpc.Code_UNKNOWN),
+					Code:    int32(rpc.UNKNOWN),
 					Message: err.Error(),
 				}
 			}

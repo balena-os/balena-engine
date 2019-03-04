@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/balena-os/librsync-go"
 	"github.com/docker/distribution"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
@@ -16,7 +17,6 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/system"
-	"github.com/resin-os/librsync-go"
 	"github.com/sirupsen/logrus"
 )
 

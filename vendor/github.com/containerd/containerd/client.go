@@ -17,7 +17,9 @@
 package containerd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -401,12 +403,22 @@ func (c *Client) fetch(ctx context.Context, rCtx *RemoteContext, ref string, lim
 	}
 
 	var (
-		schema1Converter *schema1.Converter
-		handler          images.Handler
+		handler images.Handler
+
+		isConvertible bool
+		converterFunc func(context.Context, ocispec.Descriptor) (ocispec.Descriptor, error)
 	)
+
 	if desc.MediaType == images.MediaTypeDockerSchema1Manifest && rCtx.ConvertSchema1 {
-		schema1Converter = schema1.NewConverter(store, fetcher)
+		schema1Converter := schema1.NewConverter(store, fetcher)
+
 		handler = images.Handlers(append(rCtx.BaseHandlers, schema1Converter)...)
+
+		isConvertible = true
+
+		converterFunc = func(ctx context.Context, _ ocispec.Descriptor) (ocispec.Descriptor, error) {
+			return schema1Converter.Convert(ctx)
+		}
 	} else {
 		// Get all the children for a descriptor
 		childrenHandler := images.ChildrenHandler(store)
@@ -419,18 +431,34 @@ func (c *Client) fetch(ctx context.Context, rCtx *RemoteContext, ref string, lim
 			childrenHandler = images.LimitManifests(childrenHandler, rCtx.PlatformMatcher, limit)
 		}
 
+		// set isConvertible to true if there is application/octet-stream media type
+		convertibleHandler := images.HandlerFunc(
+			func(_ context.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+				if desc.MediaType == docker.LegacyConfigMediaType {
+					isConvertible = true
+				}
+
+				return []ocispec.Descriptor{}, nil
+			},
+		)
+
 		handler = images.Handlers(append(rCtx.BaseHandlers,
 			remotes.FetchHandler(store, fetcher),
+			convertibleHandler,
 			childrenHandler,
 		)...)
+
+		converterFunc = func(ctx context.Context, desc ocispec.Descriptor) (ocispec.Descriptor, error) {
+			return docker.ConvertManifest(ctx, store, desc)
+		}
 	}
 
 	if err := images.Dispatch(ctx, handler, desc); err != nil {
 		return images.Image{}, err
 	}
-	if schema1Converter != nil {
-		desc, err = schema1Converter.Convert(ctx)
-		if err != nil {
+
+	if isConvertible {
+		if desc, err = converterFunc(ctx, desc); err != nil {
 			return images.Image{}, err
 		}
 	}
@@ -518,6 +546,45 @@ func (c *Client) ListImages(ctx context.Context, filters ...string) ([]Image, er
 		images[i] = NewImage(c, img)
 	}
 	return images, nil
+}
+
+// Restore restores a container from a checkpoint
+func (c *Client) Restore(ctx context.Context, id string, checkpoint Image, opts ...RestoreOpts) (Container, error) {
+	store := c.ContentStore()
+	index, err := decodeIndex(ctx, store, checkpoint.Target())
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, done, err := c.WithLease(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done(ctx)
+
+	copts := []NewContainerOpts{}
+	for _, o := range opts {
+		copts = append(copts, o(ctx, id, c, checkpoint, index))
+	}
+
+	ctr, err := c.NewContainer(ctx, id, copts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return ctr, nil
+}
+
+func writeIndex(ctx context.Context, index *ocispec.Index, client *Client, ref string) (d ocispec.Descriptor, err error) {
+	labels := map[string]string{}
+	for i, m := range index.Manifests {
+		labels[fmt.Sprintf("containerd.io/gc.ref.content.%d", i)] = m.Digest.String()
+	}
+	data, err := json.Marshal(index)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return writeContent(ctx, client.ContentStore(), ocispec.MediaTypeImageIndex, ref, bytes.NewReader(data), content.WithLabels(labels))
 }
 
 // Subscribe to events that match one or more of the provided filters.

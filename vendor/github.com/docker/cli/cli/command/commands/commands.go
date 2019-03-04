@@ -2,10 +2,14 @@ package commands
 
 import (
 	"os"
+	"runtime"
 
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/builder"
 	"github.com/docker/cli/cli/command/container"
+	"github.com/docker/cli/cli/command/engine"
 	"github.com/docker/cli/cli/command/image"
+	"github.com/docker/cli/cli/command/manifest"
 	"github.com/docker/cli/cli/command/network"
 	"github.com/docker/cli/cli/command/registry"
 	"github.com/docker/cli/cli/command/system"
@@ -15,7 +19,7 @@ import (
 )
 
 // AddCommands adds all the commands from cli/command to the root command
-func AddCommands(cmd *cobra.Command, dockerCli *command.DockerCli) {
+func AddCommands(cmd *cobra.Command, dockerCli command.Cli) {
 	cmd.AddCommand(
 		// container
 		container.NewContainerCommand(dockerCli),
@@ -24,6 +28,12 @@ func AddCommands(cmd *cobra.Command, dockerCli *command.DockerCli) {
 		// image
 		image.NewImageCommand(dockerCli),
 		image.NewBuildCommand(dockerCli),
+
+		// builder
+		builder.NewBuilderCommand(dockerCli),
+
+		// manifest
+		manifest.NewManifestCommand(dockerCli),
 
 		// network
 		network.NewNetworkCommand(dockerCli),
@@ -79,7 +89,10 @@ func AddCommands(cmd *cobra.Command, dockerCli *command.DockerCli) {
 		hide(image.NewSaveCommand(dockerCli)),
 		hide(image.NewTagCommand(dockerCli)),
 	)
-
+	if runtime.GOOS == "linux" {
+		// engine
+		cmd.AddCommand(engine.NewEngineCommand(dockerCli))
+	}
 }
 
 func hide(cmd *cobra.Command) *cobra.Command {

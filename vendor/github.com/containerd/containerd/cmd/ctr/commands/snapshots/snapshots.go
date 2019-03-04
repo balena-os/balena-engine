@@ -1,18 +1,40 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package snapshots
 
 import (
 	gocontext "context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/containerd/containerd/cmd/ctr/commands"
+	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/diff"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/progress"
+	"github.com/containerd/containerd/pkg/progress"
+	"github.com/containerd/containerd/rootfs"
 	"github.com/containerd/containerd/snapshots"
 	digest "github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
@@ -25,6 +47,7 @@ var Command = cli.Command{
 	Flags:   commands.SnapshotterFlags,
 	Subcommands: cli.Commands{
 		commitCommand,
+		diffCommand,
 		infoCommand,
 		listCommand,
 		mountCommand,
@@ -65,6 +88,115 @@ var listCommand = cli.Command{
 
 		return tw.Flush()
 	},
+}
+
+var diffCommand = cli.Command{
+	Name:      "diff",
+	Usage:     "get the diff of two snapshots. the default second snapshot is the first snapshot's parent.",
+	ArgsUsage: "[flags] <idA> [<idB>]",
+	Flags: append([]cli.Flag{
+		cli.StringFlag{
+			Name:  "media-type",
+			Usage: "media type to use for creating diff",
+			Value: ocispec.MediaTypeImageLayerGzip,
+		},
+		cli.StringFlag{
+			Name:  "ref",
+			Usage: "content upload reference to use",
+		},
+		cli.BoolFlag{
+			Name:  "keep",
+			Usage: "keep diff content. up to creator to delete it.",
+		},
+	}, commands.LabelFlag),
+	Action: func(context *cli.Context) error {
+		var (
+			idA = context.Args().First()
+			idB = context.Args().Get(1)
+		)
+		if idA == "" {
+			return errors.New("snapshot id must be provided")
+		}
+		client, ctx, cancel, err := commands.NewClient(context)
+		if err != nil {
+			return err
+		}
+		defer cancel()
+
+		ctx, done, err := client.WithLease(ctx)
+		if err != nil {
+			return err
+		}
+		defer done(ctx)
+
+		var desc ocispec.Descriptor
+		labels := commands.LabelArgs(context.StringSlice("label"))
+		snapshotter := client.SnapshotService(context.GlobalString("snapshotter"))
+
+		fmt.Println(context.String("media-type"))
+
+		if context.Bool("keep") {
+			labels["containerd.io/gc.root"] = time.Now().UTC().Format(time.RFC3339)
+		}
+		opts := []diff.Opt{
+			diff.WithMediaType(context.String("media-type")),
+			diff.WithReference(context.String("ref")),
+			diff.WithLabels(labels),
+		}
+
+		if idB == "" {
+			desc, err = rootfs.CreateDiff(ctx, idA, snapshotter, client.DiffService(), opts...)
+			if err != nil {
+				return err
+			}
+		} else {
+			var a, b []mount.Mount
+			ds := client.DiffService()
+
+			a, err = getMounts(ctx, idA, snapshotter)
+			if err != nil {
+				return err
+			}
+			b, err = getMounts(ctx, idB, snapshotter)
+			if err != nil {
+				return err
+			}
+			desc, err = ds.Compare(ctx, a, b, opts...)
+			if err != nil {
+				return err
+			}
+		}
+
+		ra, err := client.ContentStore().ReaderAt(ctx, desc)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(os.Stdout, content.NewReader(ra))
+
+		return err
+	},
+}
+
+func getMounts(ctx gocontext.Context, id string, sn snapshots.Snapshotter) ([]mount.Mount, error) {
+	var mounts []mount.Mount
+	info, err := sn.Stat(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if info.Kind == snapshots.KindActive {
+		mounts, err = sn.Mounts(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		key := fmt.Sprintf("%s-view-key", id)
+		mounts, err = sn.View(ctx, key, id)
+		if err != nil {
+			return nil, err
+		}
+		defer sn.Remove(ctx, key)
+	}
+	return mounts, nil
 }
 
 var usageCommand = cli.Command{
@@ -172,7 +304,11 @@ var prepareCommand = cli.Command{
 		defer cancel()
 
 		snapshotter := client.SnapshotService(context.GlobalString("snapshotter"))
-		mounts, err := snapshotter.Prepare(ctx, key, parent)
+		labels := map[string]string{
+			"containerd.io/gc.root": time.Now().UTC().Format(time.RFC3339),
+		}
+
+		mounts, err := snapshotter.Prepare(ctx, key, parent, snapshots.WithLabels(labels))
 		if err != nil {
 			return err
 		}
@@ -272,7 +408,10 @@ var commitCommand = cli.Command{
 		}
 		defer cancel()
 		snapshotter := client.SnapshotService(context.GlobalString("snapshotter"))
-		return snapshotter.Commit(ctx, key, active)
+		labels := map[string]string{
+			"containerd.io/gc.root": time.Now().UTC().Format(time.RFC3339),
+		}
+		return snapshotter.Commit(ctx, key, active, snapshots.WithLabels(labels))
 	},
 }
 
@@ -287,18 +426,12 @@ var treeCommand = cli.Command{
 		defer cancel()
 		var (
 			snapshotter = client.SnapshotService(context.GlobalString("snapshotter"))
-			tree        = make(map[string]*snapshotTreeNode)
+			tree        = newSnapshotTree()
 		)
 
 		if err := snapshotter.Walk(ctx, func(ctx gocontext.Context, info snapshots.Info) error {
 			// Get or create node and add node details
-			node := getOrCreateTreeNode(info.Name, tree)
-			if info.Parent != "" {
-				node.Parent = info.Parent
-				p := getOrCreateTreeNode(info.Parent, tree)
-				p.Children = append(p.Children, info.Name)
-			}
-
+			tree.add(info)
 			return nil
 		}); err != nil {
 			return err
@@ -429,37 +562,68 @@ var unpackCommand = cli.Command{
 	},
 }
 
+type snapshotTree struct {
+	nodes []*snapshotTreeNode
+	index map[string]*snapshotTreeNode
+}
+
+func newSnapshotTree() *snapshotTree {
+	return &snapshotTree{
+		index: make(map[string]*snapshotTreeNode),
+	}
+}
+
 type snapshotTreeNode struct {
-	Name     string
-	Parent   string
-	Children []string
+	info     snapshots.Info
+	children []string
 }
 
-func getOrCreateTreeNode(name string, tree map[string]*snapshotTreeNode) *snapshotTreeNode {
-	if node, ok := tree[name]; ok {
-		return node
+func (st *snapshotTree) add(info snapshots.Info) *snapshotTreeNode {
+	entry, ok := st.index[info.Name]
+	if !ok {
+		entry = &snapshotTreeNode{info: info}
+		st.nodes = append(st.nodes, entry)
+		st.index[info.Name] = entry
+	} else {
+		entry.info = info // update info if we created placeholder
 	}
-	node := &snapshotTreeNode{
-		Name: name,
+
+	if info.Parent != "" {
+		pn := st.get(info.Parent)
+		if pn == nil {
+			// create a placeholder
+			pn = st.add(snapshots.Info{Name: info.Parent})
+		}
+
+		pn.children = append(pn.children, info.Name)
 	}
-	tree[name] = node
-	return node
+	return entry
 }
 
-func printTree(tree map[string]*snapshotTreeNode) {
-	for _, node := range tree {
+func (st *snapshotTree) get(name string) *snapshotTreeNode {
+	return st.index[name]
+}
+
+func printTree(st *snapshotTree) {
+	for _, node := range st.nodes {
 		// Print for root(parent-less) nodes only
-		if node.Parent == "" {
-			printNode(node.Name, tree, 0)
+		if node.info.Parent == "" {
+			printNode(node.info.Name, st, 0)
 		}
 	}
 }
 
-func printNode(name string, tree map[string]*snapshotTreeNode, level int) {
-	node := tree[name]
-	fmt.Printf("%s\\_ %s\n", strings.Repeat("  ", level), node.Name)
+func printNode(name string, tree *snapshotTree, level int) {
+	node := tree.index[name]
+	prefix := strings.Repeat("  ", level)
+
+	if level > 0 {
+		prefix += "\\_"
+	}
+
+	fmt.Printf(prefix+" %s\n", node.info.Name)
 	level++
-	for _, child := range node.Children {
+	for _, child := range node.children {
 		printNode(child, tree, level)
 	}
 }

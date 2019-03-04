@@ -1,6 +1,7 @@
 package container
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http/httputil"
@@ -13,7 +14,6 @@ import (
 	"github.com/docker/docker/pkg/term"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/context"
 )
 
 type startOptions struct {
@@ -47,14 +47,17 @@ func NewStartCommand(dockerCli command.Cli) *cobra.Command {
 
 	flags.StringVar(&opts.checkpoint, "checkpoint", "", "Restore from this checkpoint")
 	flags.SetAnnotation("checkpoint", "experimental", nil)
+	flags.SetAnnotation("checkpoint", "ostype", []string{"linux"})
 	flags.StringVar(&opts.checkpointDir, "checkpoint-dir", "", "Use a custom checkpoint storage directory")
 	flags.SetAnnotation("checkpoint-dir", "experimental", nil)
+	flags.SetAnnotation("checkpoint-dir", "ostype", []string{"linux"})
 	return cmd
 }
 
 // nolint: gocyclo
 func runStart(dockerCli command.Cli, opts *startOptions) error {
 	ctx, cancelFun := context.WithCancel(context.Background())
+	defer cancelFun()
 
 	if opts.attach || opts.openStdin {
 		// We're going to attach to a container.

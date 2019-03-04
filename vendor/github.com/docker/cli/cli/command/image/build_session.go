@@ -2,6 +2,7 @@ package image
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -26,18 +27,21 @@ import (
 
 const clientSessionRemote = "client-session"
 
-func isSessionSupported(dockerCli command.Cli) bool {
+func isSessionSupported(dockerCli command.Cli, forStream bool) bool {
+	if !forStream && versions.GreaterThanOrEqualTo(dockerCli.Client().ClientVersion(), "1.39") {
+		return true
+	}
 	return dockerCli.ServerInfo().HasExperimental && versions.GreaterThanOrEqualTo(dockerCli.Client().ClientVersion(), "1.31")
 }
 
-func trySession(dockerCli command.Cli, contextDir string) (*session.Session, error) {
+func trySession(dockerCli command.Cli, contextDir string, forStream bool) (*session.Session, error) {
 	var s *session.Session
-	if isSessionSupported(dockerCli) {
+	if isSessionSupported(dockerCli, forStream) {
 		sharedKey, err := getBuildSharedKey(contextDir)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to get build shared key")
 		}
-		s, err = session.NewSession(filepath.Base(contextDir), sharedKey)
+		s, err = session.NewSession(context.Background(), filepath.Base(contextDir), sharedKey)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to create session")
 		}
@@ -120,6 +124,10 @@ func (bw *bufferedWriter) flushBuffer() {
 		close(bw.flushed)
 	}
 	bw.mu.Unlock()
+}
+
+func (bw *bufferedWriter) String() string {
+	return fmt.Sprintf("%s", bw.Writer)
 }
 
 func getBuildSharedKey(dir string) (string, error) {

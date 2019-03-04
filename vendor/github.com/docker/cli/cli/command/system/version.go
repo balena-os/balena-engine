@@ -1,9 +1,11 @@
 package system
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 	"sort"
+	"text/tabwriter"
 	"text/template"
 	"time"
 
@@ -11,8 +13,8 @@ import (
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/templates"
 	"github.com/docker/docker/api/types"
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/context"
 )
 
 var versionTemplate = `{{with .Client -}}
@@ -24,7 +26,6 @@ Client:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
  Built:	{{.BuildTime}}
  OS/Arch:	{{.Os}}/{{.Arch}}
  Experimental:	{{.Experimental}}
- Orchestrator:	{{.Orchestrator}}
 {{- end}}
 
 {{- if .ServerOK}}{{with .Server}}
@@ -44,14 +45,15 @@ Server:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
   Version:	{{$component.Version}}
   {{- $detailsOrder := getDetailsOrder $component}}
   {{- range $key := $detailsOrder}}
-  {{$key}}:		{{index $component.Details $key}}
+  {{$key}}:	{{index $component.Details $key}}
    {{- end}}
   {{- end}}
  {{- end}}
-{{- end}}{{end}}`
+ {{- end}}{{- end}}`
 
 type versionOptions struct {
-	format string
+	format     string
+	kubeConfig string
 }
 
 // versionInfo contains version information of both the Client, and Server
@@ -72,7 +74,6 @@ type clientVersion struct {
 	Arch              string
 	BuildTime         string `json:",omitempty"`
 	Experimental      bool
-	Orchestrator      string `json:",omitempty"`
 }
 
 // ServerOK returns true when the client could connect to the docker server
@@ -95,7 +96,6 @@ func NewVersionCommand(dockerCli command.Cli) *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-
 	flags.StringVarP(&opts.format, "format", "f", "", "Format the output using the given Go template")
 
 	return cmd
@@ -110,19 +110,10 @@ func reformatDate(buildTime string) string {
 }
 
 func runVersion(dockerCli command.Cli, opts *versionOptions) error {
-	templateFormat := versionTemplate
-	tmpl := templates.New("version")
-	if opts.format != "" {
-		templateFormat = opts.format
-	} else {
-		tmpl = tmpl.Funcs(template.FuncMap{"getDetailsOrder": getDetailsOrder})
-	}
-
 	var err error
-	tmpl, err = tmpl.Parse(templateFormat)
+	tmpl, err := newVersionTemplate(opts.format)
 	if err != nil {
-		return cli.StatusError{StatusCode: 64,
-			Status: "Template parsing error: " + err.Error()}
+		return cli.StatusError{StatusCode: 64, Status: err.Error()}
 	}
 
 	vd := versionInfo{
@@ -137,7 +128,6 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 			Os:                runtime.GOOS,
 			Arch:              runtime.GOARCH,
 			Experimental:      dockerCli.ClientInfo().HasExperimental,
-			Orchestrator:      string(dockerCli.ClientInfo().Orchestrator),
 		},
 	}
 
@@ -146,13 +136,13 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 		vd.Server = &sv
 		foundEngine := false
 		for _, component := range sv.Components {
-			if component.Name == "Engine" {
+			switch component.Name {
+			case "Engine":
 				foundEngine = true
 				buildTime, ok := component.Details["BuildTime"]
 				if ok {
 					component.Details["BuildTime"] = reformatDate(buildTime)
 				}
-				break
 			}
 		}
 
@@ -173,12 +163,28 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 			})
 		}
 	}
-
-	if err2 := tmpl.Execute(dockerCli.Out(), vd); err2 != nil && err == nil {
+	if err2 := prettyPrintVersion(dockerCli, vd, tmpl); err2 != nil && err == nil {
 		err = err2
 	}
-	dockerCli.Out().Write([]byte{'\n'})
 	return err
+}
+
+func prettyPrintVersion(dockerCli command.Cli, vd versionInfo, tmpl *template.Template) error {
+	t := tabwriter.NewWriter(dockerCli.Out(), 20, 1, 1, ' ', 0)
+	err := tmpl.Execute(t, vd)
+	t.Write([]byte("\n"))
+	t.Flush()
+	return err
+}
+
+func newVersionTemplate(templateFormat string) (*template.Template, error) {
+	if templateFormat == "" {
+		templateFormat = versionTemplate
+	}
+	tmpl := templates.New("version").Funcs(template.FuncMap{"getDetailsOrder": getDetailsOrder})
+	tmpl, err := tmpl.Parse(templateFormat)
+
+	return tmpl, errors.Wrap(err, "Template parsing error")
 }
 
 func getDetailsOrder(v types.ComponentVersion) []string {

@@ -1,6 +1,7 @@
 package image
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,7 +20,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/theupdateframework/notary/client"
 	"github.com/theupdateframework/notary/tuf/data"
-	"golang.org/x/net/context"
 )
 
 type target struct {
@@ -49,15 +49,15 @@ func PushTrustedReference(streams command.Streams, repoInfo *registry.Repository
 	// Count the times of calling for handleTarget,
 	// if it is called more that once, that should be considered an error in a trusted push.
 	cnt := 0
-	handleTarget := func(aux *json.RawMessage) {
+	handleTarget := func(msg jsonmessage.JSONMessage) {
 		cnt++
 		if cnt > 1 {
-			// handleTarget should only be called one. This will be treated as an error.
+			// handleTarget should only be called once. This will be treated as an error.
 			return
 		}
 
 		var pushResult types.PushResult
-		err := json.Unmarshal(*aux, &pushResult)
+		err := json.Unmarshal(*msg.Aux, &pushResult)
 		if err == nil && pushResult.Tag != "" {
 			if dgst, err := digest.Parse(pushResult.Digest); err == nil {
 				h, err := hex.DecodeString(dgst.Hex())
@@ -198,7 +198,7 @@ func trustedPull(ctx context.Context, cli command.Cli, imgRefAndAuth trust.Image
 		if err != nil {
 			return err
 		}
-		updatedImgRefAndAuth, err := trust.GetImageReferencesAndAuth(ctx, AuthResolver(cli), trustedRef.String())
+		updatedImgRefAndAuth, err := trust.GetImageReferencesAndAuth(ctx, nil, AuthResolver(cli), trustedRef.String())
 		if err != nil {
 			return err
 		}
@@ -293,35 +293,24 @@ func imagePullPrivileged(ctx context.Context, cli command.Cli, imgRefAndAuth tru
 
 // TrustedReference returns the canonical trusted reference for an image reference
 func TrustedReference(ctx context.Context, cli command.Cli, ref reference.NamedTagged, rs registry.Service) (reference.Canonical, error) {
-	var (
-		repoInfo *registry.RepositoryInfo
-		err      error
-	)
-	if rs != nil {
-		repoInfo, err = rs.ResolveRepository(ref)
-	} else {
-		repoInfo, err = registry.ParseRepositoryInfo(ref)
-	}
+	imgRefAndAuth, err := trust.GetImageReferencesAndAuth(ctx, rs, AuthResolver(cli), ref.String())
 	if err != nil {
 		return nil, err
 	}
 
-	// Resolve the Auth config relevant for this server
-	authConfig := command.ResolveAuthConfig(ctx, cli, repoInfo.Index)
-
-	notaryRepo, err := trust.GetNotaryRepository(cli.In(), cli.Out(), command.UserAgent(), repoInfo, &authConfig, "pull")
+	notaryRepo, err := cli.NotaryClient(imgRefAndAuth, []string{"pull"})
 	if err != nil {
 		return nil, errors.Wrap(err, "error establishing connection to trust repository")
 	}
 
 	t, err := notaryRepo.GetTargetByName(ref.Tag(), trust.ReleasesRole, data.CanonicalTargetsRole)
 	if err != nil {
-		return nil, trust.NotaryError(repoInfo.Name.Name(), err)
+		return nil, trust.NotaryError(imgRefAndAuth.RepoInfo().Name.Name(), err)
 	}
 	// Only list tags in the top level targets role or the releases delegation role - ignore
 	// all other delegation roles
 	if t.Role != trust.ReleasesRole && t.Role != data.CanonicalTargetsRole {
-		return nil, trust.NotaryError(repoInfo.Name.Name(), client.ErrNoSuchTarget(ref.Tag()))
+		return nil, trust.NotaryError(imgRefAndAuth.RepoInfo().Name.Name(), client.ErrNoSuchTarget(ref.Tag()))
 	}
 	r, err := convertTarget(t.Target)
 	if err != nil {

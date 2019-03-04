@@ -1,5 +1,21 @@
 // +build windows
 
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package windows
 
 import (
@@ -105,7 +121,7 @@ func (p *process) HcsPid() uint32 {
 
 func (p *process) ExitCode() (uint32, time.Time, error) {
 	if s := p.Status(); s != runtime.StoppedStatus && s != runtime.CreatedStatus {
-		return 255, time.Time{}, errors.Wrapf(errdefs.ErrFailedPrecondition, "process is not stopped: %s", s)
+		return 255, time.Time{}, errors.Wrapf(errdefs.ErrFailedPrecondition, "process is not stopped: %d", s)
 	}
 	return p.exitCode, p.exitTime, nil
 }
@@ -211,6 +227,24 @@ func (p *process) Wait(ctx context.Context) (*runtime.Exit, error) {
 		return nil, err
 	}
 	return &runtime.Exit{
+		Status:    ec,
+		Timestamp: ea,
+	}, nil
+}
+
+func (p *process) Delete(ctx context.Context) (*runtime.Exit, error) {
+	ec, ea, err := p.ExitCode()
+	if err != nil {
+		return nil, err
+	}
+	// If we never started the process close the pipes
+	if p.Status() == runtime.CreatedStatus {
+		p.io.Close()
+		ea = time.Now()
+	}
+	p.task.removeProcess(p.id)
+	return &runtime.Exit{
+		Pid:       p.pid,
 		Status:    ec,
 		Timestamp: ea,
 	}, nil

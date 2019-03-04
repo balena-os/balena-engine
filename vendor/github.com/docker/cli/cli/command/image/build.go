@@ -4,13 +4,16 @@ import (
 	"archive/tar"
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
@@ -30,8 +33,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/context"
 )
+
+var errStdinConflict = errors.New("invalid argument: can't use stdin for both build context and dockerfile")
 
 type buildOptions struct {
 	context        string
@@ -53,6 +57,7 @@ type buildOptions struct {
 	isolation      string
 	quiet          bool
 	noCache        bool
+	progress       string
 	rm             bool
 	forceRm        bool
 	pull           bool
@@ -65,6 +70,9 @@ type buildOptions struct {
 	imageIDFile    string
 	stream         bool
 	platform       string
+	untrusted      bool
+	secrets        []string
+	ssh            []string
 	volumes        opts.ListOpts
 }
 
@@ -130,6 +138,8 @@ func NewBuildCommand(dockerCli command.Cli) *cobra.Command {
 	flags.BoolVar(&options.pull, "pull", false, "Always attempt to pull a newer version of the image")
 	flags.StringSliceVar(&options.cacheFrom, "cache-from", []string{}, "Images to consider as cache sources")
 	flags.BoolVar(&options.compress, "compress", false, "Compress the build context using gzip")
+	flags.SetAnnotation("compress", "no-buildkit", nil)
+
 	flags.StringSliceVar(&options.securityOpt, "security-opt", []string{}, "Security options")
 	flags.StringVar(&options.networkMode, "network", "default", "Set the networking mode for the RUN instructions during build")
 	flags.SetAnnotation("network", "version", []string{"1.25"})
@@ -137,7 +147,7 @@ func NewBuildCommand(dockerCli command.Cli) *cobra.Command {
 	flags.StringVar(&options.target, "target", "", "Set the target build stage to build.")
 	flags.StringVar(&options.imageIDFile, "iidfile", "", "Write the image ID to the file")
 
-	command.AddTrustVerificationFlags(flags)
+	command.AddTrustVerificationFlags(flags, &options.untrusted, dockerCli.ContentTrustEnabled())
 	command.AddPlatformFlag(flags, &options.platform)
 
 	flags.BoolVar(&options.squash, "squash", false, "Squash newly built layers into a single new layer")
@@ -148,7 +158,18 @@ func NewBuildCommand(dockerCli command.Cli) *cobra.Command {
 	flags.BoolVar(&options.stream, "stream", false, "Stream attaches to server to negotiate build context")
 	flags.SetAnnotation("stream", "experimental", nil)
 	flags.SetAnnotation("stream", "version", []string{"1.31"})
+	flags.SetAnnotation("stream", "no-buildkit", nil)
 
+	flags.StringVar(&options.progress, "progress", "auto", "Set type of progress output (auto, plain, tty). Use plain to show container output")
+	flags.SetAnnotation("progress", "buildkit", nil)
+
+	flags.StringArrayVar(&options.secrets, "secret", []string{}, "Secret file to expose to the build (only if BuildKit enabled): id=mysecret,src=/local/secret")
+	flags.SetAnnotation("secret", "version", []string{"1.39"})
+	flags.SetAnnotation("secret", "buildkit", nil)
+
+	flags.StringArrayVar(&options.ssh, "ssh", []string{}, "SSH agent socket or keys to expose to the build (only if BuildKit enabled) (format: default|<id>[=<socket>|<key>[,<key>]])")
+	flags.SetAnnotation("ssh", "version", []string{"1.39"})
+	flags.SetAnnotation("ssh", "buildkit", nil)
 	return cmd
 }
 
@@ -170,10 +191,17 @@ func (out *lastProgressOutput) WriteProgress(prog progress.Progress) error {
 
 // nolint: gocyclo
 func runBuild(dockerCli command.Cli, options buildOptions) error {
+	buildkitEnabled, err := command.BuildKitEnabled(dockerCli.ServerInfo())
+	if err != nil {
+		return err
+	}
+	if buildkitEnabled {
+		return runBuildBuildKit(dockerCli, options)
+	}
+
 	var (
 		buildCtx      io.ReadCloser
 		dockerfileCtx io.ReadCloser
-		err           error
 		contextDir    string
 		tempDir       string
 		relDockerfile string
@@ -182,9 +210,13 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 		remote        string
 	)
 
+	if options.compress && options.stream {
+		return errors.New("--compress conflicts with --stream options")
+	}
+
 	if options.dockerfileFromStdin() {
 		if options.contextFromStdin() {
-			return errors.New("invalid argument: can't use stdin for both build context and dockerfile")
+			return errStdinConflict
 		}
 		dockerfileCtx = dockerCli.In()
 	}
@@ -209,6 +241,14 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 		buildCtx, relDockerfile, err = build.GetContextFromReader(dockerCli.In(), options.dockerfileName)
 	case isLocalDir(specifiedContext):
 		contextDir, relDockerfile, err = build.GetContextFromLocalDir(specifiedContext, options.dockerfileName)
+		if err == nil && strings.HasPrefix(relDockerfile, ".."+string(filepath.Separator)) {
+			// Dockerfile is outside of build-context; read the Dockerfile and pass it as dockerfileCtx
+			dockerfileCtx, err = os.Open(options.dockerfileName)
+			if err != nil {
+				return errors.Errorf("unable to open Dockerfile: %v", err)
+			}
+			defer dockerfileCtx.Close()
+		}
 	case urlutil.IsGitURL(specifiedContext):
 		tempDir, relDockerfile, err = build.GetContextFromGitURL(specifiedContext, options.dockerfileName)
 	case urlutil.IsURL(specifiedContext):
@@ -241,22 +281,19 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 		}
 
 		// And canonicalize dockerfile name to a platform-independent one
-		relDockerfile, err = archive.CanonicalTarNameForPath(relDockerfile)
-		if err != nil {
-			return errors.Errorf("cannot canonicalize dockerfile path %s: %v", relDockerfile, err)
-		}
+		relDockerfile = archive.CanonicalTarNameForPath(relDockerfile)
 
 		excludes = build.TrimBuildFilesFromExcludes(excludes, relDockerfile, options.dockerfileFromStdin())
 		buildCtx, err = archive.TarWithOptions(contextDir, &archive.TarOptions{
 			ExcludePatterns: excludes,
-			ChownOpts:       &idtools.IDPair{UID: 0, GID: 0},
+			ChownOpts:       &idtools.Identity{UID: 0, GID: 0},
 		})
 		if err != nil {
 			return err
 		}
 	}
 
-	// replace Dockerfile if it was added from stdin and there is archive context
+	// replace Dockerfile if it was added from stdin or a file outside the build-context, and there is archive context
 	if dockerfileCtx != nil && buildCtx != nil {
 		buildCtx, relDockerfile, err = build.AddDockerfileToBuildContext(dockerfileCtx, buildCtx)
 		if err != nil {
@@ -264,7 +301,7 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 		}
 	}
 
-	// if streaming and dockerfile was not from stdin then read from file
+	// if streaming and Dockerfile was not from stdin then read from file
 	// to the same reader that is usually stdin
 	if options.stream && dockerfileCtx == nil {
 		dockerfileCtx, err = os.Open(relDockerfile)
@@ -278,7 +315,7 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 	defer cancel()
 
 	var resolvedTags []*resolvedTag
-	if command.IsTrusted() {
+	if !options.untrusted {
 		translator := func(ctx context.Context, ref reference.NamedTagged) (reference.Canonical, error) {
 			return TrustedReference(ctx, dockerCli, ref, nil)
 		}
@@ -286,10 +323,10 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 		if buildCtx != nil {
 			// Wrap the tar archive to replace the Dockerfile entry with the rewritten
 			// Dockerfile which uses trusted pulls.
-			buildCtx = replaceDockerfileTarWrapper(ctx, buildCtx, relDockerfile, translator, &resolvedTags)
+			buildCtx = replaceDockerfileForContentTrust(ctx, buildCtx, relDockerfile, translator, &resolvedTags)
 		} else if dockerfileCtx != nil {
 			// if there was not archive context still do the possible replacements in Dockerfile
-			newDockerfile, _, err := rewriteDockerfileFrom(ctx, dockerfileCtx, translator)
+			newDockerfile, _, err := rewriteDockerfileFromForContentTrust(ctx, dockerfileCtx, translator)
 			if err != nil {
 				return err
 			}
@@ -316,7 +353,7 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 		buildCtx = dockerfileCtx
 	}
 
-	s, err := trySession(dockerCli, contextDir)
+	s, err := trySession(dockerCli, contextDir, true)
 	if err != nil {
 		return err
 	}
@@ -350,38 +387,11 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 
 	configFile := dockerCli.ConfigFile()
 	authConfigs, _ := configFile.GetAllCredentials()
-	buildOptions := types.ImageBuildOptions{
-		Memory:         options.memory.Value(),
-		MemorySwap:     options.memorySwap.Value(),
-		Tags:           options.tags.GetAll(),
-		SuppressOutput: options.quiet,
-		NoCache:        options.noCache,
-		Remove:         options.rm,
-		ForceRemove:    options.forceRm,
-		PullParent:     options.pull,
-		Isolation:      container.Isolation(options.isolation),
-		CPUSetCPUs:     options.cpuSetCpus,
-		CPUSetMems:     options.cpuSetMems,
-		CPUShares:      options.cpuShares,
-		CPUQuota:       options.cpuQuota,
-		CPUPeriod:      options.cpuPeriod,
-		CgroupParent:   options.cgroupParent,
-		Dockerfile:     relDockerfile,
-		ShmSize:        options.shmSize.Value(),
-		Ulimits:        options.ulimits.GetList(),
-		BuildArgs:      configFile.ParseProxyConfig(dockerCli.Client().DaemonHost(), options.buildArgs.GetAll()),
-		AuthConfigs:    authConfigs,
-		Labels:         opts.ConvertKVStringsToMap(options.labels.GetAll()),
-		CacheFrom:      options.cacheFrom,
-		SecurityOpt:    options.securityOpt,
-		NetworkMode:    options.networkMode,
-		Squash:         options.squash,
-		ExtraHosts:     options.extraHosts.GetAll(),
-		Target:         options.target,
-		RemoteContext:  remote,
-		Platform:       options.platform,
-		Volumes:        options.volumes.GetAll(),
-	}
+	buildOptions := imageBuildOptions(dockerCli, options)
+	buildOptions.Version = types.BuilderV1
+	buildOptions.Dockerfile = relDockerfile
+	buildOptions.AuthConfigs = authConfigs
+	buildOptions.RemoteContext = remote
 
 	if s != nil {
 		go func() {
@@ -405,9 +415,9 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 	defer response.Body.Close()
 
 	imageID := ""
-	aux := func(auxJSON *json.RawMessage) {
+	aux := func(msg jsonmessage.JSONMessage) {
 		var result types.BuildResult
-		if err := json.Unmarshal(*auxJSON, &result); err != nil {
+		if err := json.Unmarshal(*msg.Aux, &result); err != nil {
 			fmt.Fprintf(dockerCli.Err(), "Failed to parse aux message: %s", err)
 		} else {
 			imageID = result.ID
@@ -454,7 +464,7 @@ func runBuild(dockerCli command.Cli, options buildOptions) error {
 			return err
 		}
 	}
-	if command.IsTrusted() {
+	if !options.untrusted {
 		// Since the build was successful, now we must tag any of the resolved
 		// images from the above Dockerfile rewrite.
 		for _, resolved := range resolvedTags {
@@ -493,11 +503,12 @@ type resolvedTag struct {
 	tagRef    reference.NamedTagged
 }
 
-// rewriteDockerfileFrom rewrites the given Dockerfile by resolving images in
+// rewriteDockerfileFromForContentTrust rewrites the given Dockerfile by resolving images in
 // "FROM <image>" instructions to a digest reference. `translator` is a
 // function that takes a repository name and tag reference and returns a
 // trusted digest reference.
-func rewriteDockerfileFrom(ctx context.Context, dockerfile io.Reader, translator translatorFunc) (newDockerfile []byte, resolvedTags []*resolvedTag, err error) {
+// This should be called *only* when content trust is enabled
+func rewriteDockerfileFromForContentTrust(ctx context.Context, dockerfile io.Reader, translator translatorFunc) (newDockerfile []byte, resolvedTags []*resolvedTag, err error) {
 	scanner := bufio.NewScanner(dockerfile)
 	buf := bytes.NewBuffer(nil)
 
@@ -514,7 +525,7 @@ func rewriteDockerfileFrom(ctx context.Context, dockerfile io.Reader, translator
 				return nil, nil, err
 			}
 			ref = reference.TagNameOnly(ref)
-			if ref, ok := ref.(reference.NamedTagged); ok && command.IsTrusted() {
+			if ref, ok := ref.(reference.NamedTagged); ok {
 				trustedRef, err := translator(ctx, ref)
 				if err != nil {
 					return nil, nil, err
@@ -537,11 +548,10 @@ func rewriteDockerfileFrom(ctx context.Context, dockerfile io.Reader, translator
 	return buf.Bytes(), resolvedTags, scanner.Err()
 }
 
-// replaceDockerfileTarWrapper wraps the given input tar archive stream and
-// replaces the entry with the given Dockerfile name with the contents of the
-// new Dockerfile. Returns a new tar archive stream with the replaced
-// Dockerfile.
-func replaceDockerfileTarWrapper(ctx context.Context, inputTarStream io.ReadCloser, dockerfileName string, translator translatorFunc, resolvedTags *[]*resolvedTag) io.ReadCloser {
+// replaceDockerfileForContentTrust wraps the given input tar archive stream and
+// uses the translator to replace the Dockerfile which uses a trusted reference.
+// Returns a new tar archive stream with the replaced Dockerfile.
+func replaceDockerfileForContentTrust(ctx context.Context, inputTarStream io.ReadCloser, dockerfileName string, translator translatorFunc, resolvedTags *[]*resolvedTag) io.ReadCloser {
 	pipeReader, pipeWriter := io.Pipe()
 	go func() {
 		tarReader := tar.NewReader(inputTarStream)
@@ -568,7 +578,7 @@ func replaceDockerfileTarWrapper(ctx context.Context, inputTarStream io.ReadClos
 				// generated from a directory on the local filesystem, the
 				// Dockerfile will only appear once in the archive.
 				var newDockerfile []byte
-				newDockerfile, *resolvedTags, err = rewriteDockerfileFrom(ctx, content, translator)
+				newDockerfile, *resolvedTags, err = rewriteDockerfileFromForContentTrust(ctx, content, translator)
 				if err != nil {
 					pipeWriter.CloseWithError(err)
 					return
@@ -590,4 +600,37 @@ func replaceDockerfileTarWrapper(ctx context.Context, inputTarStream io.ReadClos
 	}()
 
 	return pipeReader
+}
+
+func imageBuildOptions(dockerCli command.Cli, options buildOptions) types.ImageBuildOptions {
+	configFile := dockerCli.ConfigFile()
+	return types.ImageBuildOptions{
+		Memory:         options.memory.Value(),
+		MemorySwap:     options.memorySwap.Value(),
+		Tags:           options.tags.GetAll(),
+		SuppressOutput: options.quiet,
+		NoCache:        options.noCache,
+		Remove:         options.rm,
+		ForceRemove:    options.forceRm,
+		PullParent:     options.pull,
+		Isolation:      container.Isolation(options.isolation),
+		CPUSetCPUs:     options.cpuSetCpus,
+		CPUSetMems:     options.cpuSetMems,
+		CPUShares:      options.cpuShares,
+		CPUQuota:       options.cpuQuota,
+		CPUPeriod:      options.cpuPeriod,
+		CgroupParent:   options.cgroupParent,
+		ShmSize:        options.shmSize.Value(),
+		Ulimits:        options.ulimits.GetList(),
+		BuildArgs:      configFile.ParseProxyConfig(dockerCli.Client().DaemonHost(), options.buildArgs.GetAll()),
+		Labels:         opts.ConvertKVStringsToMap(options.labels.GetAll()),
+		CacheFrom:      options.cacheFrom,
+		SecurityOpt:    options.securityOpt,
+		NetworkMode:    options.networkMode,
+		Squash:         options.squash,
+		ExtraHosts:     options.extraHosts.GetAll(),
+		Target:         options.target,
+		Platform:       options.platform,
+		Volumes:        options.volumes.GetAll(),
+	}
 }
