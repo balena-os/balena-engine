@@ -60,7 +60,7 @@ func TestDaemonDefaultNetworkPools(t *testing.T) {
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	delInterface(t, defaultNetworkBridge)
 	d := daemon.New(t)
 	defer d.Stop(t)
@@ -103,7 +103,7 @@ func TestDaemonRestartWithExistingNetwork(t *testing.T) {
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	d := daemon.New(t)
 	d.Start(t)
 	defer d.Stop(t)
@@ -137,7 +137,7 @@ func TestDaemonRestartWithExistingNetworkWithDefaultPoolRange(t *testing.T) {
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	d := daemon.New(t)
 	d.Start(t)
 	defer d.Stop(t)
@@ -188,7 +188,7 @@ func TestDaemonWithBipAndDefaultNetworkPool(t *testing.T) {
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
-	defaultNetworkBridge := "docker0"
+	defaultNetworkBridge := "balena0"
 	d := daemon.New(t)
 	defer d.Stop(t)
 	d.Start(t,
