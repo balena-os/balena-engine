@@ -4731,10 +4731,10 @@ definitions:
           $ref: "#/definitions/Runtime"
         default:
           runc:
-            path: "runc"
+            path: "balena-engine-runc"
         example:
           runc:
-            path: "runc"
+            path: "balena-engine-runc"
           runc-master:
             path: "/go/bin/runc"
           custom:
@@ -4746,8 +4746,8 @@ definitions:
 
           The default can be overridden per-container at create time.
         type: "string"
-        default: "runc"
-        example: "runc"
+        default: "balena-engine-runc"
+        example: "balena-engine-runc"
       Swarm:
         $ref: "#/definitions/SwarmInfo"
       LiveRestoreEnabled:

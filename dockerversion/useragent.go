@@ -17,7 +17,7 @@ type UAStringKey struct{}
 //    [docker client's UA] UpstreamClient([upstream client's UA])
 func DockerUserAgent(ctx context.Context) string {
 	httpVersion := make([]useragent.VersionInfo, 0, 6)
-	httpVersion = append(httpVersion, useragent.VersionInfo{Name: "docker", Version: Version})
+	httpVersion = append(httpVersion, useragent.VersionInfo{Name: "balenaEngine", Version: Version})
 	httpVersion = append(httpVersion, useragent.VersionInfo{Name: "go", Version: runtime.Version()})
 	httpVersion = append(httpVersion, useragent.VersionInfo{Name: "git-commit", Version: GitCommit})
 	if kernelVersion, err := kernel.GetKernelVersion(); err == nil {
