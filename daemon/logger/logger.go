@@ -5,7 +5,7 @@
 // factory, which holds the contextual instance information that
 // allows multiple loggers of the same type to perform different
 // actions, such as logging to different locations.
-package logger
+package logger // import "github.com/docker/docker/daemon/logger"
 
 import (
 	"sync"
@@ -42,7 +42,7 @@ func PutMessage(msg *Message) {
 	messagePool.Put(msg)
 }
 
-// Message is datastructure that represents piece of output produced by some
+// Message is data structure that represents piece of output produced by some
 // container.  The Line member is a slice of an array whose contents can be
 // changed after a log driver's Log() method returns.
 //
@@ -60,7 +60,7 @@ func (m *Message) reset() {
 	m.Line = m.Line[:0]
 	m.Source = ""
 	m.Attrs = nil
-	m.Partial = false
+	m.PLogMetaData = nil
 
 	m.Err = nil
 }
@@ -104,36 +104,53 @@ type LogWatcher struct {
 	// For sending log messages to a reader.
 	Msg chan *Message
 	// For sending error messages that occur while while reading logs.
-	Err           chan error
-	closeOnce     sync.Once
-	closeNotifier chan struct{}
+	Err          chan error
+	producerOnce sync.Once
+	producerGone chan struct{}
+	consumerOnce sync.Once
+	consumerGone chan struct{}
 }
 
 // NewLogWatcher returns a new LogWatcher.
 func NewLogWatcher() *LogWatcher {
 	return &LogWatcher{
-		Msg:           make(chan *Message, logWatcherBufferSize),
-		Err:           make(chan error, 1),
-		closeNotifier: make(chan struct{}),
+		Msg:          make(chan *Message, logWatcherBufferSize),
+		Err:          make(chan error, 1),
+		producerGone: make(chan struct{}),
+		consumerGone: make(chan struct{}),
 	}
 }
 
-// Close notifies the underlying log reader to stop.
-func (w *LogWatcher) Close() {
+// ProducerGone notifies the underlying log reader that
+// the logs producer (a container) is gone.
+func (w *LogWatcher) ProducerGone() {
 	// only close if not already closed
-	w.closeOnce.Do(func() {
-		close(w.closeNotifier)
+	w.producerOnce.Do(func() {
+		close(w.producerGone)
 	})
 }
 
-// WatchClose returns a channel receiver that receives notification
-// when the watcher has been closed. This should only be called from
-// one goroutine.
-func (w *LogWatcher) WatchClose() <-chan struct{} {
-	return w.closeNotifier
+// WatchProducerGone returns a channel receiver that receives notification
+// once the logs producer (a container) is gone.
+func (w *LogWatcher) WatchProducerGone() <-chan struct{} {
+	return w.producerGone
 }
 
-// Capability defines the list of capabilties that a driver can implement
+// ConsumerGone notifies that the logs consumer is gone.
+func (w *LogWatcher) ConsumerGone() {
+	// only close if not already closed
+	w.consumerOnce.Do(func() {
+		close(w.consumerGone)
+	})
+}
+
+// WatchConsumerGone returns a channel receiver that receives notification
+// when the log watcher consumer is gone.
+func (w *LogWatcher) WatchConsumerGone() <-chan struct{} {
+	return w.consumerGone
+}
+
+// Capability defines the list of capabilities that a driver can implement
 // These capabilities are not required to be a logging driver, however do
 // determine how a logging driver can be used
 type Capability struct {

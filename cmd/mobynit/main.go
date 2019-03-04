@@ -25,9 +25,9 @@ const (
 
 func mountContainer(layer_root, containerID, graphDriver string) string {
 	ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
-		StorePath:                 layer_root,
+		Root:                      layer_root,
 		MetadataStorePathTemplate: filepath.Join(layer_root, "image", "%s", "layerdb"),
-		IDMappings:                &idtools.IDMappings{},
+		IDMapping:                 &idtools.IdentityMapping{},
 		GraphDriver:               graphDriver,
 		OS:                        "linux",
 	})
@@ -95,7 +95,7 @@ func main() {
 	flag.Parse()
 
 	// Any mounts done by initrd will be transfered in the new root
-	mounts, err := mount.GetMounts()
+	mounts, err := mount.GetMounts(nil)
 	if err != nil {
 		log.Fatal("could not get mounts:", err)
 	}

@@ -1,6 +1,7 @@
 package cnmallocator
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -15,7 +16,7 @@ import (
 	"github.com/docker/swarmkit/log"
 	"github.com/docker/swarmkit/manager/allocator/networkallocator"
 	"github.com/pkg/errors"
-	"golang.org/x/net/context"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -85,8 +86,18 @@ type initializer struct {
 	ntype string
 }
 
+// NetworkConfig is used to store network related cluster config in the Manager.
+type NetworkConfig struct {
+	// DefaultAddrPool specifies default subnet pool for global scope networks
+	DefaultAddrPool []string
+
+	// SubnetSize specifies the subnet size of the networks created from
+	// the default subnet pool
+	SubnetSize uint32
+}
+
 // New returns a new NetworkAllocator handle
-func New(pg plugingetter.PluginGetter) (networkallocator.NetworkAllocator, error) {
+func New(pg plugingetter.PluginGetter, netConfig *NetworkConfig) (networkallocator.NetworkAllocator, error) {
 	na := &cnmNetworkAllocator{
 		networks: make(map[string]*network),
 		services: make(map[string]struct{}),
@@ -105,7 +116,7 @@ func New(pg plugingetter.PluginGetter) (networkallocator.NetworkAllocator, error
 		return nil, err
 	}
 
-	if err = initIPAMDrivers(reg); err != nil {
+	if err = initIPAMDrivers(reg, netConfig); err != nil {
 		return nil, err
 	}
 
@@ -244,6 +255,7 @@ vipLoop:
 		}
 		for _, nAttach := range specNetworks {
 			if nAttach.Target == eAttach.NetworkID {
+				log.L.WithFields(logrus.Fields{"service_id": s.ID, "vip": eAttach.Addr}).Debug("allocate vip")
 				if err = na.allocateVIP(eAttach); err != nil {
 					return err
 				}
@@ -404,6 +416,11 @@ func (na *cnmNetworkAllocator) IsServiceAllocated(s *api.Service, flags ...func(
 	vipLoop:
 		for _, vip := range s.Endpoint.VirtualIPs {
 			if na.IsVIPOnIngressNetwork(vip) && networkallocator.IsIngressNetworkNeeded(s) {
+				// This checks the condition when ingress network is needed
+				// but allocation has not been done.
+				if _, ok := na.services[s.ID]; !ok {
+					return false
+				}
 				continue vipLoop
 			}
 			for _, net := range specNetworks {
@@ -798,8 +815,7 @@ func (na *cnmNetworkAllocator) resolveDriver(n *api.Network) (*networkDriver, er
 
 	d, drvcap := na.drvRegistry.Driver(dName)
 	if d == nil {
-		var err error
-		err = na.loadDriver(dName)
+		err := na.loadDriver(dName)
 		if err != nil {
 			return nil, err
 		}

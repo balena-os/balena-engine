@@ -1,13 +1,14 @@
-package jsonfilelog
+package jsonfilelog // import "github.com/docker/docker/daemon/logger/jsonfilelog"
 
 import (
 	"bytes"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/daemon/logger"
-	"github.com/gotestyourself/gotestyourself/fs"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/assert"
+	"gotest.tools/fs"
 )
 
 func BenchmarkJSONFileLoggerReadLogs(b *testing.B) {
@@ -25,7 +26,7 @@ func BenchmarkJSONFileLoggerReadLogs(b *testing.B) {
 			"second": "label_foo",
 		},
 	})
-	require.NoError(b, err)
+	assert.NilError(b, err)
 	defer jsonlogger.Close()
 
 	msg := &logger.Message{
@@ -35,7 +36,7 @@ func BenchmarkJSONFileLoggerReadLogs(b *testing.B) {
 	}
 
 	buf := bytes.NewBuffer(nil)
-	require.NoError(b, marshalMessage(msg, nil, buf))
+	assert.NilError(b, marshalMessage(msg, nil, buf))
 	b.SetBytes(int64(buf.Len()))
 
 	b.ResetTimer()
@@ -49,11 +50,10 @@ func BenchmarkJSONFileLoggerReadLogs(b *testing.B) {
 	}()
 
 	lw := jsonlogger.(*JSONFileLogger).ReadLogs(logger.ReadConfig{Follow: true})
-	watchClose := lw.WatchClose()
 	for {
 		select {
 		case <-lw.Msg:
-		case <-watchClose:
+		case <-lw.WatchProducerGone():
 			return
 		case err := <-chError:
 			if err != nil {
@@ -61,4 +61,33 @@ func BenchmarkJSONFileLoggerReadLogs(b *testing.B) {
 			}
 		}
 	}
+}
+
+func TestEncodeDecode(t *testing.T) {
+	t.Parallel()
+
+	m1 := &logger.Message{Line: []byte("hello 1"), Timestamp: time.Now(), Source: "stdout"}
+	m2 := &logger.Message{Line: []byte("hello 2"), Timestamp: time.Now(), Source: "stdout"}
+	m3 := &logger.Message{Line: []byte("hello 3"), Timestamp: time.Now(), Source: "stdout"}
+
+	buf := bytes.NewBuffer(nil)
+	assert.Assert(t, marshalMessage(m1, nil, buf))
+	assert.Assert(t, marshalMessage(m2, nil, buf))
+	assert.Assert(t, marshalMessage(m3, nil, buf))
+
+	decode := decodeFunc(buf)
+	msg, err := decode()
+	assert.Assert(t, err)
+	assert.Assert(t, string(msg.Line) == "hello 1\n", string(msg.Line))
+
+	msg, err = decode()
+	assert.Assert(t, err)
+	assert.Assert(t, string(msg.Line) == "hello 2\n")
+
+	msg, err = decode()
+	assert.Assert(t, err)
+	assert.Assert(t, string(msg.Line) == "hello 3\n")
+
+	_, err = decode()
+	assert.Assert(t, err == io.EOF)
 }

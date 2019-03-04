@@ -1,4 +1,4 @@
-package archive
+package archive // import "github.com/docker/docker/pkg/archive"
 
 import (
 	"archive/tar"
@@ -112,7 +112,7 @@ func (th tarHeaders) Less(i, j int) bool { return th[i].Name < th[j].Name }
 
 func walkHeaders(r io.Reader) ([]tar.Header, error) {
 	t := tar.NewReader(r)
-	headers := []tar.Header{}
+	var headers []tar.Header
 	for {
 		hdr, err := t.Next()
 		if err != nil {

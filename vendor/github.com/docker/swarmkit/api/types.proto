@@ -125,6 +125,9 @@ message NodeDescription {
 
 	// Information on the node's TLS setup
 	NodeTLSInfo tls_info = 5 [(gogoproto.customname) = "TLSInfo"];
+
+	// FIPS indicates whether the node has FIPS-enabled
+	bool fips = 6 [(gogoproto.customname) = "FIPS"];
 }
 
 message NodeTLSInfo {
@@ -199,6 +202,7 @@ message Mount {
 		BIND = 0 [(gogoproto.enumvalue_customname) = "MountTypeBind"]; // Bind mount host dir
 		VOLUME = 1 [(gogoproto.enumvalue_customname) = "MountTypeVolume"];  // Remote storage volumes
 		TMPFS = 2 [(gogoproto.enumvalue_customname) = "MountTypeTmpfs"]; // Mount a tmpfs
+		NPIPE = 3 [(gogoproto.enumvalue_customname) = "MountTypeNamedPipe"]; // Windows named pipes 
 	}
 
 	// Type defines the nature of the mount.
@@ -440,6 +444,12 @@ message UpdateStatus {
 // TaskState enumerates the states that a task progresses through within an
 // agent. States are designed to be monotonically increasing, such that if two
 // states are seen by a task, the greater of the new represents the true state.
+
+// Only the manager create a NEW task, and move the task to PENDING and ASSIGNED.
+// Afterward, the manager must rely on the agent to update the task status
+// (pre-run: preparing, ready, starting;
+//  running;
+//  end-state: complete, shutdown, failed, rejected)
 enum TaskState {
 	// TODO(aluzzardi): Move it back into `TaskStatus` because of the naming
 	// collisions of enums.
@@ -457,6 +467,8 @@ enum TaskState {
 	COMPLETE = 576 [(gogoproto.enumvalue_customname)="TaskStateCompleted"]; // successful completion of task (not error code, just ran)
 	SHUTDOWN = 640 [(gogoproto.enumvalue_customname)="TaskStateShutdown"]; // orchestrator requested shutdown
 	FAILED = 704 [(gogoproto.enumvalue_customname)="TaskStateFailed"]; // task execution failed with error
+	// TaskStateRejected means a task never ran, for instance if something about
+	// the environment failed (e.g. setting up a port on that node failed).
 	REJECTED = 768 [(gogoproto.enumvalue_customname)="TaskStateRejected"]; // task could not be executed here.
 	// TaskStateRemove is used to correctly handle service deletions and scale
 	// downs. This allows us to keep track of tasks that have been marked for
@@ -616,6 +628,7 @@ message PortConfig {
 
 		TCP = 0 [(gogoproto.enumvalue_customname) = "ProtocolTCP"];
 		UDP = 1 [(gogoproto.enumvalue_customname) = "ProtocolUDP"];
+		SCTP = 2 [(gogoproto.enumvalue_customname) = "ProtocolSCTP"];
 	}
 
 	// PublishMode controls how ports are published on the swarm.
@@ -1034,6 +1047,7 @@ message MaybeEncryptedRecord {
 	enum Algorithm {
 		NONE = 0 [(gogoproto.enumvalue_customname) = "NotEncrypted"];
 		SECRETBOX_SALSA20_POLY1305 = 1 [(gogoproto.enumvalue_customname) = "NACLSecretboxSalsa20Poly1305"];
+		FERNET_AES_128_CBC = 2 [(gogoproto.enumvalue_customname) = "FernetAES128CBC"];
 	}
 
 	Algorithm algorithm = 1;

@@ -1,4 +1,4 @@
-package layer
+package layer // import "github.com/docker/docker/layer"
 
 import (
 	"fmt"
@@ -17,7 +17,6 @@ type roLayer struct {
 	size       int64
 	layerStore *layerStore
 	descriptor distribution.Descriptor
-	os         OS
 
 	referenceCount int
 	references     map[Layer]struct{}
@@ -60,6 +59,10 @@ func (rl *roLayer) TarStreamFrom(parent ChainID) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("layer ID '%s' is not a parent of the specified layer: cannot provide diff to non-parent", parent)
 	}
 	return rl.layerStore.driver.Diff(rl.cacheID, parentCacheID)
+}
+
+func (rl *roLayer) CacheID() string {
+	return rl.cacheID
 }
 
 func (rl *roLayer) ChainID() ChainID {
@@ -129,7 +132,7 @@ func (rl *roLayer) depth() int {
 	return rl.parent.depth() + 1
 }
 
-func storeLayer(tx MetadataTransaction, layer *roLayer) error {
+func storeLayer(tx *fileMetadataTransaction, layer *roLayer) error {
 	if err := tx.SetDiffID(layer.diffID); err != nil {
 		return err
 	}
@@ -150,11 +153,7 @@ func storeLayer(tx MetadataTransaction, layer *roLayer) error {
 			return err
 		}
 	}
-	if err := tx.SetOS(layer.os); err != nil {
-		return err
-	}
-
-	return nil
+	return tx.setOS(layer.layerStore.os)
 }
 
 func newVerifiedReadCloser(rc io.ReadCloser, dgst digest.Digest) (io.ReadCloser, error) {

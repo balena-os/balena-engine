@@ -1,14 +1,15 @@
 package allocator
 
 import (
+	"context"
 	"sync"
 
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/go-events"
 	"github.com/docker/swarmkit/api"
+	"github.com/docker/swarmkit/manager/allocator/cnmallocator"
 	"github.com/docker/swarmkit/manager/state"
 	"github.com/docker/swarmkit/manager/state/store"
-	"golang.org/x/net/context"
 )
 
 // Allocator controls how the allocation stage in the manager is handled.
@@ -32,6 +33,9 @@ type Allocator struct {
 
 	// pluginGetter provides access to docker's plugin inventory.
 	pluginGetter plugingetter.PluginGetter
+
+	// networkConfig stores network related config for the cluster
+	networkConfig *cnmallocator.NetworkConfig
 }
 
 // taskBallot controls how the voting for task allocation is
@@ -65,15 +69,16 @@ type allocActor struct {
 
 // New returns a new instance of Allocator for use during allocation
 // stage of the manager.
-func New(store *store.MemoryStore, pg plugingetter.PluginGetter) (*Allocator, error) {
+func New(store *store.MemoryStore, pg plugingetter.PluginGetter, netConfig *cnmallocator.NetworkConfig) (*Allocator, error) {
 	a := &Allocator{
 		store: store,
 		taskBallot: &taskBallot{
 			votes: make(map[string][]string),
 		},
-		stopChan:     make(chan struct{}),
-		doneChan:     make(chan struct{}),
-		pluginGetter: pg,
+		stopChan:      make(chan struct{}),
+		doneChan:      make(chan struct{}),
+		pluginGetter:  pg,
+		networkConfig: netConfig,
 	}
 
 	return a, nil

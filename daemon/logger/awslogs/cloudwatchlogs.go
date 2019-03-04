@@ -1,5 +1,5 @@
 // Package awslogs provides the logdriver for forwarding container logs to Amazon CloudWatch Logs
-package awslogs
+package awslogs // import "github.com/docker/docker/daemon/logger/awslogs"
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -29,6 +30,7 @@ import (
 const (
 	name                   = "awslogs"
 	regionKey              = "awslogs-region"
+	endpointKey            = "awslogs-endpoint"
 	regionEnvKey           = "AWS_REGION"
 	logGroupKey            = "awslogs-group"
 	logStreamKey           = "awslogs-stream"
@@ -45,6 +47,10 @@ const (
 	maximumLogEventsPerPut = 10000
 
 	// See: http://docs.aws.amazon.com/AmazonCloudWatch/latest/DeveloperGuide/cloudwatch_limits.html
+	// Because the events are interpreted as UTF-8 encoded Unicode, invalid UTF-8 byte sequences are replaced with the
+	// Unicode replacement character (U+FFFD), which is a 3-byte sequence in UTF-8.  To compensate for that and to avoid
+	// splitting valid UTF-8 characters into invalid byte sequences, we calculate the length of each event assuming that
+	// this replacement happens.
 	maximumBytesPerEvent = 262144 - perEventBytes
 
 	resourceAlreadyExistsCode = "ResourceAlreadyExistsException"
@@ -61,6 +67,7 @@ type logStream struct {
 	logStreamName    string
 	logGroupName     string
 	logCreateGroup   bool
+	logNonBlocking   bool
 	multilinePattern *regexp.Regexp
 	client           api
 	messages         chan *logger.Message
@@ -68,6 +75,8 @@ type logStream struct {
 	closed           bool
 	sequenceToken    *string
 }
+
+var _ logger.SizedLogger = &logStream{}
 
 type api interface {
 	CreateLogGroup(*cloudwatchlogs.CreateLogGroupInput) (*cloudwatchlogs.CreateLogGroupOutput, error)
@@ -95,13 +104,24 @@ func init() {
 	}
 }
 
+// eventBatch holds the events that are batched for submission and the
+// associated data about it.
+//
+// Warning: this type is not threadsafe and must not be used
+// concurrently. This type is expected to be consumed in a single go
+// routine and never concurrently.
+type eventBatch struct {
+	batch []wrappedEvent
+	bytes int
+}
+
 // New creates an awslogs logger using the configuration passed in on the
 // context.  Supported context configuration variables are awslogs-region,
-// awslogs-group, awslogs-stream, awslogs-create-group, awslogs-multiline-pattern
-// and awslogs-datetime-format.  When available, configuration is
-// also taken from environment variables AWS_REGION, AWS_ACCESS_KEY_ID,
-// AWS_SECRET_ACCESS_KEY, the shared credentials file (~/.aws/credentials), and
-// the EC2 Instance Metadata Service.
+// awslogs-endpoint, awslogs-group, awslogs-stream, awslogs-create-group,
+// awslogs-multiline-pattern and awslogs-datetime-format.
+// When available, configuration is also taken from environment variables
+// AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, the shared credentials
+// file (~/.aws/credentials), and the EC2 Instance Metadata Service.
 func New(info logger.Info) (logger.Logger, error) {
 	logGroupName := info.Config[logGroupKey]
 	logStreamName, err := loggerutils.ParseLogTag(info, "{{.FullID}}")
@@ -116,6 +136,8 @@ func New(info logger.Info) (logger.Logger, error) {
 		}
 	}
 
+	logNonBlocking := info.Config["mode"] == "non-blocking"
+
 	if info.Config[logStreamKey] != "" {
 		logStreamName = info.Config[logStreamKey]
 	}
@@ -129,19 +151,54 @@ func New(info logger.Info) (logger.Logger, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	containerStream := &logStream{
 		logStreamName:    logStreamName,
 		logGroupName:     logGroupName,
 		logCreateGroup:   logCreateGroup,
+		logNonBlocking:   logNonBlocking,
 		multilinePattern: multilinePattern,
 		client:           client,
 		messages:         make(chan *logger.Message, 4096),
 	}
-	err = containerStream.create()
-	if err != nil {
-		return nil, err
+
+	creationDone := make(chan bool)
+	if logNonBlocking {
+		go func() {
+			backoff := 1
+			maxBackoff := 32
+			for {
+				// If logger is closed we are done
+				containerStream.lock.RLock()
+				if containerStream.closed {
+					containerStream.lock.RUnlock()
+					break
+				}
+				containerStream.lock.RUnlock()
+				err := containerStream.create()
+				if err == nil {
+					break
+				}
+
+				time.Sleep(time.Duration(backoff) * time.Second)
+				if backoff < maxBackoff {
+					backoff *= 2
+				}
+				logrus.
+					WithError(err).
+					WithField("container-id", info.ContainerID).
+					WithField("container-name", info.ContainerName).
+					Error("Error while trying to initialize awslogs. Retrying in: ", backoff, " seconds")
+			}
+			close(creationDone)
+		}()
+	} else {
+		if err = containerStream.create(); err != nil {
+			return nil, err
+		}
+		close(creationDone)
 	}
-	go containerStream.collectBatch()
+	go containerStream.collectBatch(creationDone)
 
 	return containerStream, nil
 }
@@ -211,12 +268,15 @@ var newSDKEndpoint = credentialsEndpoint
 // User-Agent string and automatic region detection using the EC2 Instance
 // Metadata Service when region is otherwise unspecified.
 func newAWSLogsClient(info logger.Info) (api, error) {
-	var region *string
+	var region, endpoint *string
 	if os.Getenv(regionEnvKey) != "" {
 		region = aws.String(os.Getenv(regionEnvKey))
 	}
 	if info.Config[regionKey] != "" {
 		region = aws.String(info.Config[regionKey])
+	}
+	if info.Config[endpointKey] != "" {
+		endpoint = aws.String(info.Config[endpointKey])
 	}
 	if region == nil || *region == "" {
 		logrus.Info("Trying to get region from EC2 Metadata")
@@ -238,6 +298,11 @@ func newAWSLogsClient(info logger.Info) (api, error) {
 
 	// attach region to cloudwatchlogs config
 	sess.Config.Region = region
+
+	// attach endpoint to cloudwatchlogs config
+	if endpoint != nil {
+		sess.Config.Endpoint = endpoint
+	}
 
 	if uri, ok := info.Config[credentialsEndpointKey]; ok {
 		logrus.Debugf("Trying to get credentials from awslogs-credentials-endpoint")
@@ -283,9 +348,18 @@ func (l *logStream) BufSize() int {
 func (l *logStream) Log(msg *logger.Message) error {
 	l.lock.RLock()
 	defer l.lock.RUnlock()
-	if !l.closed {
-		l.messages <- msg
+	if l.closed {
+		return errors.New("awslogs is closed")
 	}
+	if l.logNonBlocking {
+		select {
+		case l.messages <- msg:
+			return nil
+		default:
+			return errors.New("awslogs buffer is full")
+		}
+	}
+	l.messages <- msg
 	return nil
 }
 
@@ -311,7 +385,9 @@ func (l *logStream) create() error {
 				return l.createLogStream()
 			}
 		}
-		return err
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -388,53 +464,58 @@ var newTicker = func(freq time.Duration) *time.Ticker {
 // seconds.  When events are ready to be processed for submission to CloudWatch
 // Logs, the processEvents method is called.  If a multiline pattern is not
 // configured, log events are submitted to the processEvents method immediately.
-func (l *logStream) collectBatch() {
-	timer := newTicker(batchPublishFrequency)
-	var events []wrappedEvent
+func (l *logStream) collectBatch(created chan bool) {
+	// Wait for the logstream/group to be created
+	<-created
+	ticker := newTicker(batchPublishFrequency)
 	var eventBuffer []byte
 	var eventBufferTimestamp int64
+	var batch = newEventBatch()
 	for {
 		select {
-		case t := <-timer.C:
+		case t := <-ticker.C:
 			// If event buffer is older than batch publish frequency flush the event buffer
 			if eventBufferTimestamp > 0 && len(eventBuffer) > 0 {
 				eventBufferAge := t.UnixNano()/int64(time.Millisecond) - eventBufferTimestamp
-				eventBufferExpired := eventBufferAge > int64(batchPublishFrequency)/int64(time.Millisecond)
+				eventBufferExpired := eventBufferAge >= int64(batchPublishFrequency)/int64(time.Millisecond)
 				eventBufferNegative := eventBufferAge < 0
 				if eventBufferExpired || eventBufferNegative {
-					events = l.processEvent(events, eventBuffer, eventBufferTimestamp)
+					l.processEvent(batch, eventBuffer, eventBufferTimestamp)
 					eventBuffer = eventBuffer[:0]
 				}
 			}
-			l.publishBatch(events)
-			events = events[:0]
+			l.publishBatch(batch)
+			batch.reset()
 		case msg, more := <-l.messages:
 			if !more {
 				// Flush event buffer and release resources
-				events = l.processEvent(events, eventBuffer, eventBufferTimestamp)
+				l.processEvent(batch, eventBuffer, eventBufferTimestamp)
 				eventBuffer = eventBuffer[:0]
-				l.publishBatch(events)
-				events = events[:0]
+				l.publishBatch(batch)
+				batch.reset()
 				return
 			}
 			if eventBufferTimestamp == 0 {
 				eventBufferTimestamp = msg.Timestamp.UnixNano() / int64(time.Millisecond)
 			}
-			unprocessedLine := msg.Line
+			line := msg.Line
 			if l.multilinePattern != nil {
-				if l.multilinePattern.Match(unprocessedLine) || len(eventBuffer)+len(unprocessedLine) > maximumBytesPerEvent {
+				lineEffectiveLen := effectiveLen(string(line))
+				if l.multilinePattern.Match(line) || effectiveLen(string(eventBuffer))+lineEffectiveLen > maximumBytesPerEvent {
 					// This is a new log event or we will exceed max bytes per event
 					// so flush the current eventBuffer to events and reset timestamp
-					events = l.processEvent(events, eventBuffer, eventBufferTimestamp)
+					l.processEvent(batch, eventBuffer, eventBufferTimestamp)
 					eventBufferTimestamp = msg.Timestamp.UnixNano() / int64(time.Millisecond)
 					eventBuffer = eventBuffer[:0]
 				}
-				// Append new line
-				processedLine := append(unprocessedLine, "\n"...)
-				eventBuffer = append(eventBuffer, processedLine...)
+				// Append newline if event is less than max event size
+				if lineEffectiveLen < maximumBytesPerEvent {
+					line = append(line, "\n"...)
+				}
+				eventBuffer = append(eventBuffer, line...)
 				logger.PutMessage(msg)
 			} else {
-				events = l.processEvent(events, unprocessedLine, msg.Timestamp.UnixNano()/int64(time.Millisecond))
+				l.processEvent(batch, line, msg.Timestamp.UnixNano()/int64(time.Millisecond))
 				logger.PutMessage(msg)
 			}
 		}
@@ -449,48 +530,74 @@ func (l *logStream) collectBatch() {
 // batch (defined in maximumBytesPerPut).  Log messages are split by the maximum
 // bytes per event (defined in maximumBytesPerEvent).  There is a fixed per-event
 // byte overhead (defined in perEventBytes) which is accounted for in split- and
-// batch-calculations.
-func (l *logStream) processEvent(events []wrappedEvent, unprocessedLine []byte, timestamp int64) []wrappedEvent {
-	bytes := 0
-	for len(unprocessedLine) > 0 {
+// batch-calculations.  Because the events are interpreted as UTF-8 encoded
+// Unicode, invalid UTF-8 byte sequences are replaced with the Unicode
+// replacement character (U+FFFD), which is a 3-byte sequence in UTF-8.  To
+// compensate for that and to avoid splitting valid UTF-8 characters into
+// invalid byte sequences, we calculate the length of each event assuming that
+// this replacement happens.
+func (l *logStream) processEvent(batch *eventBatch, bytes []byte, timestamp int64) {
+	for len(bytes) > 0 {
 		// Split line length so it does not exceed the maximum
-		lineBytes := len(unprocessedLine)
-		if lineBytes > maximumBytesPerEvent {
-			lineBytes = maximumBytesPerEvent
-		}
-		line := unprocessedLine[:lineBytes]
-		unprocessedLine = unprocessedLine[lineBytes:]
-		if (len(events) >= maximumLogEventsPerPut) || (bytes+lineBytes+perEventBytes > maximumBytesPerPut) {
-			// Publish an existing batch if it's already over the maximum number of events or if adding this
-			// event would push it over the maximum number of total bytes.
-			l.publishBatch(events)
-			events = events[:0]
-			bytes = 0
-		}
-		events = append(events, wrappedEvent{
+		splitOffset, lineBytes := findValidSplit(string(bytes), maximumBytesPerEvent)
+		line := bytes[:splitOffset]
+		event := wrappedEvent{
 			inputLogEvent: &cloudwatchlogs.InputLogEvent{
 				Message:   aws.String(string(line)),
 				Timestamp: aws.Int64(timestamp),
 			},
-			insertOrder: len(events),
-		})
-		bytes += (lineBytes + perEventBytes)
+			insertOrder: batch.count(),
+		}
+
+		added := batch.add(event, lineBytes)
+		if added {
+			bytes = bytes[splitOffset:]
+		} else {
+			l.publishBatch(batch)
+			batch.reset()
+		}
 	}
-	return events
+}
+
+// effectiveLen counts the effective number of bytes in the string, after
+// UTF-8 normalization.  UTF-8 normalization includes replacing bytes that do
+// not constitute valid UTF-8 encoded Unicode codepoints with the Unicode
+// replacement codepoint U+FFFD (a 3-byte UTF-8 sequence, represented in Go as
+// utf8.RuneError)
+func effectiveLen(line string) int {
+	effectiveBytes := 0
+	for _, rune := range line {
+		effectiveBytes += utf8.RuneLen(rune)
+	}
+	return effectiveBytes
+}
+
+// findValidSplit finds the byte offset to split a string without breaking valid
+// Unicode codepoints given a maximum number of total bytes.  findValidSplit
+// returns the byte offset for splitting a string or []byte, as well as the
+// effective number of bytes if the string were normalized to replace invalid
+// UTF-8 encoded bytes with the Unicode replacement character (a 3-byte UTF-8
+// sequence, represented in Go as utf8.RuneError)
+func findValidSplit(line string, maxBytes int) (splitOffset, effectiveBytes int) {
+	for offset, rune := range line {
+		splitOffset = offset
+		if effectiveBytes+utf8.RuneLen(rune) > maxBytes {
+			return splitOffset, effectiveBytes
+		}
+		effectiveBytes += utf8.RuneLen(rune)
+	}
+	splitOffset = len(line)
+	return
 }
 
 // publishBatch calls PutLogEvents for a given set of InputLogEvents,
 // accounting for sequencing requirements (each request must reference the
 // sequence token returned by the previous request).
-func (l *logStream) publishBatch(events []wrappedEvent) {
-	if len(events) == 0 {
+func (l *logStream) publishBatch(batch *eventBatch) {
+	if batch.isEmpty() {
 		return
 	}
-
-	// events in a batch must be sorted by timestamp
-	// see http://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutLogEvents.html
-	sort.Sort(byTimestamp(events))
-	cwEvents := unwrapEvents(events)
+	cwEvents := unwrapEvents(batch.events())
 
 	nextSequenceToken, err := l.putLogEvents(cwEvents, l.sequenceToken)
 
@@ -546,7 +653,7 @@ func (l *logStream) putLogEvents(events []*cloudwatchlogs.InputLogEvent, sequenc
 	return resp.NextSequenceToken, nil
 }
 
-// ValidateLogOpt looks for awslogs-specific log options awslogs-region,
+// ValidateLogOpt looks for awslogs-specific log options awslogs-region, awslogs-endpoint
 // awslogs-group, awslogs-stream, awslogs-create-group, awslogs-datetime-format,
 // awslogs-multiline-pattern
 func ValidateLogOpt(cfg map[string]string) error {
@@ -556,6 +663,7 @@ func ValidateLogOpt(cfg map[string]string) error {
 		case logStreamKey:
 		case logCreateGroupKey:
 		case regionKey:
+		case endpointKey:
 		case tagKey:
 		case datetimeFormatKey:
 		case multilinePatternKey:
@@ -614,4 +722,71 @@ func unwrapEvents(events []wrappedEvent) []*cloudwatchlogs.InputLogEvent {
 		cwEvents[i] = input.inputLogEvent
 	}
 	return cwEvents
+}
+
+func newEventBatch() *eventBatch {
+	return &eventBatch{
+		batch: make([]wrappedEvent, 0),
+		bytes: 0,
+	}
+}
+
+// events returns a slice of wrappedEvents sorted in order of their
+// timestamps and then by their insertion order (see `byTimestamp`).
+//
+// Warning: this method is not threadsafe and must not be used
+// concurrently.
+func (b *eventBatch) events() []wrappedEvent {
+	sort.Sort(byTimestamp(b.batch))
+	return b.batch
+}
+
+// add adds an event to the batch of events accounting for the
+// necessary overhead for an event to be logged. An error will be
+// returned if the event cannot be added to the batch due to service
+// limits.
+//
+// Warning: this method is not threadsafe and must not be used
+// concurrently.
+func (b *eventBatch) add(event wrappedEvent, size int) bool {
+	addBytes := size + perEventBytes
+
+	// verify we are still within service limits
+	switch {
+	case len(b.batch)+1 > maximumLogEventsPerPut:
+		return false
+	case b.bytes+addBytes > maximumBytesPerPut:
+		return false
+	}
+
+	b.bytes += addBytes
+	b.batch = append(b.batch, event)
+
+	return true
+}
+
+// count is the number of batched events.  Warning: this method
+// is not threadsafe and must not be used concurrently.
+func (b *eventBatch) count() int {
+	return len(b.batch)
+}
+
+// size is the total number of bytes that the batch represents.
+//
+// Warning: this method is not threadsafe and must not be used
+// concurrently.
+func (b *eventBatch) size() int {
+	return b.bytes
+}
+
+func (b *eventBatch) isEmpty() bool {
+	zeroEvents := b.count() == 0
+	zeroSize := b.size() == 0
+	return zeroEvents && zeroSize
+}
+
+// reset prepares the batch for reuse.
+func (b *eventBatch) reset() {
+	b.bytes = 0
+	b.batch = b.batch[:0]
 }

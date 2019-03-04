@@ -1,4 +1,4 @@
-package remotecontext
+package remotecontext // import "github.com/docker/docker/builder/remotecontext"
 
 import (
 	"encoding/hex"
@@ -45,7 +45,7 @@ func (c *lazySource) Hash(path string) (string, error) {
 		return "", errors.WithStack(convertPathError(err, cleanPath))
 	}
 
-	fi, err := os.Lstat(fullPath)
+	fi, err := c.root.Lstat(fullPath)
 	if err != nil {
 		// Backwards compatibility: a missing file returns a path as hash.
 		// This is reached in the case of a broken symlink.

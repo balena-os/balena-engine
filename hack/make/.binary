@@ -53,6 +53,15 @@ fi
 COMMIT_RUNC="$RUNC_COMMIT"
 VERSION_RUNC="1.0.0-rc4+dev"
 
+# -buildmode=pie is not supported on Windows and Linux on mips.
+case "$(go env GOOS)/$(go env GOARCH)" in
+	windows/*|linux/mips*)
+		;;
+	*)
+		BUILDFLAGS+=( "-buildmode=pie" )
+		;;
+esac
+
 echo "Building: $DEST/$BINARY_FULLNAME"
 go build \
 	-o "$DEST/$BINARY_FULLNAME" \

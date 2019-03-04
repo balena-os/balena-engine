@@ -93,7 +93,7 @@ can take over 15 minutes to complete.
 
 1. Open a terminal.
 
-   For [Docker Toolbox](../../toolbox/overview.md) users, use `docker-machine status your_vm_name` to make sure your VM is running. You
+   For [Docker Toolbox](https://github.com/docker/toolbox) users, use `docker-machine status your_vm_name` to make sure your VM is running. You
    may need to run `eval "$(docker-machine env your_vm_name)"` to initialize your
    shell environment. If you use Docker for Mac or Docker for Windows, you do not need
    to use Docker Machine.
@@ -129,13 +129,14 @@ can take over 15 minutes to complete.
 
    ```none
    Successfully built 3d872560918e
-   docker run --rm -i --privileged -e BUILDFLAGS -e KEEPBUNDLE -e DOCKER_BUILD_GOGC -e DOCKER_BUILD_PKGS -e DOCKER_CLIENTONLY -e DOCKER_DEBUG -e DOCKER_EXPERIMENTAL -e DOCKER_GITCOMMIT -e DOCKER_GRAPHDRIVER=devicemapper -e DOCKER_INCREMENTAL_BINARY -e DOCKER_REMAP_ROOT -e DOCKER_STORAGE_OPTS -e DOCKER_USERLANDPROXY -e TESTDIRS -e TESTFLAGS -e TIMEOUT -v "home/ubuntu/repos/docker/bundles:/go/src/github.com/moby/moby/bundles" -t "docker-dev:dry-run-test" bash
-   root@f31fa223770f:/go/src/github.com/docker/docker#
+   Successfully tagged docker-dev:dry-run-test
+   docker run --rm -i --privileged -e BUILDFLAGS -e KEEPBUNDLE -e DOCKER_BUILD_GOGC -e DOCKER_BUILD_PKGS -e DOCKER_CLIENTONLY -e DOCKER_DEBUG -e DOCKER_EXPERIMENTAL -e DOCKER_GITCOMMIT -e DOCKER_GRAPHDRIVER=devicemapper -e DOCKER_INCREMENTAL_BINARY -e DOCKER_REMAP_ROOT -e DOCKER_STORAGE_OPTS -e DOCKER_USERLANDPROXY -e TESTDIRS -e TESTFLAGS -e TIMEOUT -v "home/ubuntu/repos/docker/bundles:/go/src/github.com/docker/docker/bundles" -t "docker-dev:dry-run-test" bash
+   #
    ```
 
    At this point, your prompt reflects the container's BASH shell.
 
-5. List the contents of the current directory (`/go/src/github.com/moby/moby`).
+5. List the contents of the current directory (`/go/src/github.com/docker/docker`).
 
    You should see the image's source from the  `/go/src/github.com/docker/docker`
    directory.
@@ -145,7 +146,7 @@ can take over 15 minutes to complete.
 6. Make a `dockerd` binary.
 
    ```none
-   root@a8b2885ab900:/go/src/github.com/docker/docker# hack/make.sh binary
+   # hack/make.sh binary
    Removing bundles/
 
    ---> Making bundle: binary (in bundles/binary)
@@ -159,13 +160,13 @@ can take over 15 minutes to complete.
    `/usr/local/bin/` directory.
 
    ```none
-   root@a8b2885ab900:/go/src/github.com/docker/docker# make install
+   # make install
    ```
 
 8. Start the Engine daemon running in the background.
 
    ```none
-   root@a8b2885ab900:/go/src/github.com/docker/docker# dockerd -D &
+   # dockerd -D &
    ...output snipped...
    DEBU[0001] Registering POST, /networks/{id:.*}/connect
    DEBU[0001] Registering POST, /networks/{id:.*}/disconnect
@@ -185,12 +186,64 @@ can take over 15 minutes to complete.
    hack/make.sh binary install-binary run
    ```
 
-9. Inside your container, check your Docker version.
+9. Inside your container, check your Docker versions:
 
    ```none
-   root@5f8630b873fe:/go/src/github.com/docker/docker# docker --version
-   Docker version 1.12.0-dev, build 6e728fb
+   # docker version
+   Client:
+    Version:      17.06.0-ce
+    API version:  1.30
+    Go version:   go1.8.3
+    Git commit:   02c1d87
+    Built:        Fri Jun 23 21:15:15 2017
+    OS/Arch:      linux/amd64
+
+   Server:
+    Version:      dev
+    API version:  1.35 (minimum version 1.12)
+    Go version:   go1.9.2
+    Git commit:   4aa6362da
+    Built:        Sat Dec  2 05:22:42 2017
+    OS/Arch:      linux/amd64
+    Experimental: false
    ```
+
+   Notice the split versions between client and server, which might be
+   unexpected. In more recent times the Docker CLI component (which provides the
+   `docker` command) has split out from the Moby project and is now maintained in:
+   
+   * [docker/cli](https://github.com/docker/cli) - The Docker CLI source-code;
+   * [docker/docker-ce](https://github.com/docker/docker-ce) - The Docker CE
+     edition project, which assembles engine, CLI and other components.
+   
+   The Moby project now defaults to a [fixed
+   version](https://github.com/docker/docker-ce/commits/v17.06.0-ce) of the
+   `docker` CLI for integration tests.
+
+   You may have noticed the following message when starting the container with the `shell` command:
+   
+   ```none
+   Makefile:123: The docker client CLI has moved to github.com/docker/cli. For a dev-test cycle involving the CLI, run:
+   DOCKER_CLI_PATH=/host/path/to/cli/binary make shell
+   then change the cli and compile into a binary at the same location.
+   ```
+
+   By setting `DOCKER_CLI_PATH` you can supply a newer `docker` CLI to the
+   server development container for testing and for `integration-cli`
+   test-execution:
+
+   ```none
+   make DOCKER_CLI_PATH=/home/ubuntu/git/docker-ce/components/packaging/static/build/linux/docker/docker BIND_DIR=. shell
+   ...
+   # which docker
+   /usr/local/cli/docker
+   # docker --version
+   Docker version 17.09.0-dev, build 
+   ```
+
+    This Docker CLI should be built from the [docker-ce
+    project](https://github.com/docker/docker-ce) and needs to be a Linux
+    binary.
 
    Inside the container you are running a development version. This is the version
    on the current branch. It reflects the value of the `VERSION` file at the
@@ -199,13 +252,13 @@ can take over 15 minutes to complete.
 10. Run the `hello-world` image.
 
     ```none
-    root@5f8630b873fe:/go/src/github.com/docker/docker# docker run hello-world
+    # docker run hello-world
     ```
 
 11. List the image you just downloaded.
 
     ```none
-    root@5f8630b873fe:/go/src/github.com/docker/docker# docker images
+    # docker images
 	REPOSITORY   TAG     IMAGE ID      CREATED        SIZE
 	hello-world  latest  c54a2cc56cbb  3 months ago   1.85 kB
     ```
@@ -294,7 +347,7 @@ example, you'll edit the help for the `attach` subcommand.
 10. To view your change, run the `dockerd --help` command in the docker development container shell.
 
    ```bash
-   root@b0cb4f22715d:/go/src/github.com/docker/docker# dockerd --help
+   # dockerd --help
 
    Usage:        dockerd COMMAND
 

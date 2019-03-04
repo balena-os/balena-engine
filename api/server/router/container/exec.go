@@ -1,7 +1,9 @@
-package container
+package container // import "github.com/docker/docker/api/server/router/container"
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,9 +12,9 @@ import (
 	"github.com/docker/docker/api/server/httputils"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/versions"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 )
 
 func (s *containerRouter) getExecByID(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
@@ -43,7 +45,10 @@ func (s *containerRouter) postContainerExecCreate(ctx context.Context, w http.Re
 
 	execConfig := &types.ExecConfig{}
 	if err := json.NewDecoder(r.Body).Decode(execConfig); err != nil {
-		return err
+		if err == io.EOF {
+			return errdefs.InvalidParameter(errors.New("got EOF while reading request body"))
+		}
+		return errdefs.InvalidParameter(err)
 	}
 
 	if len(execConfig.Cmd) == 0 {
@@ -83,7 +88,10 @@ func (s *containerRouter) postContainerExecStart(ctx context.Context, w http.Res
 
 	execStartCheck := &types.ExecStartCheck{}
 	if err := json.NewDecoder(r.Body).Decode(execStartCheck); err != nil {
-		return err
+		if err == io.EOF {
+			return errdefs.InvalidParameter(errors.New("got EOF while reading request body"))
+		}
+		return errdefs.InvalidParameter(err)
 	}
 
 	if exists, err := s.backend.ExecExists(execName); !exists {
@@ -137,11 +145,11 @@ func (s *containerRouter) postContainerExecResize(ctx context.Context, w http.Re
 	}
 	height, err := strconv.Atoi(r.Form.Get("h"))
 	if err != nil {
-		return validationError{err}
+		return errdefs.InvalidParameter(err)
 	}
 	width, err := strconv.Atoi(r.Form.Get("w"))
 	if err != nil {
-		return validationError{err}
+		return errdefs.InvalidParameter(err)
 	}
 
 	return s.backend.ContainerExecResize(vars["name"], height, width)

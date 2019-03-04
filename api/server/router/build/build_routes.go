@@ -1,13 +1,14 @@
-package build
+package build // import "github.com/docker/docker/api/server/router/build"
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -17,15 +18,15 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/versions"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
-	"github.com/docker/docker/pkg/system"
 	units "github.com/docker/go-units"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 )
 
 type invalidIsolationError string
@@ -70,22 +71,7 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 	options.Target = r.FormValue("target")
 	options.RemoteContext = r.FormValue("remote")
 	if versions.GreaterThanOrEqualTo(version, "1.32") {
-		// TODO @jhowardmsft. The following environment variable is an interim
-		// measure to allow the daemon to have a default platform if omitted by
-		// the client. This allows LCOW and WCOW to work with a down-level CLI
-		// for a short period of time, as the CLI changes can't be merged
-		// until after the daemon changes have been merged. Once the CLI is
-		// updated, this can be removed. PR for CLI is currently in
-		// https://github.com/docker/cli/pull/474.
-		apiPlatform := r.FormValue("platform")
-		if system.LCOWSupported() && apiPlatform == "" {
-			apiPlatform = os.Getenv("LCOW_API_PLATFORM_IF_OMITTED")
-		}
-		p := system.ParsePlatform(apiPlatform)
-		if err := system.ValidatePlatform(p); err != nil {
-			return nil, validationError{fmt.Errorf("invalid platform: %s", err)}
-		}
-		options.Platform = p.OS
+		options.Platform = r.FormValue("platform")
 	}
 
 	if r.Form.Get("shmsize") != "" {
@@ -104,14 +90,14 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 	}
 
 	if runtime.GOOS != "windows" && options.SecurityOpt != nil {
-		return nil, validationError{fmt.Errorf("The daemon on this platform does not support setting security options on build")}
+		return nil, errdefs.InvalidParameter(errors.New("The daemon on this platform does not support setting security options on build"))
 	}
 
 	var buildUlimits = []*units.Ulimit{}
 	ulimitsJSON := r.FormValue("ulimits")
 	if ulimitsJSON != "" {
 		if err := json.Unmarshal([]byte(ulimitsJSON), &buildUlimits); err != nil {
-			return nil, errors.Wrap(validationError{err}, "error reading ulimit settings")
+			return nil, errors.Wrap(errdefs.InvalidParameter(err), "error reading ulimit settings")
 		}
 		options.Ulimits = buildUlimits
 	}
@@ -132,7 +118,7 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 	if buildArgsJSON != "" {
 		var buildArgs = map[string]*string{}
 		if err := json.Unmarshal([]byte(buildArgsJSON), &buildArgs); err != nil {
-			return nil, errors.Wrap(validationError{err}, "error reading build args")
+			return nil, errors.Wrap(errdefs.InvalidParameter(err), "error reading build args")
 		}
 		options.BuildArgs = buildArgs
 	}
@@ -141,7 +127,7 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 	if labelsJSON != "" {
 		var labels = map[string]string{}
 		if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
-			return nil, errors.Wrap(validationError{err}, "error reading labels")
+			return nil, errors.Wrap(errdefs.InvalidParameter(err), "error reading labels")
 		}
 		options.Labels = labels
 	}
@@ -155,6 +141,12 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 		options.CacheFrom = cacheFrom
 	}
 	options.SessionID = r.FormValue("session")
+	options.BuildID = r.FormValue("buildid")
+	builderVersion, err := parseVersion(r.FormValue("version"))
+	if err != nil {
+		return nil, err
+	}
+	options.Version = builderVersion
 
 	var volumes = []string{}
 	volumesJSON := r.FormValue("volumes")
@@ -168,23 +160,56 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 	return options, nil
 }
 
+func parseVersion(s string) (types.BuilderVersion, error) {
+	if s == "" || s == string(types.BuilderV1) {
+		return types.BuilderV1, nil
+	}
+	if s == string(types.BuilderBuildKit) {
+		return types.BuilderBuildKit, nil
+	}
+	return "", errors.Errorf("invalid version %s", s)
+}
+
 func (br *buildRouter) postPrune(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
-	report, err := br.backend.PruneCache(ctx)
+	if err := httputils.ParseForm(r); err != nil {
+		return err
+	}
+	filters, err := filters.FromJSON(r.Form.Get("filters"))
+	if err != nil {
+		return errors.Wrap(err, "could not parse filters")
+	}
+	ksfv := r.FormValue("keep-storage")
+	if ksfv == "" {
+		ksfv = "0"
+	}
+	ks, err := strconv.Atoi(ksfv)
+	if err != nil {
+		return errors.Wrapf(err, "keep-storage is in bytes and expects an integer, got %v", ksfv)
+	}
+
+	opts := types.BuildCachePruneOptions{
+		All:         httputils.BoolValue(r, "all"),
+		Filters:     filters,
+		KeepStorage: int64(ks),
+	}
+
+	report, err := br.backend.PruneCache(ctx, opts)
 	if err != nil {
 		return err
 	}
 	return httputils.WriteJSON(w, http.StatusOK, report)
 }
 
-type validationError struct {
-	cause error
-}
+func (br *buildRouter) postCancel(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	w.Header().Set("Content-Type", "application/json")
 
-func (e validationError) Error() string {
-	return e.cause.Error()
-}
+	id := r.FormValue("id")
+	if id == "" {
+		return errors.Errorf("build ID not provided")
+	}
 
-func (e validationError) InvalidParameter() {}
+	return br.backend.Cancel(ctx, id)
+}
 
 func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	var (
@@ -194,18 +219,33 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 
 	w.Header().Set("Content-Type", "application/json")
 
-	output := ioutils.NewWriteFlusher(w)
+	body := r.Body
+	var ww io.Writer = w
+	if body != nil {
+		// there is a possibility that output is written before request body
+		// has been fully read so we need to protect against it.
+		// this can be removed when
+		// https://github.com/golang/go/issues/15527
+		// https://github.com/golang/go/issues/22209
+		// has been fixed
+		body, ww = wrapOutputBufferedUntilRequestRead(body, ww)
+	}
+
+	output := ioutils.NewWriteFlusher(ww)
 	defer output.Close()
+
 	errf := func(err error) error {
+
 		if httputils.BoolValue(r, "q") && notVerboseBuffer.Len() > 0 {
 			output.Write(notVerboseBuffer.Bytes())
 		}
+
 		// Do not write the error in the http output if it's still empty.
 		// This prevents from writing a 200(OK) when there is an internal error.
 		if !output.Flushed() {
 			return err
 		}
-		_, err = w.Write(streamformatter.FormatError(err))
+		_, err = output.Write(streamformatter.FormatError(err))
 		if err != nil {
 			logrus.Warnf("could not write error response: %v", err)
 		}
@@ -219,7 +259,7 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 	buildOptions.AuthConfigs = getAuthConfigs(r.Header)
 
 	if buildOptions.Squash && !br.daemon.HasExperimental() {
-		return validationError{errors.New("squash is only supported with experimental mode")}
+		return errdefs.InvalidParameter(errors.New("squash is only supported with experimental mode"))
 	}
 
 	out := io.Writer(output)
@@ -237,7 +277,7 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 	wantAux := versions.GreaterThanOrEqualTo(version, "1.30")
 
 	imgID, err := br.backend.Build(ctx, backend.BuildConfig{
-		Source:         r.Body,
+		Source:         body,
 		Options:        buildOptions,
 		ProgressWriter: buildProgressWriter(out, wantAux, createProgressReader),
 	})
@@ -295,4 +335,103 @@ func buildProgressWriter(out io.Writer, wantAux bool, createProgressReader func(
 		AuxFormatter:       aux,
 		ProgressReaderFunc: createProgressReader,
 	}
+}
+
+type flusher interface {
+	Flush()
+}
+
+func wrapOutputBufferedUntilRequestRead(rc io.ReadCloser, out io.Writer) (io.ReadCloser, io.Writer) {
+	var fl flusher = &ioutils.NopFlusher{}
+	if f, ok := out.(flusher); ok {
+		fl = f
+	}
+
+	w := &wcf{
+		buf:     bytes.NewBuffer(nil),
+		Writer:  out,
+		flusher: fl,
+	}
+	r := bufio.NewReader(rc)
+	_, err := r.Peek(1)
+	if err != nil {
+		return rc, out
+	}
+	rc = &rcNotifier{
+		Reader: r,
+		Closer: rc,
+		notify: w.notify,
+	}
+	return rc, w
+}
+
+type rcNotifier struct {
+	io.Reader
+	io.Closer
+	notify func()
+}
+
+func (r *rcNotifier) Read(b []byte) (int, error) {
+	n, err := r.Reader.Read(b)
+	if err != nil {
+		r.notify()
+	}
+	return n, err
+}
+
+func (r *rcNotifier) Close() error {
+	r.notify()
+	return r.Closer.Close()
+}
+
+type wcf struct {
+	io.Writer
+	flusher
+	mu      sync.Mutex
+	ready   bool
+	buf     *bytes.Buffer
+	flushed bool
+}
+
+func (w *wcf) Flush() {
+	w.mu.Lock()
+	w.flushed = true
+	if !w.ready {
+		w.mu.Unlock()
+		return
+	}
+	w.mu.Unlock()
+	w.flusher.Flush()
+}
+
+func (w *wcf) Flushed() bool {
+	w.mu.Lock()
+	b := w.flushed
+	w.mu.Unlock()
+	return b
+}
+
+func (w *wcf) Write(b []byte) (int, error) {
+	w.mu.Lock()
+	if !w.ready {
+		n, err := w.buf.Write(b)
+		w.mu.Unlock()
+		return n, err
+	}
+	w.mu.Unlock()
+	return w.Writer.Write(b)
+}
+
+func (w *wcf) notify() {
+	w.mu.Lock()
+	if !w.ready {
+		if w.buf.Len() > 0 {
+			io.Copy(w.Writer, w.buf)
+		}
+		if w.flushed {
+			w.flusher.Flush()
+		}
+		w.ready = true
+	}
+	w.mu.Unlock()
 }

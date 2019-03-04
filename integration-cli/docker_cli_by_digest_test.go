@@ -16,7 +16,8 @@ import (
 	"github.com/docker/docker/integration-cli/cli/build"
 	"github.com/go-check/check"
 	"github.com/opencontainers/go-digest"
-	"github.com/stretchr/testify/assert"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
 )
 
 var (
@@ -403,7 +404,7 @@ func (s *DockerRegistrySuite) TestInspectImageWithDigests(c *check.C) {
 	c.Assert(err, checker.IsNil)
 	c.Assert(imageJSON, checker.HasLen, 1)
 	c.Assert(imageJSON[0].RepoDigests, checker.HasLen, 1)
-	assert.Contains(c, imageJSON[0].RepoDigests, imageReference)
+	assert.Check(c, is.Contains(imageJSON[0].RepoDigests, imageReference))
 }
 
 func (s *DockerRegistrySuite) TestPsListContainersFilterAncestorImageByDigest(c *check.C) {
@@ -638,7 +639,7 @@ func (s *DockerRegistrySuite) TestPullFailsWithAlteredLayer(c *check.C) {
 	// digest verification for the target layer digest.
 
 	// Remove distribution cache to force a re-pull of the blobs
-	if err := os.RemoveAll(filepath.Join(testEnv.DockerBasePath(), "image", s.d.StorageDriver(), "distribution")); err != nil {
+	if err := os.RemoveAll(filepath.Join(testEnv.DaemonInfo.DockerRootDir, "image", s.d.StorageDriver(), "distribution")); err != nil {
 		c.Fatalf("error clearing distribution cache: %v", err)
 	}
 
@@ -684,7 +685,7 @@ func (s *DockerSchema1RegistrySuite) TestPullFailsWithAlteredLayer(c *check.C) {
 	// digest verification for the target layer digest.
 
 	// Remove distribution cache to force a re-pull of the blobs
-	if err := os.RemoveAll(filepath.Join(testEnv.DockerBasePath(), "image", s.d.StorageDriver(), "distribution")); err != nil {
+	if err := os.RemoveAll(filepath.Join(testEnv.DaemonInfo.DockerRootDir, "image", s.d.StorageDriver(), "distribution")); err != nil {
 		c.Fatalf("error clearing distribution cache: %v", err)
 	}
 

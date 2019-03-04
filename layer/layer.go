@@ -7,7 +7,7 @@
 // read-only and writable layers. The exported
 // tar data for a read-only layer should match
 // the tar used to create the layer.
-package layer
+package layer // import "github.com/docker/docker/layer"
 
 import (
 	"errors"
@@ -66,14 +66,6 @@ func (id ChainID) String() string {
 	return string(id)
 }
 
-// OS is the operating system of a layer
-type OS string
-
-// String returns a string rendition of layers target operating system
-func (id OS) String() string {
-	return string(id)
-}
-
 // DiffID is the hash of an individual layer tar.
 type DiffID digest.Digest
 
@@ -112,9 +104,6 @@ type Layer interface {
 
 	// Parent returns the next layer in the layer chain.
 	Parent() Layer
-
-	// OS returns the operating system of the layer
-	OS() OS
 
 	// Size returns the size of the entire layer chain. The size
 	// is calculated from the total size of all files in the layers.
@@ -196,7 +185,7 @@ type CreateRWLayerOpts struct {
 // Store represents a backend for managing both
 // read-only and read-write layers.
 type Store interface {
-	Register(io.Reader, ChainID, OS) (Layer, error)
+	Register(io.Reader, ChainID) (Layer, error)
 	Get(ChainID) (Layer, error)
 	Map() map[ChainID]Layer
 	Release(Layer) ([]Metadata, error)
@@ -214,55 +203,7 @@ type Store interface {
 // DescribableStore represents a layer store capable of storing
 // descriptors for layers.
 type DescribableStore interface {
-	RegisterWithDescriptor(io.Reader, ChainID, OS, distribution.Descriptor) (Layer, error)
-}
-
-// MetadataTransaction represents functions for setting layer metadata
-// with a single transaction.
-type MetadataTransaction interface {
-	SetSize(int64) error
-	SetParent(parent ChainID) error
-	SetDiffID(DiffID) error
-	SetCacheID(string) error
-	SetDescriptor(distribution.Descriptor) error
-	SetOS(OS) error
-	TarSplitWriter(compressInput bool) (io.WriteCloser, error)
-
-	Commit(ChainID) error
-	Cancel() error
-	String() string
-}
-
-// MetadataStore represents a backend for persisting
-// metadata about layers and providing the metadata
-// for restoring a Store.
-type MetadataStore interface {
-	// StartTransaction starts an update for new metadata
-	// which will be used to represent an ID on commit.
-	StartTransaction() (MetadataTransaction, error)
-
-	GetSize(ChainID) (int64, error)
-	GetParent(ChainID) (ChainID, error)
-	GetDiffID(ChainID) (DiffID, error)
-	GetCacheID(ChainID) (string, error)
-	GetDescriptor(ChainID) (distribution.Descriptor, error)
-	GetOS(ChainID) (OS, error)
-	TarSplitReader(ChainID) (io.ReadCloser, error)
-
-	SetMountID(string, string) error
-	SetInitID(string, string) error
-	SetMountParent(string, ChainID) error
-
-	GetMountID(string) (string, error)
-	GetInitID(string) (string, error)
-	GetMountParent(string) (ChainID, error)
-
-	// List returns the full list of referenced
-	// read-only and read-write layers
-	List() ([]ChainID, []string, error)
-
-	Remove(ChainID) error
-	RemoveMount(string) error
+	RegisterWithDescriptor(io.Reader, ChainID, distribution.Descriptor) (Layer, error)
 }
 
 // CreateChainID returns ID for a layerDigest slice

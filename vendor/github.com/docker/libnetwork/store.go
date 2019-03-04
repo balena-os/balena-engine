@@ -5,11 +5,17 @@ import (
 	"strings"
 
 	"github.com/docker/libkv/store/boltdb"
+	"github.com/docker/libkv/store/consul"
+	"github.com/docker/libkv/store/etcd"
+	"github.com/docker/libkv/store/zookeeper"
 	"github.com/docker/libnetwork/datastore"
 	"github.com/sirupsen/logrus"
 )
 
 func registerKVStores() {
+	consul.Register()
+	zookeeper.Register()
+	etcd.Register()
 	boltdb.Register()
 }
 
@@ -473,7 +479,7 @@ func (c *controller) networkCleanup() {
 	for _, n := range networks {
 		if n.inDelete {
 			logrus.Infof("Removing stale network %s (%s)", n.Name(), n.ID())
-			if err := n.delete(true); err != nil {
+			if err := n.delete(true, true); err != nil {
 				logrus.Debugf("Error while removing stale network: %v", err)
 			}
 		}

@@ -8,10 +8,8 @@ package {{ .Package }}
 // ----------------------------------------------------------------------------
 
 import (
+	"context"
 	"net/http"
-
-	context "golang.org/x/net/context"
-
   {{ range .DefaultImports }}{{ printf "%q" . }}
   {{ end }}
   {{ range $key, $value := .Imports }}{{ $key }} {{ printf "%q" $value }}
@@ -20,7 +18,7 @@ import (
 
 
 {{ range .ExtraSchemas }}
-// {{ .Name }} {{ template "docstring" . }}
+// {{ .Name }} {{ comment .Description }}
 // swagger:model {{ .Name }}
 {{ template "schema" . }}
 {{ end }}

@@ -44,10 +44,10 @@ create network namespaces and allocate interfaces for containers to use.
 package libnetwork
 
 import (
-	"container/heap"
 	"fmt"
 	"net"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -60,7 +60,7 @@ import (
 	"github.com/docker/libnetwork/cluster"
 	"github.com/docker/libnetwork/config"
 	"github.com/docker/libnetwork/datastore"
-	"github.com/docker/libnetwork/diagnose"
+	"github.com/docker/libnetwork/diagnostic"
 	"github.com/docker/libnetwork/discoverapi"
 	"github.com/docker/libnetwork/driverapi"
 	"github.com/docker/libnetwork/drvregistry"
@@ -69,6 +69,7 @@ import (
 	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/osl"
 	"github.com/docker/libnetwork/types"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -120,7 +121,7 @@ type NetworkController interface {
 	// Stop network controller
 	Stop()
 
-	// ReloadCondfiguration updates the controller configuration
+	// ReloadConfiguration updates the controller configuration
 	ReloadConfiguration(cfgOptions ...config.Option) error
 
 	// SetClusterProvider sets cluster provider
@@ -135,12 +136,12 @@ type NetworkController interface {
 	// SetKeys configures the encryption key for gossip and overlay data path
 	SetKeys(keys []*types.EncryptionKey) error
 
-	// StartDiagnose start the network diagnose mode
-	StartDiagnose(port int)
-	// StopDiagnose start the network diagnose mode
-	StopDiagnose()
-	// IsDiagnoseEnabled returns true if the diagnose is enabled
-	IsDiagnoseEnabled() bool
+	// StartDiagnostic start the network diagnostic mode
+	StartDiagnostic(port int)
+	// StopDiagnostic start the network diagnostic mode
+	StopDiagnostic()
+	// IsDiagnosticEnabled returns true if the diagnostic is enabled
+	IsDiagnosticEnabled() bool
 }
 
 // NetworkWalker is a client provided function which will be used to walk the Networks.
@@ -175,7 +176,7 @@ type controller struct {
 	agentStopDone          chan struct{}
 	keys                   []*types.EncryptionKey
 	clusterConfigAvailable bool
-	DiagnoseServer         *diagnose.Server
+	DiagnosticServer       *diagnostic.Server
 	sync.Mutex
 }
 
@@ -187,16 +188,16 @@ type initializer struct {
 // New creates a new instance of network controller.
 func New(cfgOptions ...config.Option) (NetworkController, error) {
 	c := &controller{
-		id:              stringid.GenerateRandomID(),
-		cfg:             config.ParseConfigOptions(cfgOptions...),
-		sandboxes:       sandboxTable{},
-		svcRecords:      make(map[string]svcInfo),
-		serviceBindings: make(map[serviceKey]*service),
-		agentInitDone:   make(chan struct{}),
-		networkLocker:   locker.New(),
-		DiagnoseServer:  diagnose.New(),
+		id:               stringid.GenerateRandomID(),
+		cfg:              config.ParseConfigOptions(cfgOptions...),
+		sandboxes:        sandboxTable{},
+		svcRecords:       make(map[string]svcInfo),
+		serviceBindings:  make(map[serviceKey]*service),
+		agentInitDone:    make(chan struct{}),
+		networkLocker:    locker.New(),
+		DiagnosticServer: diagnostic.New(),
 	}
-	c.DiagnoseServer.Init()
+	c.DiagnosticServer.Init()
 
 	if err := c.initStores(); err != nil {
 		return nil, err
@@ -221,7 +222,7 @@ func New(cfgOptions ...config.Option) (NetworkController, error) {
 		}
 	}
 
-	if err = initIPAMDrivers(drvRegistry, nil, c.getStore(datastore.GlobalScope)); err != nil {
+	if err = initIPAMDrivers(drvRegistry, nil, c.getStore(datastore.GlobalScope), c.cfg.Daemon.DefaultAddressPool); err != nil {
 		return nil, err
 	}
 
@@ -699,6 +700,9 @@ func (c *controller) RegisterDriver(networkType string, driver driverapi.Driver,
 	return nil
 }
 
+// XXX  This should be made driver agnostic.  See comment below.
+const overlayDSROptionString = "dsr"
+
 // NewNetwork creates a new network of the specified network type. The options
 // are network specific and modeled in a generic way.
 func (c *controller) NewNetwork(networkType, name string, id string, options ...NetworkOption) (Network, error) {
@@ -722,15 +726,16 @@ func (c *controller) NewNetwork(networkType, name string, id string, options ...
 	defaultIpam := defaultIpamForNetworkType(networkType)
 	// Construct the network object
 	network := &network{
-		name:        name,
-		networkType: networkType,
-		generic:     map[string]interface{}{netlabel.GenericData: make(map[string]string)},
-		ipamType:    defaultIpam,
-		id:          id,
-		created:     time.Now(),
-		ctrlr:       c,
-		persist:     true,
-		drvOnce:     &sync.Once{},
+		name:             name,
+		networkType:      networkType,
+		generic:          map[string]interface{}{netlabel.GenericData: make(map[string]string)},
+		ipamType:         defaultIpam,
+		id:               id,
+		created:          time.Now(),
+		ctrlr:            c,
+		persist:          true,
+		drvOnce:          &sync.Once{},
+		loadBalancerMode: loadBalancerModeDefault,
 	}
 
 	network.processOptions(options...)
@@ -828,6 +833,21 @@ func (c *controller) NewNetwork(networkType, name string, id string, options ...
 		}
 	}()
 
+	// XXX If the driver type is "overlay" check the options for DSR
+	// being set.  If so, set the network's load balancing mode to DSR.
+	// This should really be done in a network option, but due to
+	// time pressure to get this in without adding changes to moby,
+	// swarm and CLI, it is being implemented as a driver-specific
+	// option.  Unfortunately, drivers can't influence the core
+	// "libnetwork.network" data type.  Hence we need this hack code
+	// to implement in this manner.
+	if gval, ok := network.generic[netlabel.GenericData]; ok && network.networkType == "overlay" {
+		optMap := gval.(map[string]string)
+		if _, ok := optMap[overlayDSROptionString]; ok {
+			network.loadBalancerMode = loadBalancerModeDSR
+		}
+	}
+
 addToStore:
 	// First store the endpoint count, then the network. To avoid to
 	// end up with a datastore containing a network and not an epCnt,
@@ -870,7 +890,7 @@ addToStore:
 		}
 	}()
 
-	if len(network.loadBalancerIP) != 0 {
+	if network.hasLoadBalancerEndpoint() {
 		if err = network.createLoadBalancerSandbox(); err != nil {
 			return nil, err
 		}
@@ -882,9 +902,7 @@ addToStore:
 		c.Unlock()
 	}
 
-	c.Lock()
-	arrangeUserFilterRule()
-	c.Unlock()
+	c.arrangeUserFilterRule()
 
 	return network, nil
 }
@@ -1076,12 +1094,17 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 	}
 	c.Unlock()
 
+	sandboxID := stringid.GenerateRandomID()
+	if runtime.GOOS == "windows" {
+		sandboxID = containerID
+	}
+
 	// Create sandbox and process options first. Key generation depends on an option
 	if sb == nil {
 		sb = &sandbox{
-			id:                 stringid.GenerateRandomID(),
+			id:                 sandboxID,
 			containerID:        containerID,
-			endpoints:          epHeap{},
+			endpoints:          []*endpoint{},
 			epPriority:         map[string]int{},
 			populatedEndpoints: map[string]struct{}{},
 			config:             containerConfig{},
@@ -1089,8 +1112,6 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 			extDNS:             []extDNSEntry{},
 		}
 	}
-
-	heap.Init(&sb.endpoints)
 
 	sb.processOptions(options...)
 
@@ -1105,6 +1126,8 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 		sb.config.hostsPath = filepath.Join(c.cfg.Daemon.DataDir, "/network/files/hosts")
 		sb.config.resolvConfPath = filepath.Join(c.cfg.Daemon.DataDir, "/network/files/resolv.conf")
 		sb.id = "ingress_sbox"
+	} else if sb.loadBalancerNID != "" {
+		sb.id = "lb_" + sb.loadBalancerNID
 	}
 	c.Unlock()
 
@@ -1140,6 +1163,11 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 		if sb.osSbox, err = osl.NewSandbox(sb.Key(), !sb.config.useDefaultSandBox, false); err != nil {
 			return nil, fmt.Errorf("failed to create new osl sandbox: %v", err)
 		}
+	}
+
+	if sb.osSbox != nil {
+		// Apply operating specific knobs on the load balancer sandbox
+		sb.osSbox.ApplyOSTweaks(sb.oslTypes)
 	}
 
 	c.Lock()
@@ -1251,7 +1279,7 @@ func (c *controller) loadDriver(networkType string) error {
 	}
 
 	if err != nil {
-		if err == plugins.ErrNotFound {
+		if errors.Cause(err) == plugins.ErrNotFound {
 			return types.NotFoundErrorf(err.Error())
 		}
 		return err
@@ -1303,27 +1331,27 @@ func (c *controller) Stop() {
 	osl.GC()
 }
 
-// StartDiagnose start the network diagnose mode
-func (c *controller) StartDiagnose(port int) {
+// StartDiagnostic start the network dias mode
+func (c *controller) StartDiagnostic(port int) {
 	c.Lock()
-	if !c.DiagnoseServer.IsDebugEnable() {
-		c.DiagnoseServer.EnableDebug("127.0.0.1", port)
+	if !c.DiagnosticServer.IsDiagnosticEnabled() {
+		c.DiagnosticServer.EnableDiagnostic("127.0.0.1", port)
 	}
 	c.Unlock()
 }
 
-// StopDiagnose start the network diagnose mode
-func (c *controller) StopDiagnose() {
+// StopDiagnostic start the network dias mode
+func (c *controller) StopDiagnostic() {
 	c.Lock()
-	if c.DiagnoseServer.IsDebugEnable() {
-		c.DiagnoseServer.DisableDebug()
+	if c.DiagnosticServer.IsDiagnosticEnabled() {
+		c.DiagnosticServer.DisableDiagnostic()
 	}
 	c.Unlock()
 }
 
-// IsDiagnoseEnabled returns true if the diagnose is enabled
-func (c *controller) IsDiagnoseEnabled() bool {
+// IsDiagnosticEnabled returns true if the dias is enabled
+func (c *controller) IsDiagnosticEnabled() bool {
 	c.Lock()
 	defer c.Unlock()
-	return c.DiagnoseServer.IsDebugEnable()
+	return c.DiagnosticServer.IsDiagnosticEnabled()
 }

@@ -1,6 +1,6 @@
 // +build !windows
 
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"github.com/docker/docker/container"
@@ -18,8 +18,10 @@ func (daemon *Daemon) tarCopyOptions(container *container.Container, noOverwrite
 		return nil, err
 	}
 
+	identity := idtools.Identity{UID: user.Uid, GID: user.Gid}
+
 	return &archive.TarOptions{
 		NoOverwriteDirNonDir: noOverwriteDirNonDir,
-		ChownOpts:            &idtools.IDPair{UID: user.Uid, GID: user.Gid},
+		ChownOpts:            &identity,
 	}, nil
 }

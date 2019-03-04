@@ -53,14 +53,16 @@
 
 // TODO: Grab logs from SVM at terminate or errors
 
-package lcow
+package lcow // import "github.com/docker/docker/daemon/graphdriver/lcow"
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -69,20 +71,33 @@ import (
 	"time"
 
 	"github.com/Microsoft/hcsshim"
+	"github.com/Microsoft/hcsshim/ext4/tar2ext4"
 	"github.com/Microsoft/opengcs/client"
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/reexec"
 	"github.com/docker/docker/pkg/system"
 	"github.com/sirupsen/logrus"
 )
+
+// noreexec controls reexec functionality. Off by default, on for debugging purposes.
+var noreexec = false
 
 // init registers this driver to the register. It gets initialised by the
 // function passed in the second parameter, implemented in this file.
 func init() {
 	graphdriver.Register("lcow", InitDriver)
+	// DOCKER_LCOW_NOREEXEC allows for inline processing which makes
+	// debugging issues in the re-exec codepath significantly easier.
+	if os.Getenv("DOCKER_LCOW_NOREEXEC") != "" {
+		logrus.Warnf("LCOW Graphdriver is set to not re-exec. This is intended for debugging purposes only.")
+		noreexec = true
+	} else {
+		reexec.Register("docker-lcow-tar2ext4", tar2ext4Reexec)
+	}
 }
 
 const (
@@ -181,17 +196,17 @@ func InitDriver(dataRoot string, options []string, _, _ []idtools.IDMap) (graphd
 	}
 
 	// Make sure the dataRoot directory is created
-	if err := idtools.MkdirAllAndChown(dataRoot, 0700, idtools.IDPair{UID: 0, GID: 0}); err != nil {
+	if err := idtools.MkdirAllAndChown(dataRoot, 0700, idtools.Identity{UID: 0, GID: 0}); err != nil {
 		return nil, fmt.Errorf("%s failed to create '%s': %v", title, dataRoot, err)
 	}
 
 	// Make sure the cache directory is created under dataRoot
-	if err := idtools.MkdirAllAndChown(cd, 0700, idtools.IDPair{UID: 0, GID: 0}); err != nil {
+	if err := idtools.MkdirAllAndChown(cd, 0700, idtools.Identity{UID: 0, GID: 0}); err != nil {
 		return nil, fmt.Errorf("%s failed to create '%s': %v", title, cd, err)
 	}
 
 	// Make sure the scratch directory is created under dataRoot
-	if err := idtools.MkdirAllAndChown(sd, 0700, idtools.IDPair{UID: 0, GID: 0}); err != nil {
+	if err := idtools.MkdirAllAndChown(sd, 0700, idtools.Identity{UID: 0, GID: 0}); err != nil {
 		return nil, fmt.Errorf("%s failed to create '%s': %v", title, sd, err)
 	}
 
@@ -210,6 +225,17 @@ func (d *Driver) getVMID(id string) string {
 	return id
 }
 
+// remapLongToShortContainerPath does the mapping of a long container path for a
+// SCSI attached disk, to a short container path where it's actually mounted.
+func remapLongToShortContainerPath(longContainerPath string, attachCounter uint64, svmName string) string {
+	shortContainerPath := longContainerPath
+	if shortContainerPath != "" && shortContainerPath != toolsScratchPath {
+		shortContainerPath = fmt.Sprintf("/tmp/d%d", attachCounter)
+		logrus.Debugf("lcowdriver: UVM %s: remapping %s --> %s", svmName, longContainerPath, shortContainerPath)
+	}
+	return shortContainerPath
+}
+
 // startServiceVMIfNotRunning starts a service utility VM if it is not currently running.
 // It can optionally be started with a mapped virtual disk. Returns a opengcs config structure
 // representing the VM.
@@ -217,26 +243,28 @@ func (d *Driver) startServiceVMIfNotRunning(id string, mvdToAdd []hcsshim.Mapped
 	// Use the global ID if in global mode
 	id = d.getVMID(id)
 
-	title := fmt.Sprintf("lcowdriver: startservicevmifnotrunning %s:", id)
+	title := "lcowdriver: startServiceVMIfNotRunning " + id
 
 	// Attempt to add ID to the service vm map
-	logrus.Debugf("%s: Adding entry to service vm map", title)
+	logrus.Debugf("%s: adding entry to service vm map", title)
 	svm, exists, err := d.serviceVms.add(id)
 	if err != nil && err == errVMisTerminating {
 		// VM is in the process of terminating. Wait until it's done and and then try again
-		logrus.Debugf("%s: VM with current ID still in the process of terminating: %s", title, id)
+		logrus.Debugf("%s: VM with current ID still in the process of terminating", title)
 		if err := svm.getStopError(); err != nil {
-			logrus.Debugf("%s: VM %s did not stop successfully: %s", title, id, err)
+			logrus.Debugf("%s: VM did not stop successfully: %s", title, err)
 			return nil, err
 		}
 		return d.startServiceVMIfNotRunning(id, mvdToAdd, context)
 	} else if err != nil {
-		logrus.Debugf("%s: failed to add service vm to map: %s", err)
+		logrus.Debugf("%s: failed to add service vm to map: %s", title, err)
 		return nil, fmt.Errorf("%s: failed to add to service vm map: %s", title, err)
 	}
 
 	if exists {
 		// Service VM is already up and running. In this case, just hot add the vhds.
+		// Note that hotAddVHDs will remap long to short container paths, so no need
+		// for us to that here.
 		logrus.Debugf("%s: service vm already exists. Just hot adding: %+v", title, mvdToAdd)
 		if err := svm.hotAddVHDs(mvdToAdd...); err != nil {
 			logrus.Debugf("%s: failed to hot add vhds on service vm creation: %s", title, err)
@@ -246,7 +274,7 @@ func (d *Driver) startServiceVMIfNotRunning(id string, mvdToAdd []hcsshim.Mapped
 	}
 
 	// We are the first service for this id, so we need to start it
-	logrus.Debugf("%s: service vm doesn't exist. Now starting it up: %s", title, id)
+	logrus.Debugf("%s: service vm doesn't exist. Now starting it up", title)
 
 	defer func() {
 		// Signal that start has finished, passing in the error if any.
@@ -259,7 +287,7 @@ func (d *Driver) startServiceVMIfNotRunning(id string, mvdToAdd []hcsshim.Mapped
 
 	// Generate a default configuration
 	if err := svm.config.GenerateDefault(d.options); err != nil {
-		return nil, fmt.Errorf("%s failed to generate default gogcs configuration for global svm (%s): %s", title, context, err)
+		return nil, fmt.Errorf("%s: failed to generate default gogcs configuration for global svm (%s): %s", title, context, err)
 	}
 
 	// For the name, we deliberately suffix if safe-mode to ensure that it doesn't
@@ -275,19 +303,19 @@ func (d *Driver) startServiceVMIfNotRunning(id string, mvdToAdd []hcsshim.Mapped
 	// and not in the process of being created by another thread.
 	scratchTargetFile := filepath.Join(d.dataRoot, scratchDirectory, fmt.Sprintf("%s.vhdx", id))
 
-	logrus.Debugf("%s locking cachedScratchMutex", title)
+	logrus.Debugf("%s: locking cachedScratchMutex", title)
 	d.cachedScratchMutex.Lock()
 	if _, err := os.Stat(d.cachedScratchFile); err == nil {
 		// Make a copy of cached scratch to the scratch directory
-		logrus.Debugf("lcowdriver: startServiceVmIfNotRunning: (%s) cloning cached scratch for mvd", context)
+		logrus.Debugf("%s: (%s) cloning cached scratch for mvd", title, context)
 		if err := client.CopyFile(d.cachedScratchFile, scratchTargetFile, true); err != nil {
-			logrus.Debugf("%s releasing cachedScratchMutex on err: %s", title, err)
+			logrus.Debugf("%s: releasing cachedScratchMutex on err: %s", title, err)
 			d.cachedScratchMutex.Unlock()
 			return nil, err
 		}
 
 		// Add the cached clone as a mapped virtual disk
-		logrus.Debugf("lcowdriver: startServiceVmIfNotRunning: (%s) adding cloned scratch as mvd", context)
+		logrus.Debugf("%s: (%s) adding cloned scratch as mvd", title, context)
 		mvd := hcsshim.MappedVirtualDisk{
 			HostPath:          scratchTargetFile,
 			ContainerPath:     toolsScratchPath,
@@ -297,17 +325,30 @@ func (d *Driver) startServiceVMIfNotRunning(id string, mvdToAdd []hcsshim.Mapped
 		svm.scratchAttached = true
 	}
 
-	logrus.Debugf("%s releasing cachedScratchMutex", title)
+	logrus.Debugf("%s: releasing cachedScratchMutex", title)
 	d.cachedScratchMutex.Unlock()
 
-	// If requested to start it with a mapped virtual disk, add it now.
-	svm.config.MappedVirtualDisks = append(svm.config.MappedVirtualDisks, mvdToAdd...)
-	for _, mvd := range svm.config.MappedVirtualDisks {
-		svm.attachedVHDs[mvd.HostPath] = 1
+	// Add mapped virtual disks. First those that are already in the configuration. Generally,
+	// the only one that will be here is the service VMs scratch. The exception is when invoked
+	// via the graphdrivers DiffGetter implementation.
+	for i, mvd := range svm.config.MappedVirtualDisks {
+		svm.attachCounter++
+		svm.attachedVHDs[mvd.HostPath] = &attachedVHD{refCount: 1, attachCounter: svm.attachCounter}
+
+		// No-op for the service VMs scratch disk. Only applicable in the DiffGetter interface invocation.
+		svm.config.MappedVirtualDisks[i].ContainerPath = remapLongToShortContainerPath(mvd.ContainerPath, svm.attachCounter, svm.config.Name)
+	}
+
+	// Then the remaining ones to add, and adding them to the startup configuration.
+	for _, mvd := range mvdToAdd {
+		svm.attachCounter++
+		svm.attachedVHDs[mvd.HostPath] = &attachedVHD{refCount: 1, attachCounter: svm.attachCounter}
+		mvd.ContainerPath = remapLongToShortContainerPath(mvd.ContainerPath, svm.attachCounter, svm.config.Name)
+		svm.config.MappedVirtualDisks = append(svm.config.MappedVirtualDisks, mvd)
 	}
 
 	// Start it.
-	logrus.Debugf("lcowdriver: startServiceVmIfNotRunning: (%s) starting %s", context, svm.config.Name)
+	logrus.Debugf("%s: (%s) starting %s", title, context, svm.config.Name)
 	if err := svm.config.StartUtilityVM(); err != nil {
 		return nil, fmt.Errorf("failed to start service utility VM (%s): %s", context, err)
 	}
@@ -315,31 +356,31 @@ func (d *Driver) startServiceVMIfNotRunning(id string, mvdToAdd []hcsshim.Mapped
 	// defer function to terminate the VM if the next steps fail
 	defer func() {
 		if err != nil {
-			waitTerminate(svm, fmt.Sprintf("startServiceVmIfNotRunning: %s (%s)", id, context))
+			waitTerminate(svm, fmt.Sprintf("%s: (%s)", title, context))
 		}
 	}()
 
 	// Now we have a running service VM, we can create the cached scratch file if it doesn't exist.
-	logrus.Debugf("%s locking cachedScratchMutex", title)
+	logrus.Debugf("%s: locking cachedScratchMutex", title)
 	d.cachedScratchMutex.Lock()
 	if _, err := os.Stat(d.cachedScratchFile); err != nil {
-		logrus.Debugf("%s (%s): creating an SVM scratch", title, context)
+		logrus.Debugf("%s: (%s) creating an SVM scratch", title, context)
 
 		// Don't use svm.CreateExt4Vhdx since that only works when the service vm is setup,
 		// but we're still in that process right now.
 		if err := svm.config.CreateExt4Vhdx(scratchTargetFile, client.DefaultVhdxSizeGB, d.cachedScratchFile); err != nil {
-			logrus.Debugf("%s (%s): releasing cachedScratchMutex on error path", title, context)
+			logrus.Debugf("%s: (%s) releasing cachedScratchMutex on error path", title, context)
 			d.cachedScratchMutex.Unlock()
 			logrus.Debugf("%s: failed to create vm scratch %s: %s", title, scratchTargetFile, err)
 			return nil, fmt.Errorf("failed to create SVM scratch VHDX (%s): %s", context, err)
 		}
 	}
-	logrus.Debugf("%s (%s): releasing cachedScratchMutex", title, context)
+	logrus.Debugf("%s: (%s) releasing cachedScratchMutex", title, context)
 	d.cachedScratchMutex.Unlock()
 
 	// Hot-add the scratch-space if not already attached
 	if !svm.scratchAttached {
-		logrus.Debugf("lcowdriver: startServiceVmIfNotRunning: (%s) hot-adding scratch %s", context, scratchTargetFile)
+		logrus.Debugf("%s: (%s) hot-adding scratch %s", title, context, scratchTargetFile)
 		if err := svm.hotAddVHDsAtStart(hcsshim.MappedVirtualDisk{
 			HostPath:          scratchTargetFile,
 			ContainerPath:     toolsScratchPath,
@@ -349,9 +390,10 @@ func (d *Driver) startServiceVMIfNotRunning(id string, mvdToAdd []hcsshim.Mapped
 			return nil, fmt.Errorf("failed to hot-add %s failed: %s", scratchTargetFile, err)
 		}
 		svm.scratchAttached = true
+		// Don't need to ref-count here as it will be done via hotAddVHDsAtStart() call above.
 	}
 
-	logrus.Debugf("lcowdriver: startServiceVmIfNotRunning: (%s) success", context)
+	logrus.Debugf("%s: (%s) success", title, context)
 	return svm, nil
 }
 
@@ -409,7 +451,7 @@ func (d *Driver) terminateServiceVM(id, context string, force bool) (err error) 
 		svm.signalStopFinished(err)
 	}()
 
-	// Now it's possible that the serivce VM failed to start and now we are trying to termiante it.
+	// Now it's possible that the service VM failed to start and now we are trying to terminate it.
 	// In this case, we will relay the error to the goroutines waiting for this vm to stop.
 	if err := svm.getStartError(); err != nil {
 		logrus.Debugf("lcowdriver: terminateservicevm: %s had failed to start up: %s", id, err)
@@ -785,8 +827,13 @@ func (d *Driver) Diff(id, parent string) (io.ReadCloser, error) {
 	}
 
 	// Obtain the tar stream for it
-	logrus.Debugf("%s: %s %s, size %d, ReadOnly %t", title, ld.filename, mvd.ContainerPath, ld.size, ld.isSandbox)
-	tarReadCloser, err := svm.config.VhdToTar(mvd.HostPath, mvd.ContainerPath, ld.isSandbox, ld.size)
+	// The actual container path will have be remapped to a short name, so use that.
+	actualContainerPath := svm.getShortContainerPath(&mvd)
+	if actualContainerPath == "" {
+		return nil, fmt.Errorf("failed to get short container path for %+v in SVM %s", mvd, svm.config.Name)
+	}
+	logrus.Debugf("%s: %s %s, size %d, ReadOnly %t", title, ld.filename, actualContainerPath, ld.size, ld.isSandbox)
+	tarReadCloser, err := svm.config.VhdToTar(mvd.HostPath, actualContainerPath, ld.isSandbox, ld.size)
 	if err != nil {
 		svm.hotRemoveVHDs(mvd)
 		d.terminateServiceVM(id, fmt.Sprintf("diff %s", id), false)
@@ -812,32 +859,72 @@ func (d *Driver) Diff(id, parent string) (io.ReadCloser, error) {
 func (d *Driver) ApplyDiff(id, parent string, diff io.Reader) (int64, error) {
 	logrus.Debugf("lcowdriver: applydiff: id %s", id)
 
-	svm, err := d.startServiceVMIfNotRunning(id, nil, fmt.Sprintf("applydiff %s", id))
+	// Log failures here as it's undiagnosable sometimes, due to a possible panic.
+	// See https://github.com/moby/moby/issues/37955 for more information.
+
+	dest := filepath.Join(d.dataRoot, id, layerFilename)
+	if !noreexec {
+		cmd := reexec.Command([]string{"docker-lcow-tar2ext4", dest}...)
+		stdout := bytes.NewBuffer(nil)
+		stderr := bytes.NewBuffer(nil)
+		cmd.Stdin = diff
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+
+		if err := cmd.Start(); err != nil {
+			logrus.Warnf("lcowdriver: applydiff: id %s failed to start re-exec: %s", id, err)
+			return 0, err
+		}
+
+		if err := cmd.Wait(); err != nil {
+			logrus.Warnf("lcowdriver: applydiff: id %s failed %s", id, err)
+			return 0, fmt.Errorf("re-exec error: %v: stderr: %s", err, stderr)
+		}
+		return strconv.ParseInt(stdout.String(), 10, 64)
+	}
+	// The inline case
+	size, err := tar2ext4Actual(dest, diff)
+	if err != nil {
+		logrus.Warnf("lcowdriver: applydiff: id %s failed %s", id, err)
+	}
+	return size, err
+}
+
+// tar2ext4Reexec is the re-exec entry point for writing a layer from a tar file
+func tar2ext4Reexec() {
+	size, err := tar2ext4Actual(os.Args[1], os.Stdin)
+	if err != nil {
+		fmt.Fprint(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Fprint(os.Stdout, size)
+}
+
+// tar2ext4Actual is the implementation of tar2ext to write a layer from a tar file.
+// It can be called through re-exec (default), or inline for debugging.
+func tar2ext4Actual(dest string, diff io.Reader) (int64, error) {
+	// maxDiskSize is not relating to the sandbox size - this is the
+	// maximum possible size a layer VHD generated can be from an EXT4
+	// layout perspective.
+	const maxDiskSize = 128 * 1024 * 1024 * 1024 // 128GB
+	out, err := os.Create(dest)
 	if err != nil {
 		return 0, err
 	}
-	defer d.terminateServiceVM(id, fmt.Sprintf("applydiff %s", id), false)
-
-	logrus.Debugf("lcowdriver: applydiff: waiting for svm to finish booting")
-	err = svm.getStartError()
+	defer out.Close()
+	if err := tar2ext4.Convert(
+		diff,
+		out,
+		tar2ext4.AppendVhdFooter,
+		tar2ext4.ConvertWhiteout,
+		tar2ext4.MaximumDiskSize(maxDiskSize)); err != nil {
+		return 0, err
+	}
+	fi, err := os.Stat(dest)
 	if err != nil {
-		return 0, fmt.Errorf("lcowdriver: applydiff: svm failed to boot: %s", err)
+		return 0, err
 	}
-
-	// TODO @jhowardmsft - the retries are temporary to overcome platform reliability issues.
-	// Obviously this will be removed as platform bugs are fixed.
-	retries := 0
-	for {
-		retries++
-		size, err := svm.config.TarToVhd(filepath.Join(d.dataRoot, id, layerFilename), diff)
-		if err != nil {
-			if retries <= 10 {
-				continue
-			}
-			return 0, err
-		}
-		return size, err
-	}
+	return fi.Size(), nil
 }
 
 // Changes produces a list of changes between the specified layer
@@ -958,9 +1045,109 @@ func (d *Driver) getAllMounts(id string) ([]hcsshim.MappedVirtualDisk, error) {
 }
 
 func hostToGuest(hostpath string) string {
+	// This is the "long" container path. At the point of which we are
+	// calculating this, we don't know which service VM we're going to be
+	// using, so we can't translate this to a short path yet, instead
+	// deferring until the point of which it's added to an SVM. We don't
+	// use long container paths in SVMs for SCSI disks, otherwise it can cause
+	// command line operations that we invoke to fail due to being over ~4200
+	// characters when there are ~47 layers involved. An example of this is
+	// the mount call to create the overlay across multiple SCSI-attached disks.
+	// It doesn't affect VPMem attached layers during container creation as
+	// these get mapped by openGCS to /tmp/N/M where N is a container instance
+	// number, and M is a layer number.
 	return fmt.Sprintf("/tmp/%s", filepath.Base(filepath.Dir(hostpath)))
 }
 
 func unionMountName(disks []hcsshim.MappedVirtualDisk) string {
 	return fmt.Sprintf("%s-mount", disks[0].ContainerPath)
+}
+
+type nopCloser struct {
+	io.Reader
+}
+
+func (nopCloser) Close() error {
+	return nil
+}
+
+type fileGetCloserFromSVM struct {
+	id  string
+	svm *serviceVM
+	mvd *hcsshim.MappedVirtualDisk
+	d   *Driver
+}
+
+func (fgc *fileGetCloserFromSVM) Close() error {
+	if fgc.svm != nil {
+		if fgc.mvd != nil {
+			if err := fgc.svm.hotRemoveVHDs(*fgc.mvd); err != nil {
+				// We just log this as we're going to tear down the SVM imminently unless in global mode
+				logrus.Errorf("failed to remove mvd %s: %s", fgc.mvd.ContainerPath, err)
+			}
+		}
+	}
+	if fgc.d != nil && fgc.svm != nil && fgc.id != "" {
+		if err := fgc.d.terminateServiceVM(fgc.id, fmt.Sprintf("diffgetter %s", fgc.id), false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (fgc *fileGetCloserFromSVM) Get(filename string) (io.ReadCloser, error) {
+	errOut := &bytes.Buffer{}
+	outOut := &bytes.Buffer{}
+	// Must map to the actual "short" container path where the SCSI disk was mounted
+	actualContainerPath := fgc.svm.getShortContainerPath(fgc.mvd)
+	if actualContainerPath == "" {
+		return nil, fmt.Errorf("inconsistency detected: couldn't get short container path for %+v in utility VM %s", fgc.mvd, fgc.svm.config.Name)
+	}
+	file := path.Join(actualContainerPath, filename)
+	if err := fgc.svm.runProcess(fmt.Sprintf("cat %s", file), nil, outOut, errOut); err != nil {
+		logrus.Debugf("cat %s failed: %s", file, errOut.String())
+		return nil, err
+	}
+	return nopCloser{bytes.NewReader(outOut.Bytes())}, nil
+}
+
+// DiffGetter returns a FileGetCloser that can read files from the directory that
+// contains files for the layer differences. Used for direct access for tar-split.
+func (d *Driver) DiffGetter(id string) (graphdriver.FileGetCloser, error) {
+	title := fmt.Sprintf("lcowdriver: diffgetter: %s", id)
+	logrus.Debugf(title)
+
+	ld, err := getLayerDetails(d.dir(id))
+	if err != nil {
+		logrus.Debugf("%s: failed to get vhdx information of %s: %s", title, d.dir(id), err)
+		return nil, err
+	}
+
+	// Start the SVM with a mapped virtual disk. Note that if the SVM is
+	// already running and we are in global mode, this will be hot-added.
+	mvd := hcsshim.MappedVirtualDisk{
+		HostPath:          ld.filename,
+		ContainerPath:     hostToGuest(ld.filename),
+		CreateInUtilityVM: true,
+		ReadOnly:          true,
+	}
+
+	logrus.Debugf("%s: starting service VM", title)
+	svm, err := d.startServiceVMIfNotRunning(id, []hcsshim.MappedVirtualDisk{mvd}, fmt.Sprintf("diffgetter %s", id))
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.Debugf("%s: waiting for svm to finish booting", title)
+	err = svm.getStartError()
+	if err != nil {
+		d.terminateServiceVM(id, fmt.Sprintf("diff %s", id), false)
+		return nil, fmt.Errorf("%s: svm failed to boot: %s", title, err)
+	}
+
+	return &fileGetCloserFromSVM{
+		id:  id,
+		svm: svm,
+		mvd: &mvd,
+		d:   d}, nil
 }

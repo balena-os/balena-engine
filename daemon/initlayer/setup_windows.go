@@ -1,6 +1,4 @@
-// +build windows
-
-package initlayer
+package initlayer // import "github.com/docker/docker/daemon/initlayer"
 
 import (
 	"github.com/docker/docker/pkg/containerfs"
@@ -13,6 +11,6 @@ import (
 //
 // This extra layer is used by all containers as the top-most ro layer. It protects
 // the container from unwanted side-effects on the rw layer.
-func Setup(initLayer containerfs.ContainerFS, rootIDs idtools.IDPair) error {
+func Setup(initLayer containerfs.ContainerFS, rootIDs idtools.Identity) error {
 	return nil
 }

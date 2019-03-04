@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"fmt"
@@ -6,8 +6,10 @@ import (
 	"runtime"
 
 	"github.com/docker/docker/container"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/docker/docker/pkg/system"
 )
 
 // ContainerExport writes the contents of the container to the given
@@ -24,12 +26,12 @@ func (daemon *Daemon) ContainerExport(name string, out io.Writer) error {
 
 	if container.IsDead() {
 		err := fmt.Errorf("You cannot export container %s which is Dead", container.ID)
-		return stateConflictError{err}
+		return errdefs.Conflict(err)
 	}
 
 	if container.IsRemovalInProgress() {
 		err := fmt.Errorf("You cannot export container %s which is being removed", container.ID)
-		return stateConflictError{err}
+		return errdefs.Conflict(err)
 	}
 
 	data, err := daemon.containerExport(container)
@@ -46,25 +48,28 @@ func (daemon *Daemon) ContainerExport(name string, out io.Writer) error {
 }
 
 func (daemon *Daemon) containerExport(container *container.Container) (arch io.ReadCloser, err error) {
-	rwlayer, err := daemon.stores[container.OS].layerStore.GetRWLayer(container.ID)
+	if !system.IsOSSupported(container.OS) {
+		return nil, fmt.Errorf("cannot export %s: %s ", container.ID, system.ErrNotSupportedOperatingSystem)
+	}
+	rwlayer, err := daemon.imageService.GetLayerByID(container.ID, container.OS)
 	if err != nil {
 		return nil, err
 	}
 	defer func() {
 		if err != nil {
-			daemon.stores[container.OS].layerStore.ReleaseRWLayer(rwlayer)
+			daemon.imageService.ReleaseLayer(rwlayer, container.OS)
 		}
 	}()
 
-	_, err = rwlayer.Mount(container.GetMountLabel())
+	basefs, err := rwlayer.Mount(container.GetMountLabel())
 	if err != nil {
 		return nil, err
 	}
 
-	archive, err := archivePath(container.BaseFS, container.BaseFS.Path(), &archive.TarOptions{
+	archive, err := archivePath(basefs, basefs.Path(), &archive.TarOptions{
 		Compression: archive.Uncompressed,
-		UIDMaps:     daemon.idMappings.UIDs(),
-		GIDMaps:     daemon.idMappings.GIDs(),
+		UIDMaps:     daemon.idMapping.UIDs(),
+		GIDMaps:     daemon.idMapping.GIDs(),
 	})
 	if err != nil {
 		rwlayer.Unmount()
@@ -73,7 +78,7 @@ func (daemon *Daemon) containerExport(container *container.Container) (arch io.R
 	arch = ioutils.NewReadCloserWrapper(archive, func() error {
 		err := archive.Close()
 		rwlayer.Unmount()
-		daemon.stores[container.OS].layerStore.ReleaseRWLayer(rwlayer)
+		daemon.imageService.ReleaseLayer(rwlayer, container.OS)
 		return err
 	})
 	daemon.LogContainerEvent(container, "export")

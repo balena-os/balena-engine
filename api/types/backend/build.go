@@ -1,10 +1,11 @@
-package backend
+package backend // import "github.com/docker/docker/api/types/backend"
 
 import (
 	"io"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/streamformatter"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // PullOption defines different modes for accessing images
@@ -40,5 +41,5 @@ type GetImageAndLayerOptions struct {
 	PullOption PullOption
 	AuthConfig map[string]types.AuthConfig
 	Output     io.Writer
-	OS         string
+	Platform   *specs.Platform
 }

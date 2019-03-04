@@ -1,6 +1,7 @@
-package dockerfile
+package dockerfile // import "github.com/docker/docker/builder/dockerfile"
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 )
 
 type containerManager struct {
@@ -28,7 +28,7 @@ func newContainerManager(docker builder.ExecBackend) *containerManager {
 }
 
 // Create a container
-func (c *containerManager) Create(runConfig *container.Config, hostConfig *container.HostConfig, platform string) (container.ContainerCreateCreatedBody, error) {
+func (c *containerManager) Create(runConfig *container.Config, hostConfig *container.HostConfig) (container.ContainerCreateCreatedBody, error) {
 	container, err := c.backend.ContainerCreate(types.ContainerCreateConfig{
 		Config:     runConfig,
 		HostConfig: hostConfig,
@@ -93,7 +93,7 @@ func (c *containerManager) Run(ctx context.Context, cID string, stdout, stderr i
 		close(finished)
 		logCancellationError(cancelErrCh,
 			fmt.Sprintf("a non-zero code from ContainerWait: %d", status.ExitCode()))
-		return &statusCodeError{code: status.ExitCode(), err: err}
+		return &statusCodeError{code: status.ExitCode(), err: status.Err()}
 	}
 
 	close(finished)
@@ -112,6 +112,9 @@ type statusCodeError struct {
 }
 
 func (e *statusCodeError) Error() string {
+	if e.err == nil {
+		return ""
+	}
 	return e.err.Error()
 }
 

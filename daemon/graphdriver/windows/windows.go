@@ -1,12 +1,11 @@
 //+build windows
 
-package windows
+package windows // import "github.com/docker/docker/daemon/graphdriver/windows"
 
 import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,6 +22,7 @@ import (
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/archive/tar"
 	"github.com/Microsoft/go-winio/backuptar"
+	"github.com/Microsoft/go-winio/vhd"
 	"github.com/Microsoft/hcsshim"
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/archive"
@@ -33,6 +33,7 @@ import (
 	"github.com/docker/docker/pkg/reexec"
 	"github.com/docker/docker/pkg/system"
 	units "github.com/docker/go-units"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 )
@@ -95,7 +96,7 @@ func InitFilter(home string, options []string, uidMaps, gidMaps []idtools.IDMap)
 		return nil, fmt.Errorf("%s is on an ReFS volume - ReFS volumes are not supported", home)
 	}
 
-	if err := idtools.MkdirAllAndChown(home, 0700, idtools.IDPair{UID: 0, GID: 0}); err != nil {
+	if err := idtools.MkdirAllAndChown(home, 0700, idtools.Identity{UID: 0, GID: 0}); err != nil {
 		return nil, fmt.Errorf("windowsfilter failed to create '%s': %v", home, err)
 	}
 
@@ -331,13 +332,29 @@ func (d *Driver) Remove(id string) error {
 	tmpID := fmt.Sprintf("%s-removing", rID)
 	tmpLayerPath := filepath.Join(d.info.HomeDir, tmpID)
 	if err := os.Rename(layerPath, tmpLayerPath); err != nil && !os.IsNotExist(err) {
-		return err
+		if !os.IsPermission(err) {
+			return err
+		}
+		// If permission denied, it's possible that the scratch is still mounted, an
+		// artifact after a hard daemon crash for example. Worth a shot to try detaching it
+		// before retrying the rename.
+		if detachErr := vhd.DetachVhd(filepath.Join(layerPath, "sandbox.vhdx")); detachErr != nil {
+			return errors.Wrapf(err, "failed to detach VHD: %s", detachErr)
+		}
+		if renameErr := os.Rename(layerPath, tmpLayerPath); renameErr != nil && !os.IsNotExist(renameErr) {
+			return errors.Wrapf(err, "second rename attempt following detach failed: %s", renameErr)
+		}
 	}
 	if err := hcsshim.DestroyLayer(d.info, tmpID); err != nil {
 		logrus.Errorf("Failed to DestroyLayer %s: %s", id, err)
 	}
 
 	return nil
+}
+
+// GetLayerPath gets the layer path on host
+func (d *Driver) GetLayerPath(id string) (string, error) {
+	return d.dir(id), nil
 }
 
 // Get returns the rootfs path for the id. This will mount the dir at its given path.
@@ -779,7 +796,7 @@ func writeLayerReexec() {
 }
 
 // writeLayer writes a layer from a tar file.
-func writeLayer(layerData io.Reader, home string, id string, parentLayerPaths ...string) (int64, error) {
+func writeLayer(layerData io.Reader, home string, id string, parentLayerPaths ...string) (size int64, retErr error) {
 	err := winio.EnableProcessPrivileges([]string{winio.SeBackupPrivilege, winio.SeRestorePrivilege})
 	if err != nil {
 		return 0, err
@@ -804,17 +821,17 @@ func writeLayer(layerData io.Reader, home string, id string, parentLayerPaths ..
 		return 0, err
 	}
 
-	size, err := writeLayerFromTar(layerData, w, filepath.Join(home, id))
-	if err != nil {
-		return 0, err
-	}
+	defer func() {
+		if err := w.Close(); err != nil {
+			// This error should not be discarded as a failure here
+			// could result in an invalid layer on disk
+			if retErr == nil {
+				retErr = err
+			}
+		}
+	}()
 
-	err = w.Close()
-	if err != nil {
-		return 0, err
-	}
-
-	return size, nil
+	return writeLayerFromTar(layerData, w, filepath.Join(home, id))
 }
 
 // resolveID computes the layerID information based on the given id.
@@ -931,8 +948,6 @@ func parseStorageOpt(storageOpt map[string]string) (*storageOptions, error) {
 				return nil, err
 			}
 			options.size = uint64(size)
-		default:
-			return nil, fmt.Errorf("Unknown storage option: %s", key)
 		}
 	}
 	return &options, nil

@@ -1,4 +1,4 @@
-package convert
+package convert // import "github.com/docker/docker/daemon/cluster/convert"
 
 import (
 	"fmt"
@@ -40,6 +40,8 @@ func SwarmFromGRPC(c swarmapi.Cluster) types.Swarm {
 				TrustRoot: string(c.RootCA.CACert),
 			},
 			RootRotationInProgress: c.RootCA.RootRotation != nil,
+			DefaultAddrPool:        c.DefaultAddressPool,
+			SubnetSize:             c.SubnetSize,
 		},
 		JoinTokens: types.JoinTokens{
 			Worker:  c.RootCA.JoinTokens.Worker,

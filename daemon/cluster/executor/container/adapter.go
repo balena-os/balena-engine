@@ -1,13 +1,12 @@
-package container
+package container // import "github.com/docker/docker/daemon/cluster/executor/container"
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -18,38 +17,47 @@ import (
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	containerpkg "github.com/docker/docker/container"
+	"github.com/docker/docker/daemon"
 	"github.com/docker/docker/daemon/cluster/convert"
 	executorpkg "github.com/docker/docker/daemon/cluster/executor"
+	volumeopts "github.com/docker/docker/volume/service/opts"
 	"github.com/docker/libnetwork"
 	"github.com/docker/swarmkit/agent/exec"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/log"
 	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/opencontainers/go-digest"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 	"golang.org/x/time/rate"
 )
+
+// nodeAttachmentReadyInterval is the interval to poll
+const nodeAttachmentReadyInterval = 100 * time.Millisecond
 
 // containerAdapter conducts remote operations for a container. All calls
 // are mostly naked calls to the client API, seeded with information from
 // containerConfig.
 type containerAdapter struct {
-	backend      executorpkg.Backend
-	container    *containerConfig
-	dependencies exec.DependencyGetter
+	backend       executorpkg.Backend
+	imageBackend  executorpkg.ImageBackend
+	volumeBackend executorpkg.VolumeBackend
+	container     *containerConfig
+	dependencies  exec.DependencyGetter
 }
 
-func newContainerAdapter(b executorpkg.Backend, task *api.Task, node *api.NodeDescription, dependencies exec.DependencyGetter) (*containerAdapter, error) {
+func newContainerAdapter(b executorpkg.Backend, i executorpkg.ImageBackend, v executorpkg.VolumeBackend, task *api.Task, node *api.NodeDescription, dependencies exec.DependencyGetter) (*containerAdapter, error) {
 	ctnr, err := newContainerConfig(task, node)
 	if err != nil {
 		return nil, err
 	}
 
 	return &containerAdapter{
-		container:    ctnr,
-		backend:      b,
-		dependencies: dependencies,
+		container:     ctnr,
+		backend:       b,
+		imageBackend:  i,
+		volumeBackend: v,
+		dependencies:  dependencies,
 	}, nil
 }
 
@@ -66,7 +74,7 @@ func (c *containerAdapter) pullImage(ctx context.Context) error {
 	named, err := reference.ParseNormalizedNamed(spec.Image)
 	if err == nil {
 		if _, ok := named.(reference.Canonical); ok {
-			_, err := c.backend.LookupImage(spec.Image)
+			_, err := c.imageBackend.LookupImage(spec.Image)
 			if err == nil {
 				return nil
 			}
@@ -91,8 +99,7 @@ func (c *containerAdapter) pullImage(ctx context.Context) error {
 	go func() {
 		// TODO @jhowardmsft LCOW Support: This will need revisiting as
 		// the stack is built up to include LCOW support for swarm.
-		platform := runtime.GOOS
-		err := c.backend.PullImage(ctx, c.container.image(), "", platform, metaHeaders, authConfig, pw)
+		err := c.imageBackend.PullImage(ctx, c.container.image(), "", nil, metaHeaders, authConfig, pw)
 		pw.CloseWithError(err)
 	}()
 
@@ -142,9 +149,58 @@ func (c *containerAdapter) pullImage(ctx context.Context) error {
 	return nil
 }
 
+// waitNodeAttachments validates that NetworkAttachments exist on this node
+// for every network in use by this task. It blocks until the network
+// attachments are ready, or the context times out. If it returns nil, then the
+// node's network attachments are all there.
+func (c *containerAdapter) waitNodeAttachments(ctx context.Context) error {
+	// to do this, we're going to get the attachment store and try getting the
+	// IP address for each network. if any network comes back not existing,
+	// we'll wait and try again.
+	attachmentStore := c.backend.GetAttachmentStore()
+	if attachmentStore == nil {
+		return fmt.Errorf("error getting attachment store")
+	}
+
+	// essentially, we're long-polling here. this is really sub-optimal, but a
+	// better solution based off signaling channels would require a more
+	// substantial rearchitecture and probably not be worth our time in terms
+	// of performance gains.
+	poll := time.NewTicker(nodeAttachmentReadyInterval)
+	defer poll.Stop()
+	for {
+		// set a flag ready to true. if we try to get a network IP that doesn't
+		// exist yet, we will set this flag to "false"
+		ready := true
+		for _, attachment := range c.container.networksAttachments {
+			// we only need node attachments (IP address) for overlay networks
+			// TODO(dperny): unsure if this will work with other network
+			// drivers, but i also don't think other network drivers use the
+			// node attachment IP address.
+			if attachment.Network.DriverState.Name == "overlay" {
+				if _, exists := attachmentStore.GetIPForNetwork(attachment.Network.ID); !exists {
+					ready = false
+				}
+			}
+		}
+
+		// if everything is ready here, then we can just return no error
+		if ready {
+			return nil
+		}
+
+		// otherwise, try polling again, or wait for context canceled.
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("node is missing network attachments, ip addresses may be exhausted")
+		case <-poll.C:
+		}
+	}
+}
+
 func (c *containerAdapter) createNetworks(ctx context.Context) error {
-	for _, network := range c.container.networks() {
-		ncr, err := c.container.networkCreateRequest(network)
+	for name := range c.container.networksAttachments {
+		ncr, err := c.container.networkCreateRequest(name)
 		if err != nil {
 			return err
 		}
@@ -153,7 +209,11 @@ func (c *containerAdapter) createNetworks(ctx context.Context) error {
 			if _, ok := err.(libnetwork.NetworkNameError); ok {
 				continue
 			}
-
+			// We will continue if CreateManagedNetwork returns PredefinedNetworkError error.
+			// Other callers still can treat it as Error.
+			if _, ok := err.(daemon.PredefinedNetworkError); ok {
+				continue
+			}
 			return err
 		}
 	}
@@ -162,15 +222,15 @@ func (c *containerAdapter) createNetworks(ctx context.Context) error {
 }
 
 func (c *containerAdapter) removeNetworks(ctx context.Context) error {
-	for _, nid := range c.container.networks() {
-		if err := c.backend.DeleteManagedNetwork(nid); err != nil {
-			switch err.(type) {
+	for name, v := range c.container.networksAttachments {
+		if err := c.backend.DeleteManagedNetwork(v.Network.ID); err != nil {
+			switch errors.Cause(err).(type) {
 			case *libnetwork.ActiveEndpointsError:
 				continue
 			case libnetwork.ErrNoSuchNetwork:
 				continue
 			default:
-				log.G(ctx).Errorf("network %s remove failed: %v", nid, err)
+				log.G(ctx).Errorf("network %s remove failed: %v", name, err)
 				return err
 			}
 		}
@@ -258,11 +318,7 @@ func (c *containerAdapter) create(ctx context.Context) error {
 		return err
 	}
 
-	if err := c.backend.UpdateContainerServiceConfig(cr.ID, c.container.serviceConfig()); err != nil {
-		return err
-	}
-
-	return nil
+	return c.backend.UpdateContainerServiceConfig(cr.ID, c.container.serviceConfig())
 }
 
 // checkMounts ensures that the provided mounts won't have any host-specific
@@ -381,7 +437,10 @@ func (c *containerAdapter) createVolumes(ctx context.Context) error {
 		req := c.container.volumeCreateRequest(&mount)
 
 		// Check if this volume exists on the engine
-		if _, err := c.backend.VolumeCreate(req.Name, req.Driver, req.DriverOpts, req.Labels); err != nil {
+		if _, err := c.volumeBackend.Create(ctx, req.Name, req.Driver,
+			volumeopts.WithCreateOptions(req.DriverOpts),
+			volumeopts.WithCreateLabels(req.Labels),
+		); err != nil {
 			// TODO(amitshukla): Today, volume create through the engine api does not return an error
 			// when the named volume with the same parameters already exists.
 			// It returns an error if the driver name is different - that is a valid error

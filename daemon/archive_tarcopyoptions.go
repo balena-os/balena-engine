@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"github.com/docker/docker/pkg/archive"
@@ -9,7 +9,7 @@ import (
 func (daemon *Daemon) defaultTarCopyOptions(noOverwriteDirNonDir bool) *archive.TarOptions {
 	return &archive.TarOptions{
 		NoOverwriteDirNonDir: noOverwriteDirNonDir,
-		UIDMaps:              daemon.idMappings.UIDs(),
-		GIDMaps:              daemon.idMappings.GIDs(),
+		UIDMaps:              daemon.idMapping.UIDs(),
+		GIDMaps:              daemon.idMapping.GIDs(),
 	}
 }

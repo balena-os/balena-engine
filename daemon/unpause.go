@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"context"
@@ -14,12 +14,7 @@ func (daemon *Daemon) ContainerUnpause(name string) error {
 	if err != nil {
 		return err
 	}
-
-	if err := daemon.containerUnpause(container); err != nil {
-		return err
-	}
-
-	return nil
+	return daemon.containerUnpause(container)
 }
 
 // containerUnpause resumes the container execution after the container is paused.
@@ -42,7 +37,7 @@ func (daemon *Daemon) containerUnpause(container *container.Container) error {
 	daemon.LogContainerEvent(container, "unpause")
 
 	if err := container.CheckpointTo(daemon.containersReplica); err != nil {
-		logrus.WithError(err).Warnf("could not save container to disk")
+		logrus.WithError(err).Warn("could not save container to disk")
 	}
 
 	return nil
