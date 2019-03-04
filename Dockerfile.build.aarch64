@@ -1,4 +1,4 @@
-FROM resin/aarch64-golang:1.9
+FROM balenalib/aarch64-golang:1.10.8
 
 # Enable QEMU emulation
 ENTRYPOINT [ "qemu-aarch64-static", "-execve" ]
