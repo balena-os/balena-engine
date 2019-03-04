@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	defaultRuntimeName = "runc"
+	defaultRuntimeName = "balena-engine-runc"
 
 	linuxShimV1 = "io.containerd.runtime.v1.linux"
 	linuxShimV2 = "io.containerd.runc.v2"

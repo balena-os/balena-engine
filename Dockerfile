@@ -165,17 +165,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh vndr
 
-FROM dev-base AS containerd
-ARG DEBIAN_FRONTEND
-RUN --mount=type=cache,sharing=locked,id=moby-containerd-aptlib,target=/var/lib/apt \
-    --mount=type=cache,sharing=locked,id=moby-containerd-aptcache,target=/var/cache/apt \
-        apt-get update && apt-get install -y --no-install-recommends \
-            libbtrfs-dev
-ARG CONTAINERD_VERSION
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
-        PREFIX=/build /tmp/install/install.sh containerd
+# FROM dev-base AS containerd
+# ARG DEBIAN_FRONTEND
+# RUN --mount=type=cache,sharing=locked,id=moby-containerd-aptlib,target=/var/lib/apt \
+#     --mount=type=cache,sharing=locked,id=moby-containerd-aptcache,target=/var/cache/apt \
+#         apt-get update && apt-get install -y --no-install-recommends \
+#             libbtrfs-dev
+# ARG CONTAINERD_VERSION
+# RUN --mount=type=cache,target=/root/.cache/go-build \
+#     --mount=type=cache,target=/go/pkg/mod \
+#     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+#         PREFIX=/build /tmp/install/install.sh containerd
 
 FROM dev-base AS proxy
 ARG LIBNETWORK_COMMIT
@@ -205,21 +205,21 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh shfmt
 
-FROM dev-base AS dockercli
-ARG DOCKERCLI_CHANNEL
-ARG DOCKERCLI_VERSION
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
-        PREFIX=/build /tmp/install/install.sh dockercli
+# FROM dev-base AS dockercli
+# ARG DOCKERCLI_CHANNEL
+# ARG DOCKERCLI_VERSION
+# RUN --mount=type=cache,target=/root/.cache/go-build \
+#     --mount=type=cache,target=/go/pkg/mod \
+#     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+#         PREFIX=/build /tmp/install/install.sh dockercli
 
-FROM runtime-dev AS runc
-ARG RUNC_VERSION
-ARG RUNC_BUILDTAGS
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
-        PREFIX=/build /tmp/install/install.sh runc
+# FROM runtime-dev AS runc
+# ARG RUNC_VERSION
+# ARG RUNC_BUILDTAGS
+# RUN --mount=type=cache,target=/root/.cache/go-build \
+#     --mount=type=cache,target=/go/pkg/mod \
+#     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+#         PREFIX=/build /tmp/install/install.sh runc
 
 FROM dev-base AS tini
 ARG DEBIAN_FRONTEND
@@ -303,7 +303,7 @@ RUN update-alternatives --set iptables  /usr/sbin/iptables-legacy  || true \
 
 RUN pip3 install yamllint==1.26.1
 
-COPY --from=dockercli     /build/ /usr/local/cli
+#COPY --from=dockercli     /build/ /usr/local/cli
 COPY --from=frozen-images /build/ /docker-frozen-images
 COPY --from=swagger       /build/ /usr/local/bin/
 COPY --from=tomlv         /build/ /usr/local/bin/
@@ -314,8 +314,8 @@ COPY --from=vndr          /build/ /usr/local/bin/
 COPY --from=gotestsum     /build/ /usr/local/bin/
 COPY --from=golangci_lint /build/ /usr/local/bin/
 COPY --from=shfmt         /build/ /usr/local/bin/
-COPY --from=runc          /build/ /usr/local/bin/
-COPY --from=containerd    /build/ /usr/local/bin/
+#COPY --from=runc          /build/ /usr/local/bin/
+#COPY --from=containerd    /build/ /usr/local/bin/
 COPY --from=rootlesskit   /build/ /usr/local/bin/
 COPY --from=vpnkit        /build/ /usr/local/bin/
 COPY --from=proxy         /build/ /usr/local/bin/
