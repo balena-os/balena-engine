@@ -1,4 +1,4 @@
-FROM resin/i386-golang:1.10
+FROM balenalib/i386-golang:1.10.8
 
 RUN apt-get update \
 	&& apt-get install -y \
@@ -7,7 +7,6 @@ RUN apt-get update \
 		libdevmapper-dev \
 		libnl-3-dev \
 		libsystemd-dev \
-		libsystemd-journal-dev \
 		libudev-dev
 
 COPY . /balena-engine
