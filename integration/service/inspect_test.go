@@ -21,7 +21,6 @@ import (
 func TestInspect(t *testing.T) {
 	t.Skip("Swarm is not supported")
 	return
-	skip.IfCondition(t, !testEnv.IsLocalDaemon())
 	skip.If(t, testEnv.IsRemoteDaemon())
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	defer setupTest(t)()

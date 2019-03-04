@@ -28,7 +28,7 @@ func newExecutor(root, cgroupParent string, net libnetwork.NetworkController) (e
 	}
 	return runcexecutor.New(runcexecutor.Opt{
 		Root:                filepath.Join(root, "executor"),
-		CommandCandidates:   []string{"runc"},
+		CommandCandidates:   []string{"balena-engine-runc"},
 		DefaultCgroupParent: cgroupParent,
 	}, networkProviders)
 }

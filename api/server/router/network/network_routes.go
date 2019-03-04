@@ -57,6 +57,13 @@ func (n *networkRouter) getNetworksList(ctx context.Context, w http.ResponseWrit
 	}
 
 	return httputils.WriteJSON(w, http.StatusOK, list)
+}
+
+type invalidRequestError struct {
+	cause error
+}
+
+func (e invalidRequestError) Error() string {
 	return e.cause.Error()
 }
 

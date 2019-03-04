@@ -38,7 +38,7 @@ type logT interface {
 }
 
 const defaultDockerdBinary = "balena-engine-daemon"
-const containerdSocket = "/var/run/docker/containerd/balena-engine-containerd.sock"
+const containerdSocket = "/var/run/balena-engine/containerd/balena-engine-containerd.sock"
 
 var errDaemonNotStarted = errors.New("daemon not started")
 

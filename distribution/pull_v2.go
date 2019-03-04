@@ -520,7 +520,7 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 		}
 	}
 
-	configRootFS, _, err := p.config.ImageStore.RootFSAndOSFromConfig(configJSON)
+	configRootFS, err := p.config.ImageStore.RootFSFromConfig(configJSON)
 	if err == nil && configRootFS == nil {
 		return "", "", errRootFSInvalid
 	}

@@ -1,6 +1,7 @@
 package dockerd
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"os"

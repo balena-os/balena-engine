@@ -2,6 +2,7 @@
 set -e
 
 (
+	[ -z "$KEEPDEST" ] && rm -rf "$DEST"
 	source "${MAKEDIR}/.binary-setup"
 	export BINARY_SHORT_NAME="$balena_BINARY_NAME"
 	export GO_PACKAGE='github.com/docker/docker/cmd/balena-engine'

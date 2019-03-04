@@ -79,6 +79,10 @@ const (
 	DefaultRuntimeName = "balena-engine-runc"
 )
 
+type containerGetter interface {
+	GetContainer(string) (*container.Container, error)
+}
+
 func getMemoryResources(config containertypes.Resources) *specs.LinuxMemory {
 	memory := specs.LinuxMemory{}
 
