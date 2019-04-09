@@ -43,8 +43,6 @@ func (daemon *Daemon) ProcessEvent(id string, e libcontainerd.EventType, ei libc
 		c.Lock()
 		defer c.Unlock()
 		daemon.updateHealthMonitor(c)
-		c.Lock()
-		defer c.Unlock()
 		if err := c.CheckpointTo(daemon.containersReplica); err != nil {
 			return err
 		}
