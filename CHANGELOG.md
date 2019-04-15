@@ -107,6 +107,11 @@ This pulls in upstream changes since balenaEngine v17.12.x The following is an e
 * Add warning if REST API is accessible through an insecure connection [moby/moby#37684](https://github.com/moby/moby/pull/37684)
 * Mask proxy credentials from URL when displayed in system info [docker/engine#72](https://github.com/docker/engine/pull/72) / [moby/moby#37934](https://github.com/moby/moby/pull/37934)
 
+# v17.13.4
+## (2019-03-18)
+
+* Fix event filter filtering on "or" [Sebastiaan van Stijn]
+
 # v17.13.3
 ## (2019-02-25)
 
