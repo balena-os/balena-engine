@@ -13,6 +13,8 @@ import (
 )
 
 func TestInspectNetwork(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.OSType == "windows", "FIXME")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)

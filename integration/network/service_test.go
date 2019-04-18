@@ -197,7 +197,10 @@ func TestDaemonWithBipAndDefaultNetworkPool(t *testing.T) {
 }
 
 func TestServiceWithPredefinedNetwork(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.OSType == "windows")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -226,6 +229,8 @@ func TestServiceWithPredefinedNetwork(t *testing.T) {
 const ingressNet = "ingress"
 
 func TestServiceRemoveKeepsIngressNetwork(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	t.Skip("FLAKY_TEST")
 
 	skip.If(t, testEnv.OSType == "windows")
@@ -315,6 +320,8 @@ func noServices(ctx context.Context, client client.ServiceAPIClient) func(log po
 }
 
 func TestServiceWithDataPathPortInit(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.40"), "DataPathPort was added in API v1.40")
 	defer setupTest(t)()

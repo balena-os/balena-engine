@@ -19,6 +19,8 @@ import (
 )
 
 func TestSecretInspect(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	defer setupTest(t)()
@@ -42,6 +44,8 @@ func TestSecretInspect(t *testing.T) {
 }
 
 func TestSecretList(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	defer setupTest(t)()
@@ -119,6 +123,8 @@ func createSecret(ctx context.Context, t *testing.T, client client.APIClient, na
 }
 
 func TestSecretsCreateAndDelete(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	defer setupTest(t)()
@@ -166,6 +172,8 @@ func TestSecretsCreateAndDelete(t *testing.T) {
 }
 
 func TestSecretsUpdate(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	defer setupTest(t)()
@@ -217,6 +225,8 @@ func TestSecretsUpdate(t *testing.T) {
 }
 
 func TestTemplatedSecret(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
