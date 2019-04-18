@@ -18,6 +18,7 @@ import (
 )
 
 func TestDockerNetworkMacvlanPersistance(t *testing.T) {
+	t.Skip("macvlan insn't supported")
 	// verify the driver automatically provisions the 802.1q link (dm-dummy0.60)
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
@@ -42,6 +43,7 @@ func TestDockerNetworkMacvlanPersistance(t *testing.T) {
 }
 
 func TestDockerNetworkMacvlan(t *testing.T) {
+	t.Skip("macvlan insn't supported")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
 

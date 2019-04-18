@@ -16,6 +16,8 @@ import (
 )
 
 func TestContinueAfterPluginCrash(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon, "test requires daemon on the same host")
 	t.Parallel()
 

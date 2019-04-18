@@ -17,6 +17,8 @@ import (
 // Ensure that a daemon with a log plugin set as the default logger for containers
 // does not keep the daemon from starting.
 func TestDaemonStartWithLogOpt(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	t.Parallel()
