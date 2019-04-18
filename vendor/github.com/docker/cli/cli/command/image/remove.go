@@ -1,10 +1,9 @@
 package image
 
 import (
+	"context"
 	"fmt"
 	"strings"
-
-	"golang.org/x/net/context"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
@@ -81,7 +80,7 @@ func runRemove(dockerCli command.Cli, opts removeOptions, images []string) error
 		if !opts.force || fatalErr {
 			return errors.New(msg)
 		}
-		fmt.Fprintf(dockerCli.Err(), msg)
+		fmt.Fprintln(dockerCli.Err(), msg)
 	}
 	return nil
 }

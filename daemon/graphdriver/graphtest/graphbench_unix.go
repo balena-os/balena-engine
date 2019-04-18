@@ -1,6 +1,6 @@
 // +build linux freebsd
 
-package graphtest
+package graphtest // import "github.com/docker/docker/daemon/graphdriver/graphtest"
 
 import (
 	"io"
@@ -9,7 +9,7 @@ import (
 
 	contdriver "github.com/containerd/continuity/driver"
 	"github.com/docker/docker/pkg/stringid"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/assert"
 )
 
 // DriverBenchExists benchmarks calls to exist
@@ -251,7 +251,7 @@ func DriverBenchDeepLayerRead(b *testing.B, layerCount int, drivername string, d
 		}
 
 		b.StopTimer()
-		require.Equal(b, content, c)
+		assert.DeepEqual(b, content, c)
 		b.StartTimer()
 	}
 }

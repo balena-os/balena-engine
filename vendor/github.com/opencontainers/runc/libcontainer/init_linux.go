@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/opencontainers/runc/libcontainer/system"
 	"github.com/opencontainers/runc/libcontainer/user"
 	"github.com/opencontainers/runc/libcontainer/utils"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
@@ -64,7 +66,8 @@ type initConfig struct {
 	CreateConsole    bool                  `json:"create_console"`
 	ConsoleWidth     uint16                `json:"console_width"`
 	ConsoleHeight    uint16                `json:"console_height"`
-	Rootless         bool                  `json:"rootless"`
+	RootlessEUID     bool                  `json:"rootless_euid,omitempty"`
+	RootlessCgroups  bool                  `json:"rootless_cgroups,omitempty"`
 }
 
 type initer interface {
@@ -121,7 +124,7 @@ func finalizeNamespace(config *initConfig) error {
 	// inherited are marked close-on-exec so they stay out of the
 	// container
 	if err := utils.CloseExecFrom(config.PassedFilesCount + 3); err != nil {
-		return err
+		return errors.Wrap(err, "close exec fds")
 	}
 
 	capabilities := &configs.Capabilities{}
@@ -136,20 +139,20 @@ func finalizeNamespace(config *initConfig) error {
 	}
 	// drop capabilities in bounding set before changing user
 	if err := w.ApplyBoundingSet(); err != nil {
-		return err
+		return errors.Wrap(err, "apply bounding set")
 	}
 	// preserve existing capabilities while we change users
 	if err := system.SetKeepCaps(); err != nil {
-		return err
+		return errors.Wrap(err, "set keep caps")
 	}
 	if err := setupUser(config); err != nil {
-		return err
+		return errors.Wrap(err, "setup user")
 	}
 	if err := system.ClearKeepCaps(); err != nil {
-		return err
+		return errors.Wrap(err, "clear keep caps")
 	}
 	if err := w.ApplyCaps(); err != nil {
-		return err
+		return errors.Wrap(err, "apply caps")
 	}
 	if config.Cwd != "" {
 		if err := unix.Chdir(config.Cwd); err != nil {
@@ -217,11 +220,7 @@ func syncParentReady(pipe io.ReadWriter) error {
 	}
 
 	// Wait for parent to give the all-clear.
-	if err := readSync(pipe, procRun); err != nil {
-		return err
-	}
-
-	return nil
+	return readSync(pipe, procRun)
 }
 
 // syncParentHooks sends to the given pipe a JSON payload which indicates that
@@ -234,11 +233,7 @@ func syncParentHooks(pipe io.ReadWriter) error {
 	}
 
 	// Wait for parent to give the all-clear.
-	if err := readSync(pipe, procResume); err != nil {
-		return err
-	}
-
-	return nil
+	return readSync(pipe, procResume)
 }
 
 // setupUser changes the groups, gid, and uid for the user inside the container
@@ -282,7 +277,7 @@ func setupUser(config *initConfig) error {
 		return fmt.Errorf("cannot set gid to unmapped user in user namespace")
 	}
 
-	if config.Rootless {
+	if config.RootlessEUID {
 		// We cannot set any additional groups in a rootless container and thus
 		// we bail if the user asked us to do so. TODO: We currently can't do
 		// this check earlier, but if libcontainer.Process.User was typesafe
@@ -298,11 +293,18 @@ func setupUser(config *initConfig) error {
 		return err
 	}
 
+	setgroups, err := ioutil.ReadFile("/proc/self/setgroups")
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
 	// This isn't allowed in an unprivileged user namespace since Linux 3.19.
 	// There's nothing we can do about /etc/group entries, so we silently
 	// ignore setting groups here (since the user didn't explicitly ask us to
 	// set the group).
-	if !config.Rootless {
+	allowSupGroups := !config.RootlessEUID && strings.TrimSpace(string(setgroups)) != "deny"
+
+	if allowSupGroups {
 		suppGroups := append(execUser.Sgids, addGroups...)
 		if err := unix.Setgroups(suppGroups); err != nil {
 			return err
@@ -494,6 +496,16 @@ func signalAllProcesses(m cgroups.Manager, s os.Signal) error {
 		logrus.Warn(err)
 	}
 
+	subreaper, err := system.GetSubreaper()
+	if err != nil {
+		// The error here means that PR_GET_CHILD_SUBREAPER is not
+		// supported because this code might run on a kernel older
+		// than 3.4. We don't want to throw an error in that case,
+		// and we simplify things, considering there is no subreaper
+		// set.
+		subreaper = 0
+	}
+
 	for _, p := range procs {
 		if s != unix.SIGKILL {
 			if ok, err := isWaitable(p.Pid); err != nil {
@@ -507,9 +519,16 @@ func signalAllProcesses(m cgroups.Manager, s os.Signal) error {
 			}
 		}
 
-		if _, err := p.Wait(); err != nil {
-			if !isNoChildren(err) {
-				logrus.Warn("wait: ", err)
+		// In case a subreaper has been setup, this code must not
+		// wait for the process. Otherwise, we cannot be sure the
+		// current process will be reaped by the subreaper, while
+		// the subreaper might be waiting for this process in order
+		// to retrieve its exit code.
+		if subreaper == 0 {
+			if _, err := p.Wait(); err != nil {
+				if !isNoChildren(err) {
+					logrus.Warn("wait: ", err)
+				}
 			}
 		}
 	}

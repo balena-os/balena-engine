@@ -1,4 +1,4 @@
-package remotecontext
+package remotecontext // import "github.com/docker/docker/builder/remotecontext"
 
 import (
 	"bytes"
@@ -10,10 +10,9 @@ import (
 	"testing"
 
 	"github.com/docker/docker/builder"
-	"github.com/docker/docker/internal/testutil"
-	"github.com/gotestyourself/gotestyourself/fs"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
+	"gotest.tools/fs"
 )
 
 var binaryContext = []byte{0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00} //xz magic
@@ -189,12 +188,12 @@ func TestDownloadRemote(t *testing.T) {
 	mux.Handle("/", http.FileServer(http.Dir(contextDir.Path())))
 
 	contentType, content, err := downloadRemote(remoteURL)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 
-	assert.Equal(t, mimeTypes.TextPlain, contentType)
+	assert.Check(t, is.Equal(mimeTypes.TextPlain, contentType))
 	raw, err := ioutil.ReadAll(content)
-	require.NoError(t, err)
-	assert.Equal(t, dockerfileContents, string(raw))
+	assert.NilError(t, err)
+	assert.Check(t, is.Equal(dockerfileContents, string(raw)))
 }
 
 func TestGetWithStatusError(t *testing.T) {
@@ -226,13 +225,13 @@ func TestGetWithStatusError(t *testing.T) {
 		response, err := GetWithStatusError(ts.URL)
 
 		if testcase.expectedErr == "" {
-			require.NoError(t, err)
+			assert.NilError(t, err)
 
 			body, err := readBody(response.Body)
-			require.NoError(t, err)
-			assert.Contains(t, string(body), testcase.expectedBody)
+			assert.NilError(t, err)
+			assert.Check(t, is.Contains(string(body), testcase.expectedBody))
 		} else {
-			testutil.ErrorContains(t, err, testcase.expectedErr)
+			assert.Check(t, is.ErrorContains(err, testcase.expectedErr))
 		}
 	}
 }

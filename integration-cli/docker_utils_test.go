@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,11 +19,9 @@ import (
 	"github.com/docker/docker/integration-cli/checker"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/daemon"
-	"github.com/docker/docker/integration-cli/registry"
-	"github.com/docker/docker/integration-cli/request"
+	"github.com/docker/docker/internal/test/request"
 	"github.com/go-check/check"
-	"github.com/gotestyourself/gotestyourself/icmd"
-	"golang.org/x/net/context"
+	"gotest.tools/icmd"
 )
 
 // Deprecated
@@ -202,12 +201,6 @@ func buildImage(name string, cmdOperators ...cli.CmdOperator) *icmd.Result {
 	return cli.Docker(cli.Build(name), cmdOperators...)
 }
 
-// Deprecated: use trustedcmd
-func trustedBuild(cmd *icmd.Cmd) func() {
-	trustedCmd(cmd)
-	return nil
-}
-
 // Write `content` to the file at path `dst`, creating it if necessary,
 // as well as any missing directories.
 // The file is truncated if it already exists.
@@ -290,29 +283,6 @@ func parseEventTime(t time.Time) string {
 	return fmt.Sprintf("%d.%09d", t.Unix(), int64(t.Nanosecond()))
 }
 
-func setupRegistry(c *check.C, schema1 bool, auth, tokenURL string) *registry.V2 {
-	reg, err := registry.NewV2(schema1, auth, tokenURL, privateRegistryURL)
-	c.Assert(err, check.IsNil)
-
-	// Wait for registry to be ready to serve requests.
-	for i := 0; i != 50; i++ {
-		if err = reg.Ping(); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	c.Assert(err, check.IsNil, check.Commentf("Timeout waiting for test registry to become available: %v", err))
-	return reg
-}
-
-func setupNotary(c *check.C) *testNotary {
-	ts, err := newTestNotary(c)
-	c.Assert(err, check.IsNil)
-
-	return ts
-}
-
 // appendBaseEnv appends the minimum set of environment variables to exec the
 // docker cli binary for testing with correct configuration to the given env
 // list.
@@ -372,7 +342,7 @@ func waitInspectWithArgs(name, expr, expected string, timeout time.Duration, arg
 }
 
 func getInspectBody(c *check.C, version, id string) []byte {
-	cli, err := request.NewEnvClientWithVersion(version)
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithVersion(version))
 	c.Assert(err, check.IsNil)
 	defer cli.Close()
 	_, body, err := cli.ContainerInspectWithRaw(context.Background(), id, false)
@@ -399,7 +369,7 @@ func runSleepingContainerInImage(c *check.C, image string, extraArgs ...string) 
 // minimalBaseImage returns the name of the minimal base image for the current
 // daemon platform.
 func minimalBaseImage() string {
-	return testEnv.MinimalBaseImage()
+	return testEnv.PlatformDefaults.BaseImage
 }
 
 func getGoroutineNumber() (int, error) {

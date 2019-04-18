@@ -1,14 +1,14 @@
-package jsonlog
+package jsonlog // import "github.com/docker/docker/daemon/logger/jsonfilelog/jsonlog"
 
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/assert"
 )
 
 func TestJSONLogsMarshalJSONBuf(t *testing.T) {
@@ -29,12 +29,23 @@ func TestJSONLogsMarshalJSONBuf(t *testing.T) {
 		{Log: []byte{0x7F}}:            `^{\"log\":\"\x7f\",\"time\":`,
 		// with raw attributes
 		{Log: []byte("A log line"), RawAttrs: []byte(`{"hello":"world","value":1234}`)}: `^{\"log\":\"A log line\",\"attrs\":{\"hello\":\"world\",\"value\":1234},\"time\":`,
+		// with Tag set
+		{Log: []byte("A log line with tag"), RawAttrs: []byte(`{"hello":"world","value":1234}`)}: `^{\"log\":\"A log line with tag\",\"attrs\":{\"hello\":\"world\",\"value\":1234},\"time\":`,
 	}
 	for jsonLog, expression := range logs {
 		var buf bytes.Buffer
 		err := jsonLog.MarshalJSONBuf(&buf)
-		require.NoError(t, err)
-		assert.Regexp(t, regexp.MustCompile(expression), buf.String())
-		assert.NoError(t, json.Unmarshal(buf.Bytes(), &map[string]interface{}{}))
+		assert.NilError(t, err)
+
+		assert.Assert(t, regexP(buf.String(), expression))
+		assert.NilError(t, json.Unmarshal(buf.Bytes(), &map[string]interface{}{}))
+	}
+}
+
+func regexP(value string, pattern string) func() (bool, string) {
+	return func() (bool, string) {
+		re := regexp.MustCompile(pattern)
+		msg := fmt.Sprintf("%q did not match pattern %q", value, pattern)
+		return re.MatchString(value), msg
 	}
 }

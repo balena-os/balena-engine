@@ -1,8 +1,25 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package containerd
 
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -11,10 +28,20 @@ import (
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/images"
+	"github.com/containerd/containerd/oci"
+	"github.com/containerd/containerd/runtime/v2/runc/options"
 	"github.com/containerd/typeurl"
 	prototypes "github.com/gogo/protobuf/types"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
+	ver "github.com/opencontainers/image-spec/specs-go"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
+)
+
+const (
+	checkpointImageNameLabel       = "org.opencontainers.image.ref.name"
+	checkpointRuntimeNameLabel     = "io.containerd.checkpoint.runtime"
+	checkpointSnapshotterNameLabel = "io.containerd.checkpoint.snapshotter"
 )
 
 // Container is a metadata object for container resources and task creation
@@ -26,9 +53,9 @@ type Container interface {
 	// Delete removes the container
 	Delete(context.Context, ...DeleteOpts) error
 	// NewTask creates a new task based on the container metadata
-	NewTask(context.Context, cio.Creation, ...NewTaskOpts) (Task, error)
+	NewTask(context.Context, cio.Creator, ...NewTaskOpts) (Task, error)
 	// Spec returns the OCI runtime specification
-	Spec(context.Context) (*specs.Spec, error)
+	Spec(context.Context) (*oci.Spec, error)
 	// Task returns the current task for the container
 	//
 	// If cio.Attach options are passed the client will reattach to the IO for the running
@@ -47,6 +74,8 @@ type Container interface {
 	Extensions(context.Context) (map[string]prototypes.Any, error)
 	// Update a container
 	Update(context.Context, ...UpdateContainerOpts) error
+	// Checkpoint creates a checkpoint image of the current container
+	Checkpoint(context.Context, string, ...CheckpointOpts) (Image, error)
 }
 
 func containerFromRecord(client *Client, c containers.Container) *container {
@@ -109,12 +138,12 @@ func (c *container) SetLabels(ctx context.Context, labels map[string]string) (ma
 }
 
 // Spec returns the current OCI specification for the container
-func (c *container) Spec(ctx context.Context) (*specs.Spec, error) {
+func (c *container) Spec(ctx context.Context) (*oci.Spec, error) {
 	r, err := c.get(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var s specs.Spec
+	var s oci.Spec
 	if err := json.Unmarshal(r.Spec.Value, &s); err != nil {
 		return nil, err
 	}
@@ -156,13 +185,10 @@ func (c *container) Image(ctx context.Context) (Image, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get image %s for container", r.Image)
 	}
-	return &image{
-		client: c.client,
-		i:      i,
-	}, nil
+	return NewImage(c.client, i), nil
 }
 
-func (c *container) NewTask(ctx context.Context, ioCreate cio.Creation, opts ...NewTaskOpts) (_ Task, err error) {
+func (c *container) NewTask(ctx context.Context, ioCreate cio.Creator, opts ...NewTaskOpts) (_ Task, err error) {
 	i, err := ioCreate(c.id)
 	if err != nil {
 		return nil, err
@@ -258,6 +284,70 @@ func (c *container) Update(ctx context.Context, opts ...UpdateContainerOpts) err
 	return nil
 }
 
+func (c *container) Checkpoint(ctx context.Context, ref string, opts ...CheckpointOpts) (Image, error) {
+	index := &ocispec.Index{
+		Versioned: ver.Versioned{
+			SchemaVersion: 2,
+		},
+		Annotations: make(map[string]string),
+	}
+	copts := &options.CheckpointOptions{
+		Exit:                false,
+		OpenTcp:             false,
+		ExternalUnixSockets: false,
+		Terminal:            false,
+		FileLocks:           true,
+		EmptyNamespaces:     nil,
+	}
+	info, err := c.Info(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	img, err := c.Image(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, done, err := c.client.WithLease(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer done(ctx)
+
+	// add image name to manifest
+	index.Annotations[checkpointImageNameLabel] = img.Name()
+	// add runtime info to index
+	index.Annotations[checkpointRuntimeNameLabel] = info.Runtime.Name
+	// add snapshotter info to index
+	index.Annotations[checkpointSnapshotterNameLabel] = info.Snapshotter
+
+	// process remaining opts
+	for _, o := range opts {
+		if err := o(ctx, c.client, &info, index, copts); err != nil {
+			err = errdefs.FromGRPC(err)
+			if !errdefs.IsAlreadyExists(err) {
+				return nil, err
+			}
+		}
+	}
+
+	desc, err := writeIndex(ctx, index, c.client, c.ID()+"index")
+	if err != nil {
+		return nil, err
+	}
+	i := images.Image{
+		Name:   ref,
+		Target: desc,
+	}
+	checkpoint, err := c.client.ImageService().Create(ctx, i)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewImage(c.client, checkpoint), nil
+}
+
 func (c *container) loadTask(ctx context.Context, ioAttach cio.Attach) (Task, error) {
 	response, err := c.client.TaskService().Get(ctx, &tasks.GetRequest{
 		ContainerID: c.id,
@@ -288,20 +378,28 @@ func (c *container) get(ctx context.Context) (containers.Container, error) {
 	return c.client.ContainerService().Get(ctx, c.id)
 }
 
+// get the existing fifo paths from the task information stored by the daemon
 func attachExistingIO(response *tasks.GetResponse, ioAttach cio.Attach) (cio.IO, error) {
-	// get the existing fifo paths from the task information stored by the daemon
-	paths := &cio.FIFOSet{
-		Dir: getFifoDir([]string{
-			response.Process.Stdin,
-			response.Process.Stdout,
-			response.Process.Stderr,
-		}),
-		In:       response.Process.Stdin,
-		Out:      response.Process.Stdout,
-		Err:      response.Process.Stderr,
-		Terminal: response.Process.Terminal,
+	fifoSet := loadFifos(response)
+	return ioAttach(fifoSet)
+}
+
+// loadFifos loads the containers fifos
+func loadFifos(response *tasks.GetResponse) *cio.FIFOSet {
+	path := getFifoDir([]string{
+		response.Process.Stdin,
+		response.Process.Stdout,
+		response.Process.Stderr,
+	})
+	closer := func() error {
+		return os.RemoveAll(path)
 	}
-	return ioAttach(paths)
+	return cio.NewFIFOSet(cio.Config{
+		Stdin:    response.Process.Stdin,
+		Stdout:   response.Process.Stdout,
+		Stderr:   response.Process.Stderr,
+		Terminal: response.Process.Terminal,
+	}, closer)
 }
 
 // getFifoDir looks for any non-empty path for a stdio fifo

@@ -1,9 +1,9 @@
-package logger
+package logger // import "github.com/docker/docker/daemon/logger"
 
 import (
 	"io"
 	"os"
-	"strings"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -19,7 +19,6 @@ type pluginAdapter struct {
 	driverName   string
 	id           string
 	plugin       logPlugin
-	basePath     string
 	fifoPath     string
 	capabilities Capability
 	logInfo      Info
@@ -38,7 +37,7 @@ func (a *pluginAdapter) Log(msg *Message) error {
 
 	a.buf.Line = msg.Line
 	a.buf.TimeNano = msg.Timestamp.UnixNano()
-	a.buf.Partial = msg.Partial
+	a.buf.Partial = msg.PLogMetaData != nil
 	a.buf.Source = msg.Source
 
 	err := a.enc.Encode(&a.buf)
@@ -58,7 +57,7 @@ func (a *pluginAdapter) Close() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if err := a.plugin.StopLogging(strings.TrimPrefix(a.fifoPath, a.basePath)); err != nil {
+	if err := a.plugin.StopLogging(filepath.Join("/", "run", "docker", "logging", a.id)); err != nil {
 		return err
 	}
 
@@ -94,21 +93,12 @@ func (a *pluginAdapterWithRead) ReadLogs(config ReadConfig) *LogWatcher {
 
 		dec := logdriver.NewLogEntryDecoder(stream)
 		for {
-			select {
-			case <-watcher.WatchClose():
-				return
-			default:
-			}
-
 			var buf logdriver.LogEntry
 			if err := dec.Decode(&buf); err != nil {
 				if err == io.EOF {
 					return
 				}
-				select {
-				case watcher.Err <- errors.Wrap(err, "error decoding log message"):
-				case <-watcher.WatchClose():
-				}
+				watcher.Err <- errors.Wrap(err, "error decoding log message")
 				return
 			}
 
@@ -126,11 +116,10 @@ func (a *pluginAdapterWithRead) ReadLogs(config ReadConfig) *LogWatcher {
 				return
 			}
 
+			// send the message unless the consumer is gone
 			select {
 			case watcher.Msg <- msg:
-			case <-watcher.WatchClose():
-				// make sure the message we consumed is sent
-				watcher.Msg <- msg
+			case <-watcher.WatchConsumerGone():
 				return
 			}
 		}

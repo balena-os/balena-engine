@@ -1,6 +1,7 @@
-package environment
+package environment // import "github.com/docker/docker/internal/test/environment"
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,9 +9,8 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/integration-cli/fixtures/load"
+	"github.com/docker/docker/internal/test/fixtures/load"
 	"github.com/pkg/errors"
-	"golang.org/x/net/context"
 )
 
 // Execution contains information about the current test execution and daemon
@@ -32,7 +32,7 @@ type PlatformDefaults struct {
 
 // New creates a new Execution struct
 func New() (*Execution, error) {
-	client, err := client.NewEnvClient()
+	client, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create client")
 	}
@@ -96,7 +96,7 @@ func toSlash(path string) string {
 }
 
 // IsLocalDaemon is true if the daemon under test is on the same
-// host as the CLI.
+// host as the test process.
 //
 // Deterministically working out the environment in which CI is running
 // to evaluate whether the daemon is local or remote is not possible through
@@ -113,6 +113,21 @@ func toSlash(path string) string {
 // a Linux CLI (built with the daemon tag) against a Windows daemon.
 func (e *Execution) IsLocalDaemon() bool {
 	return os.Getenv("DOCKER_REMOTE_DAEMON") == ""
+}
+
+// IsRemoteDaemon is true if the daemon under test is on different host
+// as the test process.
+func (e *Execution) IsRemoteDaemon() bool {
+	return !e.IsLocalDaemon()
+}
+
+// DaemonAPIVersion returns the negotiated daemon api version
+func (e *Execution) DaemonAPIVersion() string {
+	version, err := e.APIClient().ServerVersion(context.TODO())
+	if err != nil {
+		return ""
+	}
+	return version.APIVersion
 }
 
 // Print the execution details to stdout

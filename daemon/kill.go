@@ -1,4 +1,4 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docker/docker/api/errdefs"
 	containerpkg "github.com/docker/docker/container"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/signal"
 	"github.com/pkg/errors"
@@ -108,7 +108,7 @@ func (daemon *Daemon) killWithSignal(container *containerpkg.Container, sig int)
 	if unpause {
 		// above kill signal will be sent once resume is finished
 		if err := daemon.containerd.Resume(context.Background(), container.ID); err != nil {
-			logrus.Warn("Cannot unpause container %s: %s", container.ID, err)
+			logrus.Warnf("Cannot unpause container %s: %s", container.ID, err)
 		}
 	}
 

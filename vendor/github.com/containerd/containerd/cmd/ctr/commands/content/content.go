@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package content
 
 import (
@@ -56,7 +72,7 @@ var (
 			}
 			defer cancel()
 			cs := client.ContentStore()
-			ra, err := cs.ReaderAt(ctx, dgst)
+			ra, err := cs.ReaderAt(ctx, ocispec.Descriptor{Digest: dgst})
 			if err != nil {
 				return err
 			}
@@ -105,7 +121,7 @@ var (
 			// TODO(stevvooe): Allow ingest to be reentrant. Currently, we expect
 			// all data to be written in a single invocation. Allow multiple writes
 			// to the same transaction key followed by a commit.
-			return content.WriteBlob(ctx, cs, ref, os.Stdin, expectedSize, expectedDigest)
+			return content.WriteBlob(ctx, cs, ref, os.Stdin, ocispec.Descriptor{Size: expectedSize, Digest: expectedDigest})
 		},
 	}
 
@@ -274,6 +290,11 @@ var (
 				Name:  "validate",
 				Usage: "validate the result against a format (json, mediatype, etc.)",
 			},
+			cli.StringFlag{
+				Name:   "editor",
+				Usage:  "select editor (vim, emacs, etc.)",
+				EnvVar: "EDITOR",
+			},
 		},
 		Action: func(context *cli.Context) error {
 			var (
@@ -298,19 +319,19 @@ var (
 			}
 			defer cancel()
 			cs := client.ContentStore()
-			ra, err := cs.ReaderAt(ctx, dgst)
+			ra, err := cs.ReaderAt(ctx, ocispec.Descriptor{Digest: dgst})
 			if err != nil {
 				return err
 			}
 			defer ra.Close()
 
-			nrc, err := edit(content.NewReader(ra))
+			nrc, err := edit(context, content.NewReader(ra))
 			if err != nil {
 				return err
 			}
 			defer nrc.Close()
 
-			wr, err := cs.Writer(ctx, "edit-"+object, 0, "") // TODO(stevvooe): Choose a better key?
+			wr, err := cs.Writer(ctx, content.WithRef("edit-"+object)) // TODO(stevvooe): Choose a better key?
 			if err != nil {
 				return err
 			}
@@ -466,7 +487,7 @@ var (
 				Size:      info.Size,
 			}
 
-			ra, err := cs.ReaderAt(ctx, dgst)
+			ra, err := cs.ReaderAt(ctx, desc)
 			if err != nil {
 				return err
 			}
@@ -489,8 +510,13 @@ var (
 	}
 )
 
-func edit(rd io.Reader) (io.ReadCloser, error) {
-	tmp, err := ioutil.TempFile("", "edit-")
+func edit(context *cli.Context, rd io.Reader) (io.ReadCloser, error) {
+	editor := context.String("editor")
+	if editor == "" {
+		return nil, fmt.Errorf("editor is required")
+	}
+
+	tmp, err := ioutil.TempFile(os.Getenv("XDG_RUNTIME_DIR"), "edit-")
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +526,7 @@ func edit(rd io.Reader) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	cmd := exec.Command("sh", "-c", "$EDITOR "+tmp.Name())
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("%s %s", editor, tmp.Name()))
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

@@ -1,6 +1,7 @@
-package cluster
+package cluster // import "github.com/docker/docker/daemon/cluster"
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	types "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/daemon/cluster/convert"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/signal"
 	swarmapi "github.com/docker/swarmkit/api"
@@ -17,7 +19,6 @@ import (
 	swarmnode "github.com/docker/swarmkit/node"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 )
 
 // Init initializes new cluster from user provided request.
@@ -44,7 +45,7 @@ func (c *Cluster) Init(req types.InitRequest) (string, error) {
 	}
 
 	if err := validateAndSanitizeInitRequest(&req); err != nil {
-		return "", validationError{err}
+		return "", errdefs.InvalidParameter(err)
 	}
 
 	listenHost, listenPort, err := resolveListenAddr(req.ListenAddr)
@@ -91,14 +92,20 @@ func (c *Cluster) Init(req types.InitRequest) (string, error) {
 		}
 	}
 
+	//Validate Default Address Pool input
+	if err := validateDefaultAddrPool(req.DefaultAddrPool, req.SubnetSize); err != nil {
+		return "", err
+	}
 	nr, err := c.newNodeRunner(nodeStartConfig{
-		forceNewCluster: req.ForceNewCluster,
-		autolock:        req.AutoLockManagers,
-		LocalAddr:       localAddr,
-		ListenAddr:      net.JoinHostPort(listenHost, listenPort),
-		AdvertiseAddr:   net.JoinHostPort(advertiseHost, advertisePort),
-		DataPathAddr:    dataPathAddr,
-		availability:    req.Availability,
+		forceNewCluster:    req.ForceNewCluster,
+		autolock:           req.AutoLockManagers,
+		LocalAddr:          localAddr,
+		ListenAddr:         net.JoinHostPort(listenHost, listenPort),
+		AdvertiseAddr:      net.JoinHostPort(advertiseHost, advertisePort),
+		DataPathAddr:       dataPathAddr,
+		DefaultAddressPool: req.DefaultAddrPool,
+		SubnetSize:         req.SubnetSize,
+		availability:       req.Availability,
 	})
 	if err != nil {
 		return "", err
@@ -140,7 +147,7 @@ func (c *Cluster) Join(req types.JoinRequest) error {
 	c.mu.Unlock()
 
 	if err := validateAndSanitizeJoinRequest(&req); err != nil {
-		return validationError{err}
+		return errdefs.InvalidParameter(err)
 	}
 
 	listenHost, listenPort, err := resolveListenAddr(req.ListenAddr)
@@ -232,7 +239,7 @@ func (c *Cluster) Update(version uint64, spec types.Spec, flags types.UpdateFlag
 		if spec.Annotations.Name == "" {
 			spec.Annotations.Name = "default"
 		} else if spec.Annotations.Name != "default" {
-			return validationError{errors.New(`swarm spec must be named "default"`)}
+			return errdefs.InvalidParameter(errors.New(`swarm spec must be named "default"`))
 		}
 
 		// In update, client should provide the complete spec of the swarm, including
@@ -240,7 +247,7 @@ func (c *Cluster) Update(version uint64, spec types.Spec, flags types.UpdateFlag
 		// will be used to swarmkit.
 		clusterSpec, err := convert.SwarmSpecToGRPC(spec)
 		if err != nil {
-			return convertError{err}
+			return errdefs.InvalidParameter(err)
 		}
 
 		_, err = state.controlClient.UpdateCluster(
@@ -311,7 +318,7 @@ func (c *Cluster) UnlockSwarm(req types.UnlockRequest) error {
 
 	key, err := encryption.ParseHumanReadableKey(req.UnlockKey)
 	if err != nil {
-		return validationError{err}
+		return errdefs.InvalidParameter(err)
 	}
 
 	config := nr.config
@@ -503,7 +510,8 @@ func validateAddr(addr string) (string, error) {
 }
 
 func initClusterSpec(node *swarmnode.Node, spec types.Spec) error {
-	ctx, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	for conn := range node.ListenControlSocket(ctx) {
 		if ctx.Err() != nil {
 			return ctx.Err()

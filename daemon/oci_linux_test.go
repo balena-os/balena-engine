@@ -1,6 +1,7 @@
-package daemon
+package daemon // import "github.com/docker/docker/daemon"
 
 import (
+	"os"
 	"testing"
 
 	containertypes "github.com/docker/docker/api/types/container"
@@ -8,8 +9,8 @@ import (
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/oci"
 	"github.com/docker/docker/pkg/idtools"
-
-	"github.com/stretchr/testify/assert"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
 )
 
 // TestTmpfsDevShmNoDupMount checks that a user-specified /dev/shm tmpfs
@@ -20,7 +21,7 @@ func TestTmpfsDevShmNoDupMount(t *testing.T) {
 	d := Daemon{
 		// some empty structs to avoid getting a panic
 		// caused by a null pointer dereference
-		idMappings:  &idtools.IDMappings{},
+		idMapping:   &idtools.IdentityMapping{},
 		configStore: &config.Config{},
 	}
 	c := &container.Container{
@@ -36,15 +37,66 @@ func TestTmpfsDevShmNoDupMount(t *testing.T) {
 
 	// Mimick the code flow of daemon.createSpec(), enough to reproduce the issue
 	ms, err := d.setupMounts(c)
-	assert.NoError(t, err)
+	assert.Check(t, err)
 
 	ms = append(ms, c.IpcMounts()...)
 
 	tmpfsMounts, err := c.TmpfsMounts()
-	assert.NoError(t, err)
+	assert.Check(t, err)
 	ms = append(ms, tmpfsMounts...)
 
 	s := oci.DefaultSpec()
 	err = setMounts(&d, &s, c, ms)
-	assert.NoError(t, err)
+	assert.Check(t, err)
+}
+
+// TestIpcPrivateVsReadonly checks that in case of IpcMode: private
+// and ReadonlyRootfs: true (as in "docker run --ipc private --read-only")
+// the resulting /dev/shm mount is NOT made read-only.
+// https://github.com/moby/moby/issues/36503
+func TestIpcPrivateVsReadonly(t *testing.T) {
+	d := Daemon{
+		// some empty structs to avoid getting a panic
+		// caused by a null pointer dereference
+		idMapping:   &idtools.IdentityMapping{},
+		configStore: &config.Config{},
+	}
+	c := &container.Container{
+		HostConfig: &containertypes.HostConfig{
+			IpcMode:        containertypes.IpcMode("private"),
+			ReadonlyRootfs: true,
+		},
+	}
+
+	// We can't call createSpec() so mimick the minimal part
+	// of its code flow, just enough to reproduce the issue.
+	ms, err := d.setupMounts(c)
+	assert.Check(t, err)
+
+	s := oci.DefaultSpec()
+	s.Root.Readonly = c.HostConfig.ReadonlyRootfs
+
+	err = setMounts(&d, &s, c, ms)
+	assert.Check(t, err)
+
+	// Find the /dev/shm mount in ms, check it does not have ro
+	for _, m := range s.Mounts {
+		if m.Destination != "/dev/shm" {
+			continue
+		}
+		assert.Check(t, is.Equal(false, inSlice(m.Options, "ro")))
+	}
+}
+
+func TestGetSourceMount(t *testing.T) {
+	// must be able to find source mount for /
+	mnt, _, err := getSourceMount("/")
+	assert.NilError(t, err)
+	assert.Equal(t, mnt, "/")
+
+	// must be able to find source mount for current directory
+	cwd, err := os.Getwd()
+	assert.NilError(t, err)
+	_, _, err = getSourceMount(cwd)
+	assert.NilError(t, err)
 }

@@ -1,11 +1,12 @@
 package controlapi
 
 import (
+	"context"
+
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/api/naming"
 	"github.com/docker/swarmkit/manager/orchestrator"
 	"github.com/docker/swarmkit/manager/state/store"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -155,7 +156,8 @@ func (s *Server) ListTasks(ctx context.Context, request *api.ListTasksRequest) (
 					return false
 				}
 
-				return !orchestrator.IsTaskDirty(service, e)
+				n := store.GetNode(tx, e.NodeID)
+				return !orchestrator.IsTaskDirty(service, e, n)
 			},
 		)
 	})

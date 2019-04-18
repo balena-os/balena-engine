@@ -1,11 +1,12 @@
-package transport
+package transport // import "github.com/docker/docker/pkg/plugins/transport"
 
 import (
 	"io"
 	"net/http"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
 )
 
 func TestHTTPTransport(t *testing.T) {
@@ -16,5 +17,5 @@ func TestHTTPTransport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, "POST", request.Method)
+	assert.Check(t, is.Equal("POST", request.Method))
 }

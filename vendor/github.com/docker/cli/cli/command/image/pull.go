@@ -1,6 +1,7 @@
 package image
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -10,18 +11,19 @@ import (
 	"github.com/docker/distribution/reference"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/context"
 )
 
-type pullOptions struct {
-	remote   string
-	all      bool
-	platform string
+// PullOptions defines what and how to pull
+type PullOptions struct {
+	remote    string
+	all       bool
+	platform  string
+	untrusted bool
 }
 
 // NewPullCommand creates a new `docker pull` command
 func NewPullCommand(dockerCli command.Cli) *cobra.Command {
-	var opts pullOptions
+	var opts PullOptions
 
 	cmd := &cobra.Command{
 		Use:   "pull [OPTIONS] NAME[:TAG|@DIGEST]",
@@ -29,7 +31,7 @@ func NewPullCommand(dockerCli command.Cli) *cobra.Command {
 		Args:  cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.remote = args[0]
-			return runPull(dockerCli, opts)
+			return RunPull(dockerCli, opts)
 		},
 	}
 
@@ -38,12 +40,13 @@ func NewPullCommand(dockerCli command.Cli) *cobra.Command {
 	flags.BoolVarP(&opts.all, "all-tags", "a", false, "Download all tagged images in the repository")
 
 	command.AddPlatformFlag(flags, &opts.platform)
-	command.AddTrustVerificationFlags(flags)
+	command.AddTrustVerificationFlags(flags, &opts.untrusted, dockerCli.ContentTrustEnabled())
 
 	return cmd
 }
 
-func runPull(cli command.Cli, opts pullOptions) error {
+// RunPull performs a pull against the engine based on the specified options
+func RunPull(cli command.Cli, opts PullOptions) error {
 	distributionRef, err := reference.ParseNormalizedNamed(opts.remote)
 	switch {
 	case err != nil:
@@ -58,14 +61,14 @@ func runPull(cli command.Cli, opts pullOptions) error {
 	}
 
 	ctx := context.Background()
-	imgRefAndAuth, err := trust.GetImageReferencesAndAuth(ctx, AuthResolver(cli), distributionRef.String())
+	imgRefAndAuth, err := trust.GetImageReferencesAndAuth(ctx, nil, AuthResolver(cli), distributionRef.String())
 	if err != nil {
 		return err
 	}
 
 	// Check if reference has a digest
 	_, isCanonical := distributionRef.(reference.Canonical)
-	if command.IsTrusted() && !isCanonical {
+	if !opts.untrusted && !isCanonical {
 		err = trustedPull(ctx, cli, imgRefAndAuth, opts.platform)
 	} else {
 		err = imagePullPrivileged(ctx, cli, imgRefAndAuth, opts.all, opts.platform)

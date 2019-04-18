@@ -1,8 +1,7 @@
-package libcontainerd
+package libcontainerd // import "github.com/docker/docker/libcontainerd"
 
 import (
 	"context"
-	"io"
 	"time"
 
 	"github.com/containerd/containerd"
@@ -47,23 +46,6 @@ const (
 	StatusUnknown Status = "unknown"
 )
 
-// Remote on Linux defines the accesspoint to the containerd grpc API.
-// Remote on Windows is largely an unimplemented interface as there is
-// no remote containerd.
-type Remote interface {
-	// Client returns a new Client instance connected with given Backend.
-	NewClient(namespace string, backend Backend) (Client, error)
-	// Cleanup stops containerd if it was started by libcontainerd.
-	// Note this is not used on Windows as there is no remote containerd.
-	Cleanup()
-}
-
-// RemoteOption allows to configure parameters of remotes.
-// This is unused on Windows.
-type RemoteOption interface {
-	Apply(Remote) error
-}
-
 // EventInfo contains the event info
 type EventInfo struct {
 	ContainerID string
@@ -72,8 +54,7 @@ type EventInfo struct {
 	ExitCode    uint32
 	ExitedAt    time.Time
 	OOMKilled   bool
-	// Windows Only field
-	UpdatePending bool
+	Error       error
 }
 
 // Backend defines callbacks that the client of the library needs to implement.
@@ -107,20 +88,4 @@ type Client interface {
 }
 
 // StdioCallback is called to connect a container or process stdio.
-type StdioCallback func(*IOPipe) (cio.IO, error)
-
-// IOPipe contains the stdio streams.
-type IOPipe struct {
-	Stdin    io.WriteCloser
-	Stdout   io.ReadCloser
-	Stderr   io.ReadCloser
-	Terminal bool // Whether stderr is connected on Windows
-
-	cancel context.CancelFunc
-	config cio.Config
-}
-
-// ServerVersion contains version information as retrieved from the
-// server
-type ServerVersion struct {
-}
+type StdioCallback func(io *cio.DirectIO) (cio.IO, error)

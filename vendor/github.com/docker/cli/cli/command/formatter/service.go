@@ -2,6 +2,7 @@ package formatter
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -84,6 +85,9 @@ ContainerSpec:
 {{- if .ContainerWorkDir }}
  Dir:		{{ .ContainerWorkDir }}
 {{- end -}}
+{{- if .HasContainerInit }}
+ Init:		{{ .ContainerInit }}
+{{- end -}}
 {{- if .ContainerUser }}
  User: {{ .ContainerUser }}
 {{- end }}
@@ -91,11 +95,23 @@ ContainerSpec:
 Mounts:
 {{- end }}
 {{- range $mount := .ContainerMounts }}
-  Target = {{ $mount.Target }}
-   Source = {{ $mount.Source }}
-   ReadOnly = {{ $mount.ReadOnly }}
-   Type = {{ $mount.Type }}
+ Target:	{{ $mount.Target }}
+  Source:	{{ $mount.Source }}
+  ReadOnly:	{{ $mount.ReadOnly }}
+  Type:		{{ $mount.Type }}
 {{- end -}}
+{{- if .Configs}}
+Configs:
+{{- range $config := .Configs }}
+ Target:	{{$config.File.Name}}
+  Source:	{{$config.ConfigName}}
+{{- end }}{{ end }}
+{{- if .Secrets }}
+Secrets:
+{{- range $secret := .Secrets }}
+ Target:	{{$secret.File.Name}}
+  Source:	{{$secret.SecretName}}
+{{- end }}{{ end }}
 {{- if .HasResources }}
 Resources:
 {{- if .HasResourceReservations }}
@@ -197,6 +213,14 @@ func (ctx *serviceInspectContext) Name() string {
 
 func (ctx *serviceInspectContext) Labels() map[string]string {
 	return ctx.Service.Spec.Labels
+}
+
+func (ctx *serviceInspectContext) Configs() []*swarm.ConfigReference {
+	return ctx.Service.Spec.TaskTemplate.ContainerSpec.Configs
+}
+
+func (ctx *serviceInspectContext) Secrets() []*swarm.SecretReference {
+	return ctx.Service.Spec.TaskTemplate.ContainerSpec.Secrets
 }
 
 func (ctx *serviceInspectContext) IsModeGlobal() bool {
@@ -349,6 +373,14 @@ func (ctx *serviceInspectContext) ContainerWorkDir() string {
 
 func (ctx *serviceInspectContext) ContainerUser() string {
 	return ctx.Service.Spec.TaskTemplate.ContainerSpec.User
+}
+
+func (ctx *serviceInspectContext) HasContainerInit() bool {
+	return ctx.Service.Spec.TaskTemplate.ContainerSpec.Init != nil
+}
+
+func (ctx *serviceInspectContext) ContainerInit() bool {
+	return *ctx.Service.Spec.TaskTemplate.ContainerSpec.Init
 }
 
 func (ctx *serviceInspectContext) ContainerMounts() []mounttypes.Mount {
@@ -520,19 +552,90 @@ func (c *serviceContext) Image() string {
 	return image
 }
 
+type portRange struct {
+	pStart   uint32
+	pEnd     uint32
+	tStart   uint32
+	tEnd     uint32
+	protocol swarm.PortConfigProtocol
+}
+
+func (pr portRange) String() string {
+	var (
+		pub string
+		tgt string
+	)
+
+	if pr.pEnd > pr.pStart {
+		pub = fmt.Sprintf("%d-%d", pr.pStart, pr.pEnd)
+	} else {
+		pub = fmt.Sprintf("%d", pr.pStart)
+	}
+	if pr.tEnd > pr.tStart {
+		tgt = fmt.Sprintf("%d-%d", pr.tStart, pr.tEnd)
+	} else {
+		tgt = fmt.Sprintf("%d", pr.tStart)
+	}
+	return fmt.Sprintf("*:%s->%s/%s", pub, tgt, pr.protocol)
+}
+
+// Ports formats published ports on the ingress network for output.
+//
+// Where possible, ranges are grouped to produce a compact output:
+// - multiple ports mapped to a single port (80->80, 81->80); is formatted as *:80-81->80
+// - multiple consecutive ports on both sides; (80->80, 81->81) are formatted as: *:80-81->80-81
+//
+// The above should not be grouped together, i.e.:
+// - 80->80, 81->81, 82->80 should be presented as : *:80-81->80-81, *:82->80
+//
+// TODO improve:
+// - combine non-consecutive ports mapped to a single port (80->80, 81->80, 84->80, 86->80, 87->80); to be printed as *:80-81,84,86-87->80
+// - combine tcp and udp mappings if their port-mapping is exactly the same (*:80-81->80-81/tcp+udp instead of *:80-81->80-81/tcp, *:80-81->80-81/udp)
 func (c *serviceContext) Ports() string {
 	if c.service.Endpoint.Ports == nil {
 		return ""
 	}
+
+	pr := portRange{}
 	ports := []string{}
-	for _, pConfig := range c.service.Endpoint.Ports {
-		if pConfig.PublishMode == swarm.PortConfigPublishModeIngress {
-			ports = append(ports, fmt.Sprintf("*:%d->%d/%s",
-				pConfig.PublishedPort,
-				pConfig.TargetPort,
-				pConfig.Protocol,
-			))
+
+	servicePorts := c.service.Endpoint.Ports
+	sort.Slice(servicePorts, func(i, j int) bool {
+		if servicePorts[i].Protocol == servicePorts[j].Protocol {
+			return servicePorts[i].PublishedPort < servicePorts[j].PublishedPort
+		}
+		return servicePorts[i].Protocol < servicePorts[j].Protocol
+	})
+
+	for _, p := range c.service.Endpoint.Ports {
+		if p.PublishMode == swarm.PortConfigPublishModeIngress {
+			prIsRange := pr.tEnd != pr.tStart
+			tOverlaps := p.TargetPort <= pr.tEnd
+
+			// Start a new port-range if:
+			// - the protocol is different from the current port-range
+			// - published or target port are not consecutive to the current port-range
+			// - the current port-range is a _range_, and the target port overlaps with the current range's target-ports
+			if p.Protocol != pr.protocol || p.PublishedPort-pr.pEnd > 1 || p.TargetPort-pr.tEnd > 1 || prIsRange && tOverlaps {
+				// start a new port-range, and print the previous port-range (if any)
+				if pr.pStart > 0 {
+					ports = append(ports, pr.String())
+				}
+				pr = portRange{
+					pStart:   p.PublishedPort,
+					pEnd:     p.PublishedPort,
+					tStart:   p.TargetPort,
+					tEnd:     p.TargetPort,
+					protocol: p.Protocol,
+				}
+				continue
+			}
+			pr.pEnd = p.PublishedPort
+			pr.tEnd = p.TargetPort
 		}
 	}
-	return strings.Join(ports, ",")
+	if pr.pStart > 0 {
+		ports = append(ports, pr.String())
+	}
+	return strings.Join(ports, ", ")
 }

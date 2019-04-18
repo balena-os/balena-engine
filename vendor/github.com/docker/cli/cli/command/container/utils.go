@@ -1,6 +1,7 @@
 package container
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/docker/cli/cli/command"
@@ -10,7 +11,6 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 )
 
 func waitExitOrRemoved(ctx context.Context, dockerCli command.Cli, containerID string, waitRemove bool) <-chan int {
@@ -37,7 +37,12 @@ func waitExitOrRemoved(ctx context.Context, dockerCli command.Cli, containerID s
 	go func() {
 		select {
 		case result := <-resultC:
-			statusC <- int(result.StatusCode)
+			if result.Error != nil {
+				logrus.Errorf("Error waiting for container: %v", result.Error.Message)
+				statusC <- 125
+			} else {
+				statusC <- int(result.StatusCode)
+			}
 		case err := <-errC:
 			logrus.Errorf("error waiting for container: %v", err)
 			statusC <- 125

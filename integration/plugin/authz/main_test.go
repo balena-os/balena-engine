@@ -1,6 +1,6 @@
 // +build !windows
 
-package authz
+package authz // import "github.com/docker/docker/integration/plugin/authz"
 
 import (
 	"encoding/json"
@@ -12,10 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/integration-cli/daemon"
+	"github.com/docker/docker/internal/test/daemon"
 	"github.com/docker/docker/internal/test/environment"
 	"github.com/docker/docker/pkg/authorization"
 	"github.com/docker/docker/pkg/plugins"
+	"gotest.tools/skip"
 )
 
 var (
@@ -23,8 +24,6 @@ var (
 	d       *daemon.Daemon
 	server  *httptest.Server
 )
-
-const dockerdBinary = "balena-engine-daemon"
 
 func TestMain(m *testing.M) {
 	// Plugins are not supported
@@ -50,11 +49,11 @@ func TestMain(m *testing.M) {
 }
 
 func setupTest(t *testing.T) func() {
+	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
+	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	environment.ProtectAll(t, testEnv)
 
-	d = daemon.New(t, "", dockerdBinary, daemon.Config{
-		Experimental: testEnv.DaemonInfo.ExperimentalBuild,
-	})
+	d = daemon.New(t, daemon.WithExperimental)
 
 	return func() {
 		if d != nil {

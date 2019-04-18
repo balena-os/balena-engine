@@ -1,4 +1,4 @@
-package cluster
+package cluster // import "github.com/docker/docker/daemon/cluster"
 
 //
 // ## Swarmkit integration
@@ -39,7 +39,9 @@ package cluster
 //
 
 import (
+	"context"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -56,7 +58,6 @@ import (
 	swarmnode "github.com/docker/swarmkit/node"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/net/context"
 )
 
 const swarmDirName = "swarm"
@@ -67,9 +68,10 @@ const stateFile = "docker-state.json"
 const defaultAddr = "0.0.0.0:2377"
 
 const (
-	initialReconnectDelay = 100 * time.Millisecond
-	maxReconnectDelay     = 30 * time.Second
-	contextPrefix         = "com.docker.swarm"
+	initialReconnectDelay          = 100 * time.Millisecond
+	maxReconnectDelay              = 30 * time.Second
+	contextPrefix                  = "com.docker.swarm"
+	defaultRecvSizeForListResponse = math.MaxInt32 // the max recv limit grpc <1.4.0
 )
 
 // NetworkSubnetsProvider exposes functions for retrieving the subnets
@@ -83,7 +85,9 @@ type Config struct {
 	Root                   string
 	Name                   string
 	Backend                executorpkg.Backend
+	ImageBackend           executorpkg.ImageBackend
 	PluginBackend          plugin.Backend
+	VolumeBackend          executorpkg.VolumeBackend
 	NetworkSubnetsProvider NetworkSubnetsProvider
 
 	// DefaultAdvertiseAddr is the default host/IP or network interface to use
@@ -95,6 +99,13 @@ type Config struct {
 
 	// WatchStream is a channel to pass watch API notifications to daemon
 	WatchStream chan *swarmapi.WatchMessage
+
+	// RaftHeartbeatTick is the number of ticks for heartbeat of quorum members
+	RaftHeartbeatTick uint32
+
+	// RaftElectionTick is the number of ticks to elapse before followers propose a new round of leader election
+	// This value should be 10x that of RaftHeartbeatTick
+	RaftElectionTick uint32
 }
 
 // Cluster provides capabilities to participate in a cluster as a worker or a
@@ -133,6 +144,14 @@ func New(config Config) (*Cluster, error) {
 	if config.RuntimeRoot == "" {
 		config.RuntimeRoot = root
 	}
+	if config.RaftHeartbeatTick == 0 {
+		config.RaftHeartbeatTick = 1
+	}
+	if config.RaftElectionTick == 0 {
+		// 10X heartbeat tick is the recommended ratio according to etcd docs.
+		config.RaftElectionTick = 10 * config.RaftHeartbeatTick
+	}
+
 	if err := os.MkdirAll(config.RuntimeRoot, 0700); err != nil {
 		return nil, err
 	}
@@ -287,6 +306,13 @@ func (c *Cluster) GetRemoteAddressList() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.getRemoteAddressList()
+}
+
+// GetWatchStream returns the channel to pass changes from store watch API
+func (c *Cluster) GetWatchStream() chan *swarmapi.WatchMessage {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.watchStream
 }
 
 func (c *Cluster) getRemoteAddressList() []string {

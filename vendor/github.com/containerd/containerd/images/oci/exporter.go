@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package oci
 
 import (
@@ -22,10 +38,40 @@ import (
 //                    e.g. application/vnd.docker.image.rootfs.diff.tar.gzip
 //                         -> application/vnd.oci.image.layer.v1.tar+gzip
 type V1Exporter struct {
+	AllPlatforms bool
+}
+
+// V1ExporterOpt allows the caller to set additional options to a new V1Exporter
+type V1ExporterOpt func(c *V1Exporter) error
+
+// DefaultV1Exporter return a default V1Exporter pointer
+func DefaultV1Exporter() *V1Exporter {
+	return &V1Exporter{
+		AllPlatforms: false,
+	}
+}
+
+// ResolveV1ExportOpt return a new V1Exporter with V1ExporterOpt
+func ResolveV1ExportOpt(opts ...V1ExporterOpt) (*V1Exporter, error) {
+	exporter := DefaultV1Exporter()
+	for _, o := range opts {
+		if err := o(exporter); err != nil {
+			return exporter, err
+		}
+	}
+	return exporter, nil
+}
+
+// WithAllPlatforms set V1Exporter`s AllPlatforms option
+func WithAllPlatforms(allPlatforms bool) V1ExporterOpt {
+	return func(c *V1Exporter) error {
+		c.AllPlatforms = allPlatforms
+		return nil
+	}
 }
 
 // Export implements Exporter.
-func (oe *V1Exporter) Export(ctx context.Context, store content.Store, desc ocispec.Descriptor, writer io.Writer) error {
+func (oe *V1Exporter) Export(ctx context.Context, store content.Provider, desc ocispec.Descriptor, writer io.Writer) error {
 	tw := tar.NewWriter(writer)
 	defer tw.Close()
 
@@ -41,8 +87,15 @@ func (oe *V1Exporter) Export(ctx context.Context, store content.Store, desc ocis
 		return nil, nil
 	}
 
+	childrenHandler := images.ChildrenHandler(store)
+
+	if !oe.AllPlatforms {
+		// get local default platform to fetch image manifest
+		childrenHandler = images.FilterPlatforms(childrenHandler, platforms.Any(platforms.DefaultSpec()))
+	}
+
 	handlers := images.Handlers(
-		images.ChildrenHandler(store, platforms.Default()),
+		childrenHandler,
 		images.HandlerFunc(exportHandler),
 	)
 
@@ -67,7 +120,7 @@ type tarRecord struct {
 	CopyTo func(context.Context, io.Writer) (int64, error)
 }
 
-func blobRecord(cs content.Store, desc ocispec.Descriptor) tarRecord {
+func blobRecord(cs content.Provider, desc ocispec.Descriptor) tarRecord {
 	path := "blobs/" + desc.Digest.Algorithm().String() + "/" + desc.Digest.Hex()
 	return tarRecord{
 		Header: &tar.Header{
@@ -77,9 +130,9 @@ func blobRecord(cs content.Store, desc ocispec.Descriptor) tarRecord {
 			Typeflag: tar.TypeReg,
 		},
 		CopyTo: func(ctx context.Context, w io.Writer) (int64, error) {
-			r, err := cs.ReaderAt(ctx, desc.Digest)
+			r, err := cs.ReaderAt(ctx, desc)
 			if err != nil {
-				return 0, err
+				return 0, errors.Wrap(err, "failed to get reader")
 			}
 			defer r.Close()
 
@@ -88,7 +141,7 @@ func blobRecord(cs content.Store, desc ocispec.Descriptor) tarRecord {
 
 			n, err := io.Copy(io.MultiWriter(w, dgstr.Hash()), content.NewReader(r))
 			if err != nil {
-				return 0, err
+				return 0, errors.Wrap(err, "failed to copy to tar")
 			}
 			if dgstr.Digest() != desc.Digest {
 				return 0, errors.Errorf("unexpected digest %s copied", dgstr.Digest())

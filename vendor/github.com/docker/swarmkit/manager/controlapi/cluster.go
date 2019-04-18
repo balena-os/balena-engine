@@ -1,6 +1,7 @@
 package controlapi
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"github.com/docker/swarmkit/manager/encryption"
 	"github.com/docker/swarmkit/manager/state/store"
 	gogotypes "github.com/gogo/protobuf/types"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -19,6 +19,13 @@ const (
 	// expiredCertGrace is the amount of time to keep a node in the
 	// blacklist beyond its certificate expiration timestamp.
 	expiredCertGrace = 24 * time.Hour * 7
+	// inbuilt default subnet size
+	inbuiltSubnetSize = 24
+)
+
+var (
+	// inbuilt default address pool
+	inbuiltDefaultAddressPool = []string{"10.0.0.0/8"}
 )
 
 func validateClusterSpec(spec *api.ClusterSpec) error {
@@ -123,10 +130,10 @@ func (s *Server) UpdateCluster(ctx context.Context, request *api.UpdateClusterRe
 		expireBlacklistedCerts(cluster)
 
 		if request.Rotation.WorkerJoinToken {
-			cluster.RootCA.JoinTokens.Worker = ca.GenerateJoinToken(&rootCA)
+			cluster.RootCA.JoinTokens.Worker = ca.GenerateJoinToken(&rootCA, cluster.FIPS)
 		}
 		if request.Rotation.ManagerJoinToken {
-			cluster.RootCA.JoinTokens.Manager = ca.GenerateJoinToken(&rootCA)
+			cluster.RootCA.JoinTokens.Manager = ca.GenerateJoinToken(&rootCA, cluster.FIPS)
 		}
 
 		updatedRootCA, err := validateCAConfig(ctx, s.securityConfig, cluster)
@@ -265,6 +272,14 @@ func redactClusters(clusters []*api.Cluster) []*api.Cluster {
 			Spec:                    *redactedSpec,
 			RootCA:                  *redactedRootCA,
 			BlacklistedCertificates: cluster.BlacklistedCertificates,
+			DefaultAddressPool:      cluster.DefaultAddressPool,
+			SubnetSize:              cluster.SubnetSize,
+		}
+		if newCluster.DefaultAddressPool == nil {
+			// This is just for CLI display. Set the inbuilt default pool for
+			// user reference.
+			newCluster.DefaultAddressPool = inbuiltDefaultAddressPool
+			newCluster.SubnetSize = inbuiltSubnetSize
 		}
 		redactedClusters = append(redactedClusters, newCluster)
 	}

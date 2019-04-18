@@ -10,9 +10,10 @@ import (
 )
 
 type deltaOptions struct {
-	src  string
-	dest string
-	tag  string
+	src       string
+	dest      string
+	tag       string
+	untrusted bool
 }
 
 // NewDeltaCommand creates a new `docker delta` command
@@ -32,7 +33,7 @@ func NewDeltaCommand(dockerCli command.Cli) *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&options.tag, "tag", "t", "Name and optionally a tag in the 'name:tag' format")
-	command.AddTrustVerificationFlags(flags)
+	command.AddTrustVerificationFlags(flags, &options.untrusted, dockerCli.ContentTrustEnabled())
 
 	return cmd
 }

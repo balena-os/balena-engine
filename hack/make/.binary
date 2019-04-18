@@ -50,8 +50,17 @@ if [ "$(go env GOOS)/$(go env GOARCH)" != "$(go env GOHOSTOS)/$(go env GOHOSTARC
 	esac
 fi
 
-COMMIT_RUNC="$RUNC_COMMIT"
-VERSION_RUNC="1.0.0-rc4+dev"
+COMMIT_RUNC="b3d5036b6520060db00c81352d533a5dd919aaaf"
+VERSION_RUNC="1.0.0-rc6+dev"
+
+# -buildmode=pie is not supported on Windows and Linux on mips.
+case "$(go env GOOS)/$(go env GOARCH)" in
+	windows/*|linux/mips*)
+		;;
+	*)
+		# BUILDFLAGS+=( "-buildmode=pie" )
+		;;
+esac
 
 echo "Building: $DEST/$BINARY_FULLNAME"
 go build \

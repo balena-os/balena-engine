@@ -1,4 +1,20 @@
-// +build linux,!no_btrfs
+// +build linux,btrfs
+
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
 
 package btrfs
 
@@ -10,13 +26,14 @@ import (
 	"strings"
 
 	"github.com/containerd/btrfs"
-	"github.com/containerd/containerd/fs"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/storage"
+	"github.com/containerd/continuity/fs"
+
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -60,7 +77,7 @@ func NewSnapshotter(root string) (snapshots.Snapshotter, error) {
 		return nil, err
 	}
 	if mnt.FSType != "btrfs" {
-		return nil, fmt.Errorf("path %s must be a btrfs filesystem to be used with the btrfs snapshotter", root)
+		return nil, errors.Wrapf(plugin.ErrSkipPlugin, "path %s must be a btrfs filesystem to be used with the btrfs snapshotter", root)
 	}
 	var (
 		active    = filepath.Join(root, "active")
@@ -155,7 +172,7 @@ func (b *snapshotter) usage(ctx context.Context, key string) (snapshots.Usage, e
 		if parentID != "" {
 			du, err = fs.DiffUsage(ctx, filepath.Join(b.root, "snapshots", parentID), p)
 		} else {
-			du, err = fs.DiskUsage(p)
+			du, err = fs.DiskUsage(ctx, p)
 		}
 		if err != nil {
 			// TODO(stevvooe): Consider not reporting an error in this case.

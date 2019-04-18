@@ -1,13 +1,13 @@
 // +build windows
 
-package dockerfile
+package dockerfile // import "github.com/docker/docker/builder/dockerfile"
 
 import (
 	"fmt"
 	"testing"
 
-	"github.com/docker/docker/internal/testutil"
-	"github.com/stretchr/testify/assert"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
 )
 
 func TestNormalizeDest(t *testing.T) {
@@ -42,12 +42,12 @@ func TestNormalizeDest(t *testing.T) {
 		msg := fmt.Sprintf("Input: %s, %s", testcase.current, testcase.requested)
 		actual, err := normalizeDest(testcase.current, testcase.requested, "windows")
 		if testcase.etext == "" {
-			if !assert.NoError(t, err, msg) {
+			if !assert.Check(t, err, msg) {
 				continue
 			}
-			assert.Equal(t, testcase.expected, actual, msg)
+			assert.Check(t, is.Equal(testcase.expected, actual), msg)
 		} else {
-			testutil.ErrorContains(t, err, testcase.etext)
+			assert.Check(t, is.ErrorContains(err, testcase.etext))
 		}
 	}
 }

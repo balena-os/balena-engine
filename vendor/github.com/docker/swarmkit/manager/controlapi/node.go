@@ -1,6 +1,7 @@
 package controlapi
 
 import (
+	"context"
 	"crypto/x509"
 	"encoding/pem"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/docker/swarmkit/manager/state/raft/membership"
 	"github.com/docker/swarmkit/manager/state/store"
 	gogotypes "github.com/gogo/protobuf/types"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -140,6 +140,12 @@ func (s *Server) ListNodes(ctx context.Context, request *api.ListNodesRequest) (
 					return false
 				}
 				return filterMatchLabels(e.Description.Engine.Labels, request.Filters.Labels)
+			},
+			func(e *api.Node) bool {
+				if len(request.Filters.NodeLabels) == 0 {
+					return true
+				}
+				return filterMatchLabels(e.Spec.Annotations.Labels, request.Filters.NodeLabels)
 			},
 			func(e *api.Node) bool {
 				if len(request.Filters.Roles) == 0 {

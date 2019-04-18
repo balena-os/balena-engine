@@ -1,4 +1,4 @@
-package cli
+package cli // import "github.com/docker/docker/integration-cli/cli"
 
 import (
 	"fmt"
@@ -8,8 +8,9 @@ import (
 
 	"github.com/docker/docker/integration-cli/daemon"
 	"github.com/docker/docker/integration-cli/environment"
-	"github.com/gotestyourself/gotestyourself/icmd"
 	"github.com/pkg/errors"
+	"gotest.tools/assert"
+	"gotest.tools/icmd"
 )
 
 var testEnv *environment.Execution
@@ -24,6 +25,7 @@ func SetTestEnvironment(env *environment.Execution) {
 type CmdOperator func(*icmd.Cmd) func()
 
 type testingT interface {
+	assert.TestingT
 	Fatal(args ...interface{})
 	Fatalf(string, ...interface{})
 }

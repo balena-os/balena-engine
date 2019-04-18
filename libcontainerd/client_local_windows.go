@@ -1,10 +1,9 @@
-package libcontainerd
+package libcontainerd // import "github.com/docker/docker/libcontainerd"
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"path"
@@ -18,6 +17,7 @@ import (
 	"github.com/Microsoft/hcsshim"
 	opengcs "github.com/Microsoft/opengcs/client"
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/cio"
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/pkg/system"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -42,18 +42,17 @@ type container struct {
 	// have access to the Spec
 	ociSpec *specs.Spec
 
-	isWindows           bool
-	manualStopRequested bool
-	hcsContainer        hcsshim.Container
+	isWindows    bool
+	hcsContainer hcsshim.Container
 
-	id            string
-	status        Status
-	exitedAt      time.Time
-	exitCode      uint32
-	waitCh        chan struct{}
-	init          *process
-	execs         map[string]*process
-	updatePending bool
+	id               string
+	status           Status
+	exitedAt         time.Time
+	exitCode         uint32
+	waitCh           chan struct{}
+	init             *process
+	execs            map[string]*process
+	terminateInvoked bool
 }
 
 // Win32 error codes that are used for various workarounds
@@ -71,6 +70,28 @@ const (
 // of docker.
 const defaultOwner = "docker"
 
+type client struct {
+	sync.Mutex
+
+	stateDir   string
+	backend    Backend
+	logger     *logrus.Entry
+	eventQ     queue
+	containers map[string]*container
+}
+
+// NewClient creates a new local executor for windows
+func NewClient(ctx context.Context, cli *containerd.Client, stateDir, ns string, b Backend) (Client, error) {
+	c := &client{
+		stateDir:   stateDir,
+		backend:    b,
+		logger:     logrus.WithField("module", "libcontainerd").WithField("module", "libcontainerd").WithField("namespace", ns),
+		containers: make(map[string]*container),
+	}
+
+	return c, nil
+}
+
 func (c *client) Version(ctx context.Context) (containerd.Version, error) {
 	return containerd.Version{}, errors.New("not implemented on Windows")
 }
@@ -82,7 +103,7 @@ func (c *client) Version(ctx context.Context) (containerd.Version, error) {
 // |                 | Isolation=Process                          | Isolation=Hyper-V                                 |
 // +-----------------+--------------------------------------------+---------------------------------------------------+
 // | VolumePath      | \\?\\Volume{GUIDa}                         |                                                   |
-// | LayerFolderPath | %root%\windowsfilter\containerID           | %root%\windowsfilter\containerID (servicing only) |
+// | LayerFolderPath | %root%\windowsfilter\containerID           |                                                   |
 // | Layers[]        | ID=GUIDb;Path=%root%\windowsfilter\layerID | ID=GUIDb;Path=%root%\windowsfilter\layerID        |
 // | HvRuntime       |                                            | ImagePath=%root%\BaseLayerID\UtilityVM            |
 // +-----------------+--------------------------------------------+---------------------------------------------------+
@@ -104,7 +125,6 @@ func (c *client) Version(ctx context.Context) (containerd.Version, error) {
 //	"MappedDirectories": [],
 //	"HvPartition": false,
 //	"EndpointList": ["eef2649d-bb17-4d53-9937-295a8efe6f2c"],
-//	"Servicing": false
 //}
 //
 // Isolation=Hyper-V example:
@@ -126,7 +146,6 @@ func (c *client) Version(ctx context.Context) (containerd.Version, error) {
 //	"HvRuntime": {
 //		"ImagePath": "C:\\\\control\\\\windowsfilter\\\\65bf96e5760a09edf1790cb229e2dfb2dbd0fcdc0bf7451bae099106bfbfea0c\\\\UtilityVM"
 //	},
-//	"Servicing": false
 //}
 func (c *client) Create(_ context.Context, id string, spec *specs.Spec, runtimeOptions interface{}) error {
 	if ctr := c.getContainer(id); ctr != nil {
@@ -155,7 +174,6 @@ func (c *client) createWindows(id string, spec *specs.Spec, runtimeOptions inter
 		IgnoreFlushesDuringBoot: spec.Windows.IgnoreFlushesDuringBoot,
 		HostName:                spec.Hostname,
 		HvPartition:             false,
-		Servicing:               spec.Windows.Servicing,
 	}
 
 	if spec.Windows.Resources != nil {
@@ -223,7 +241,7 @@ func (c *client) createWindows(id string, spec *specs.Spec, runtimeOptions inter
 
 	if configuration.HvPartition {
 		// We don't currently support setting the utility VM image explicitly.
-		// TODO @swernli/jhowardmsft circa RS3/4, this may be re-locatable.
+		// TODO @swernli/jhowardmsft circa RS5, this may be re-locatable.
 		if spec.Windows.HyperV.UtilityVMPath != "" {
 			return errors.New("runtime does not support an explicit utility VM path for Hyper-V containers")
 		}
@@ -303,7 +321,7 @@ func (c *client) createWindows(id string, spec *specs.Spec, runtimeOptions inter
 		}
 	}
 	configuration.MappedDirectories = mds
-	if len(mps) > 0 && system.GetOSVersion().Build < 16210 { // replace with Win10 RS3 build number at RTM
+	if len(mps) > 0 && system.GetOSVersion().Build < 16299 { // RS3
 		return errors.New("named pipe mounts are not supported on this version of Windows")
 	}
 	configuration.MappedPipes = mps
@@ -324,21 +342,18 @@ func (c *client) createWindows(id string, spec *specs.Spec, runtimeOptions inter
 		waitCh:       make(chan struct{}),
 	}
 
-	// Start the container. If this is a servicing container, this call
-	// will block until the container is done with the servicing
-	// execution.
 	logger.Debug("starting container")
 	if err = hcsContainer.Start(); err != nil {
 		c.logger.WithError(err).Error("failed to start container")
-		ctr.debugGCS()
+		ctr.Lock()
 		if err := c.terminateContainer(ctr); err != nil {
 			c.logger.WithError(err).Error("failed to cleanup after a failed Start")
 		} else {
 			c.logger.Debug("cleaned up after failed Start by calling Terminate")
 		}
+		ctr.Unlock()
 		return err
 	}
-	ctr.debugGCS()
 
 	c.Lock()
 	c.containers[id] = ctr
@@ -500,6 +515,10 @@ func (c *client) createLinux(id string, spec *specs.Spec, runtimeOptions interfa
 				CreateInUtilityVM: true,
 				ReadOnly:          readonly,
 			}
+			// If we are 1803/RS4+ enable LinuxMetadata support by default
+			if system.GetOSVersion().Build >= 17134 {
+				md.LinuxMetadata = true
+			}
 			mds = append(mds, md)
 			specMount.Source = path.Join(uvmPath, mount.Destination)
 		}
@@ -525,18 +544,18 @@ func (c *client) createLinux(id string, spec *specs.Spec, runtimeOptions interfa
 		waitCh:       make(chan struct{}),
 	}
 
-	// Start the container. If this is a servicing container, this call
-	// will block until the container is done with the servicing
-	// execution.
+	// Start the container.
 	logger.Debug("starting container")
 	if err = hcsContainer.Start(); err != nil {
 		c.logger.WithError(err).Error("failed to start container")
 		ctr.debugGCS()
+		ctr.Lock()
 		if err := c.terminateContainer(ctr); err != nil {
 			c.logger.WithError(err).Error("failed to cleanup after a failed Start")
 		} else {
 			c.logger.Debug("cleaned up after failed Start by calling Terminate")
 		}
+		ctr.Unlock()
 		return err
 	}
 	ctr.debugGCS()
@@ -588,14 +607,14 @@ func (c *client) Start(_ context.Context, id, _ string, withStdin bool, attachSt
 	)
 	if ctr.ociSpec.Process != nil {
 		emulateConsole = ctr.ociSpec.Process.Terminal
-		createStdErrPipe = !ctr.ociSpec.Process.Terminal && !ctr.ociSpec.Windows.Servicing
+		createStdErrPipe = !ctr.ociSpec.Process.Terminal
 	}
 
 	createProcessParms := &hcsshim.ProcessConfig{
 		EmulateConsole:   emulateConsole,
 		WorkingDirectory: ctr.ociSpec.Process.Cwd,
-		CreateStdInPipe:  !ctr.ociSpec.Windows.Servicing,
-		CreateStdOutPipe: !ctr.ociSpec.Windows.Servicing,
+		CreateStdInPipe:  true,
+		CreateStdOutPipe: true,
 		CreateStdErrPipe: createStdErrPipe,
 	}
 
@@ -655,43 +674,12 @@ func (c *client) Start(_ context.Context, id, _ string, withStdin bool, attachSt
 	}
 	logger.WithField("pid", p.pid).Debug("init process started")
 
-	// If this is a servicing container, wait on the process synchronously here and
-	// if it succeeds, wait for it cleanly shutdown and merge into the parent container.
-	if ctr.ociSpec.Windows.Servicing {
-		// reapProcess takes the lock
-		ctr.Unlock()
-		defer ctr.Lock()
-		exitCode := c.reapProcess(ctr, p)
-
-		if exitCode != 0 {
-			return -1, errors.Errorf("libcontainerd: servicing container %s returned non-zero exit code %d", ctr.id, exitCode)
-		}
-
-		return p.pid, nil
-	}
-
-	var (
-		stdout, stderr io.ReadCloser
-		stdin          io.WriteCloser
-	)
-	stdin, stdout, stderr, err = newProcess.Stdio()
+	dio, err := newIOFromProcess(newProcess, ctr.ociSpec.Process.Terminal)
 	if err != nil {
 		logger.WithError(err).Error("failed to get stdio pipes")
 		return -1, err
 	}
-
-	iopipe := &IOPipe{Terminal: ctr.ociSpec.Process.Terminal}
-	iopipe.Stdin = createStdInCloser(stdin, newProcess)
-
-	// Convert io.ReadClosers to io.Readers
-	if stdout != nil {
-		iopipe.Stdout = ioutil.NopCloser(&autoClosingReader{ReadCloser: stdout})
-	}
-	if stderr != nil {
-		iopipe.Stderr = ioutil.NopCloser(&autoClosingReader{ReadCloser: stderr})
-	}
-
-	_, err = attachStdio(iopipe)
+	_, err = attachStdio(dio)
 	if err != nil {
 		logger.WithError(err).Error("failed to attache stdio")
 		return -1, err
@@ -725,6 +713,24 @@ func (c *client) Start(_ context.Context, id, _ string, withStdin bool, attachSt
 	})
 	logger.Debug("start() completed")
 	return p.pid, nil
+}
+
+func newIOFromProcess(newProcess hcsshim.Process, terminal bool) (*cio.DirectIO, error) {
+	stdin, stdout, stderr, err := newProcess.Stdio()
+	if err != nil {
+		return nil, err
+	}
+
+	dio := cio.NewDirectIO(createStdInCloser(stdin, newProcess), nil, nil, terminal)
+
+	// Convert io.ReadClosers to io.Readers
+	if stdout != nil {
+		dio.Stdout = ioutil.NopCloser(&autoClosingReader{ReadCloser: stdout})
+	}
+	if stderr != nil {
+		dio.Stderr = ioutil.NopCloser(&autoClosingReader{ReadCloser: stderr})
+	}
+	return dio, nil
 }
 
 // Exec adds a process in an running container
@@ -781,10 +787,6 @@ func (c *client) Exec(ctx context.Context, containerID, processID string, spec *
 	logger.Debugf("exec commandLine: %s", createProcessParms.CommandLine)
 
 	// Start the command running in the container.
-	var (
-		stdout, stderr io.ReadCloser
-		stdin          io.WriteCloser
-	)
 	newProcess, err := ctr.hcsContainer.CreateProcess(&createProcessParms)
 	if err != nil {
 		logger.WithError(err).Errorf("exec's CreateProcess() failed")
@@ -807,25 +809,13 @@ func (c *client) Exec(ctx context.Context, containerID, processID string, spec *
 		}
 	}()
 
-	stdin, stdout, stderr, err = newProcess.Stdio()
+	dio, err := newIOFromProcess(newProcess, spec.Terminal)
 	if err != nil {
-		logger.WithError(err).Error("getting std pipes failed")
+		logger.WithError(err).Error("failed to get stdio pipes")
 		return -1, err
 	}
-
-	iopipe := &IOPipe{Terminal: spec.Terminal}
-	iopipe.Stdin = createStdInCloser(stdin, newProcess)
-
-	// Convert io.ReadClosers to io.Readers
-	if stdout != nil {
-		iopipe.Stdout = ioutil.NopCloser(&autoClosingReader{ReadCloser: stdout})
-	}
-	if stderr != nil {
-		iopipe.Stderr = ioutil.NopCloser(&autoClosingReader{ReadCloser: stderr})
-	}
-
 	// Tell the engine to attach streams back to the client
-	_, err = attachStdio(iopipe)
+	_, err = attachStdio(dio)
 	if err != nil {
 		return -1, err
 	}
@@ -885,8 +875,6 @@ func (c *client) SignalProcess(_ context.Context, containerID, processID string,
 		return err
 	}
 
-	ctr.manualStopRequested = true
-
 	logger := c.logger.WithFields(logrus.Fields{
 		"container": containerID,
 		"process":   processID,
@@ -898,11 +886,14 @@ func (c *client) SignalProcess(_ context.Context, containerID, processID string,
 	if processID == InitProcessName {
 		if syscall.Signal(signal) == syscall.SIGKILL {
 			// Terminate the compute system
+			ctr.Lock()
+			ctr.terminateInvoked = true
 			if err := ctr.hcsContainer.Terminate(); err != nil {
 				if !hcsshim.IsPending(err) {
 					logger.WithError(err).Error("failed to terminate hccshim container")
 				}
 			}
+			ctr.Unlock()
 		} else {
 			// Shut down the container
 			if err := ctr.hcsContainer.Shutdown(); err != nil {
@@ -1204,12 +1195,17 @@ func (c *client) getProcess(containerID, processID string) (*container, *process
 	return ctr, p, nil
 }
 
+// ctr mutex must be held when calling this function.
 func (c *client) shutdownContainer(ctr *container) error {
-	const shutdownTimeout = time.Minute * 5
-	err := ctr.hcsContainer.Shutdown()
+	var err error
+	const waitTimeout = time.Minute * 5
 
-	if hcsshim.IsPending(err) {
-		err = ctr.hcsContainer.WaitTimeout(shutdownTimeout)
+	if !ctr.terminateInvoked {
+		err = ctr.hcsContainer.Shutdown()
+	}
+
+	if hcsshim.IsPending(err) || ctr.terminateInvoked {
+		err = ctr.hcsContainer.WaitTimeout(waitTimeout)
 	} else if hcsshim.IsAlreadyStopped(err) {
 		err = nil
 	}
@@ -1217,14 +1213,22 @@ func (c *client) shutdownContainer(ctr *container) error {
 	if err != nil {
 		c.logger.WithError(err).WithField("container", ctr.id).
 			Debug("failed to shutdown container, terminating it")
-		return c.terminateContainer(ctr)
+		terminateErr := c.terminateContainer(ctr)
+		if terminateErr != nil {
+			c.logger.WithError(terminateErr).WithField("container", ctr.id).
+				Error("failed to shutdown container, and subsequent terminate also failed")
+			return fmt.Errorf("%s: subsequent terminate failed %s", err, terminateErr)
+		}
+		return err
 	}
 
 	return nil
 }
 
+// ctr mutex must be held when calling this function.
 func (c *client) terminateContainer(ctr *container) error {
 	const terminateTimeout = time.Minute * 5
+	ctr.terminateInvoked = true
 	err := ctr.hcsContainer.Terminate()
 
 	if hcsshim.IsPending(err) {
@@ -1247,6 +1251,8 @@ func (c *client) reapProcess(ctr *container, p *process) int {
 		"container": ctr.id,
 		"process":   p.id,
 	})
+
+	var eventErr error
 
 	// Block indefinitely for the process to exit.
 	if err := p.hcsProcess.Wait(); err != nil {
@@ -1277,9 +1283,10 @@ func (c *client) reapProcess(ctr *container, p *process) int {
 
 	if err := p.hcsProcess.Close(); err != nil {
 		logger.WithError(err).Warnf("failed to cleanup hcs process resources")
+		exitCode = -1
+		eventErr = fmt.Errorf("hcsProcess.Close() failed %s", err)
 	}
 
-	var pendingUpdates bool
 	if p.id == InitProcessName {
 		// Update container status
 		ctr.Lock()
@@ -1287,59 +1294,61 @@ func (c *client) reapProcess(ctr *container, p *process) int {
 		ctr.exitedAt = exitedAt
 		ctr.exitCode = uint32(exitCode)
 		close(ctr.waitCh)
-		ctr.Unlock()
-
-		// Handle any servicing
-		if exitCode == 0 && ctr.isWindows && !ctr.ociSpec.Windows.Servicing {
-			pendingUpdates, err = ctr.hcsContainer.HasPendingUpdates()
-			logger.Infof("Pending updates: %v", pendingUpdates)
-			if err != nil {
-				logger.WithError(err).
-					Warnf("failed to check for pending updates (container may have been killed)")
-			}
-		}
 
 		if err := c.shutdownContainer(ctr); err != nil {
+			exitCode = -1
 			logger.WithError(err).Warn("failed to shutdown container")
+			thisErr := fmt.Errorf("failed to shutdown container: %s", err)
+			if eventErr != nil {
+				eventErr = fmt.Errorf("%s: %s", eventErr, thisErr)
+			} else {
+				eventErr = thisErr
+			}
 		} else {
 			logger.Debug("completed container shutdown")
 		}
+		ctr.Unlock()
 
 		if err := ctr.hcsContainer.Close(); err != nil {
+			exitCode = -1
 			logger.WithError(err).Error("failed to clean hcs container resources")
+			thisErr := fmt.Errorf("failed to terminate container: %s", err)
+			if eventErr != nil {
+				eventErr = fmt.Errorf("%s: %s", eventErr, thisErr)
+			} else {
+				eventErr = thisErr
+			}
 		}
 	}
 
-	if !(ctr.isWindows && ctr.ociSpec.Windows.Servicing) {
-		c.eventQ.append(ctr.id, func() {
-			ei := EventInfo{
-				ContainerID:   ctr.id,
-				ProcessID:     p.id,
-				Pid:           uint32(p.pid),
-				ExitCode:      uint32(exitCode),
-				ExitedAt:      exitedAt,
-				UpdatePending: pendingUpdates,
-			}
-			c.logger.WithFields(logrus.Fields{
+	c.eventQ.append(ctr.id, func() {
+		ei := EventInfo{
+			ContainerID: ctr.id,
+			ProcessID:   p.id,
+			Pid:         uint32(p.pid),
+			ExitCode:    uint32(exitCode),
+			ExitedAt:    exitedAt,
+			Error:       eventErr,
+		}
+		c.logger.WithFields(logrus.Fields{
+			"container":  ctr.id,
+			"event":      EventExit,
+			"event-info": ei,
+		}).Info("sending event")
+		err := c.backend.ProcessEvent(ctr.id, EventExit, ei)
+		if err != nil {
+			c.logger.WithError(err).WithFields(logrus.Fields{
 				"container":  ctr.id,
 				"event":      EventExit,
 				"event-info": ei,
-			}).Info("sending event")
-			err := c.backend.ProcessEvent(ctr.id, EventExit, ei)
-			if err != nil {
-				c.logger.WithError(err).WithFields(logrus.Fields{
-					"container":  ctr.id,
-					"event":      EventExit,
-					"event-info": ei,
-				}).Error("failed to process event")
-			}
-			if p.id != InitProcessName {
-				ctr.Lock()
-				delete(ctr.execs, p.id)
-				ctr.Unlock()
-			}
-		})
-	}
+			}).Error("failed to process event")
+		}
+		if p.id != InitProcessName {
+			ctr.Lock()
+			delete(ctr.execs, p.id)
+			ctr.Unlock()
+		}
+	})
 
 	return exitCode
 }

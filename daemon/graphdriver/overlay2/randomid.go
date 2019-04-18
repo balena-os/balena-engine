@@ -1,6 +1,6 @@
 // +build linux
 
-package overlay2
+package overlay2 // import "github.com/docker/docker/daemon/graphdriver/overlay2"
 
 import (
 	"crypto/rand"
@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
 
@@ -47,7 +46,7 @@ func generateID(l int) string {
 			if retryOnError(err) && retries < maxretries {
 				count += n
 				retries++
-				logrus.Errorf("error generating version 4 uuid, retrying: %v", err)
+				logger.Errorf("error generating version 4 uuid, retrying: %v", err)
 				continue
 			}
 

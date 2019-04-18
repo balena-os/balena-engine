@@ -2,7 +2,7 @@ package agent
 
 import (
 	"bytes"
-	"fmt"
+	"context"
 	"math/rand"
 	"reflect"
 	"sync"
@@ -11,7 +11,7 @@ import (
 	"github.com/docker/swarmkit/agent/exec"
 	"github.com/docker/swarmkit/api"
 	"github.com/docker/swarmkit/log"
-	"golang.org/x/net/context"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -324,6 +324,8 @@ func (a *Agent) run(ctx context.Context) {
 			registered = nil // we only care about this once per session
 			backoff = 0      // reset backoff
 			sessionq = a.sessionq
+			// re-report all task statuses when re-establishing a session
+			go a.worker.Report(ctx, reporter)
 		case err := <-session.errs:
 			// TODO(stevvooe): This may actually block if a session is closed
 			// but no error was sent. This must be the only place
@@ -333,11 +335,11 @@ func (a *Agent) run(ctx context.Context) {
 					a.config.SessionTracker.SessionError(err)
 				}
 
-				log.G(ctx).WithError(err).Error("agent: session failed")
 				backoff = initialSessionFailureBackoff + 2*backoff
 				if backoff > maxSessionFailureBackoff {
 					backoff = maxSessionFailureBackoff
 				}
+				log.G(ctx).WithError(err).WithField("backoff", backoff).Errorf("agent: session failed")
 			}
 
 			if err := session.close(); err != nil {
@@ -442,7 +444,7 @@ func (a *Agent) handleSessionMessage(ctx context.Context, message *api.SessionMe
 		if !same {
 			a.keys = message.NetworkBootstrapKeys
 			if err := a.config.Executor.SetNetworkBootstrapKeys(a.keys); err != nil {
-				panic(fmt.Errorf("configuring network key failed"))
+				return errors.Wrap(err, "configuring network key failed")
 			}
 		}
 	}
@@ -577,6 +579,7 @@ func (a *Agent) nodeDescriptionWithHostname(ctx context.Context, tlsInfo *api.No
 			desc.Hostname = a.config.Hostname
 		}
 		desc.TLSInfo = tlsInfo
+		desc.FIPS = a.config.FIPS
 	}
 	return desc, err
 }

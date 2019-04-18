@@ -1,4 +1,4 @@
-package exec
+package exec // import "github.com/docker/docker/daemon/exec"
 
 import (
 	"runtime"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/containerd/containerd/cio"
 	"github.com/docker/docker/container/stream"
-	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/sirupsen/logrus"
 )
@@ -16,6 +15,7 @@ import (
 // examined both during and after completion.
 type Config struct {
 	sync.Mutex
+	Started      chan struct{}
 	StreamConfig *stream.Config
 	ID           string
 	Running      bool
@@ -41,6 +41,7 @@ func NewConfig() *Config {
 	return &Config{
 		ID:           stringid.GenerateNonCryptoID(),
 		StreamConfig: stream.NewConfig(),
+		Started:      make(chan struct{}),
 	}
 }
 
@@ -63,7 +64,7 @@ func (i *rio) Wait() {
 }
 
 // InitializeStdio is called by libcontainerd to connect the stdio.
-func (c *Config) InitializeStdio(iop *libcontainerd.IOPipe) (cio.IO, error) {
+func (c *Config) InitializeStdio(iop *cio.DirectIO) (cio.IO, error) {
 	c.StreamConfig.CopyToPipe(iop)
 
 	if c.StreamConfig.Stdin() == nil && !c.Tty && runtime.GOOS == "windows" {

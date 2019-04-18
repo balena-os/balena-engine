@@ -1,6 +1,6 @@
 // +build linux
 
-package apparmor
+package apparmor // import "github.com/docker/docker/profiles/apparmor"
 
 // baseTemplate defines the default apparmor profile for containers.
 const baseTemplate = `
@@ -17,6 +17,12 @@ profile {{.Name}} flags=(attach_disconnected,mediate_deleted) {
   capability,
   file,
   umount,
+{{if ge .Version 208096}}
+{{/* Allow 'docker kill' to actually send signals to container processes. */}}
+  signal (receive) peer={{.DaemonProfile}},
+{{/* Allow container processes to send signals amongst themselves. */}}
+  signal (send,receive) peer={{.Name}},
+{{end}}
 
   deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
   # deny write to files not in /proc/<number>/** or /proc/sys/**

@@ -1,23 +1,35 @@
 // +build linux
 
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package cgroups
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"sync"
 
 	"github.com/containerd/cgroups"
 	"github.com/containerd/containerd/log"
+	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/runtime"
+	"github.com/containerd/typeurl"
 	metrics "github.com/docker/go-metrics"
 	"github.com/prometheus/client_golang/prometheus"
-)
-
-var (
-	// ErrAlreadyCollected is returned when a cgroups is already being monitored
-	ErrAlreadyCollected = errors.New("cgroup is already being collected")
-	// ErrCgroupNotExists is returns when a cgroup no longer exists
-	ErrCgroupNotExists = errors.New("cgroup does not exist in the collector")
 )
 
 // Trigger will be called when an event happens and provides the cgroup
@@ -32,8 +44,8 @@ func newCollector(ns *metrics.Namespace) *collector {
 	}
 	// add machine cpus and memory info
 	c := &collector{
-		ns:      ns,
-		cgroups: make(map[string]*task),
+		ns:    ns,
+		tasks: make(map[string]runtime.Task),
 	}
 	c.metrics = append(c.metrics, pidMetrics...)
 	c.metrics = append(c.metrics, cpuMetrics...)
@@ -45,12 +57,6 @@ func newCollector(ns *metrics.Namespace) *collector {
 	return c
 }
 
-type task struct {
-	id        string
-	namespace string
-	cgroup    cgroups.Cgroup
-}
-
 func taskID(id, namespace string) string {
 	return fmt.Sprintf("%s-%s", id, namespace)
 }
@@ -60,7 +66,7 @@ func taskID(id, namespace string) string {
 type collector struct {
 	mu sync.RWMutex
 
-	cgroups       map[string]*task
+	tasks         map[string]runtime.Task
 	ns            *metrics.Namespace
 	metrics       []*metric
 	storedMetrics chan prometheus.Metric
@@ -75,9 +81,9 @@ func (c *collector) Describe(ch chan<- *prometheus.Desc) {
 func (c *collector) Collect(ch chan<- prometheus.Metric) {
 	c.mu.RLock()
 	wg := &sync.WaitGroup{}
-	for _, t := range c.cgroups {
+	for _, t := range c.tasks {
 		wg.Add(1)
-		go c.collect(t.id, t.namespace, t.cgroup, ch, true, wg)
+		go c.collect(t, ch, true, wg)
 	}
 storedLoop:
 	for {
@@ -93,45 +99,52 @@ storedLoop:
 	wg.Wait()
 }
 
-func (c *collector) collect(id, namespace string, cg cgroups.Cgroup, ch chan<- prometheus.Metric, block bool, wg *sync.WaitGroup) {
+func (c *collector) collect(t runtime.Task, ch chan<- prometheus.Metric, block bool, wg *sync.WaitGroup) {
 	if wg != nil {
 		defer wg.Done()
 	}
-
-	stats, err := cg.Stat(cgroups.IgnoreNotExist)
+	ctx := namespaces.WithNamespace(context.Background(), t.Namespace())
+	stats, err := t.Stats(ctx)
 	if err != nil {
-		log.L.WithError(err).Errorf("stat cgroup %s", id)
+		log.L.WithError(err).Errorf("stat task %s", t.ID())
+		return
+	}
+	data, err := typeurl.UnmarshalAny(stats)
+	if err != nil {
+		log.L.WithError(err).Errorf("unmarshal stats for %s", t.ID())
+		return
+	}
+	s, ok := data.(*cgroups.Metrics)
+	if !ok {
+		log.L.WithError(err).Errorf("invalid metric type for %s", t.ID())
 		return
 	}
 	for _, m := range c.metrics {
-		m.collect(id, namespace, stats, c.ns, ch, block)
+		m.collect(t.ID(), t.Namespace(), s, c.ns, ch, block)
 	}
 }
 
 // Add adds the provided cgroup and id so that metrics are collected and exported
-func (c *collector) Add(id, namespace string, cg cgroups.Cgroup) error {
+func (c *collector) Add(t runtime.Task) error {
 	if c.ns == nil {
 		return nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if _, ok := c.cgroups[taskID(id, namespace)]; ok {
-		return ErrAlreadyCollected
+	id := taskID(t.ID(), t.Namespace())
+	if _, ok := c.tasks[id]; ok {
+		return nil // requests to collect metrics should be idempotent
 	}
-	c.cgroups[taskID(id, namespace)] = &task{
-		id:        id,
-		namespace: namespace,
-		cgroup:    cg,
-	}
+	c.tasks[id] = t
 	return nil
 }
 
 // Remove removes the provided cgroup by id from the collector
-func (c *collector) Remove(id, namespace string) {
+func (c *collector) Remove(t runtime.Task) {
 	if c.ns == nil {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	delete(c.cgroups, taskID(id, namespace))
+	delete(c.tasks, taskID(t.ID(), t.Namespace()))
 }

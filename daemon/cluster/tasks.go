@@ -1,12 +1,14 @@
-package cluster
+package cluster // import "github.com/docker/docker/daemon/cluster"
 
 import (
+	"context"
+
 	apitypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	types "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/daemon/cluster/convert"
 	swarmapi "github.com/docker/swarmkit/api"
-	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 )
 
 // GetTasks returns a list of tasks matching the filter options.
@@ -52,7 +54,9 @@ func (c *Cluster) GetTasks(options apitypes.TaskListOptions) ([]types.Task, erro
 
 		r, err = state.controlClient.ListTasks(
 			ctx,
-			&swarmapi.ListTasksRequest{Filters: filters})
+			&swarmapi.ListTasksRequest{Filters: filters},
+			grpc.MaxCallRecvMsgSize(defaultRecvSizeForListResponse),
+		)
 		return err
 	}); err != nil {
 		return nil, err

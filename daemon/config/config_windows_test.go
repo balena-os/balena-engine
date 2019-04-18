@@ -1,6 +1,6 @@
 // +build windows
 
-package config
+package config // import "github.com/docker/docker/daemon/config"
 
 import (
 	"io/ioutil"
@@ -8,8 +8,8 @@ import (
 
 	"github.com/docker/docker/opts"
 	"github.com/spf13/pflag"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"gotest.tools/assert"
+	is "gotest.tools/assert/cmp"
 )
 
 func TestDaemonConfigurationMerge(t *testing.T) {
@@ -46,15 +46,15 @@ func TestDaemonConfigurationMerge(t *testing.T) {
 	flags.Var(opts.NewNamedMapOpts("log-opts", nil, nil), "log-opt", "")
 
 	cc, err := MergeDaemonConfigurations(c, flags, configFile)
-	require.NoError(t, err)
+	assert.NilError(t, err)
 
-	assert.True(t, cc.Debug)
-	assert.True(t, cc.AutoRestart)
+	assert.Check(t, cc.Debug)
+	assert.Check(t, cc.AutoRestart)
 
 	expectedLogConfig := LogConfig{
 		Type:   "syslog",
 		Config: map[string]string{"tag": "test_tag"},
 	}
 
-	assert.Equal(t, expectedLogConfig, cc.LogConfig)
+	assert.Check(t, is.DeepEqual(expectedLogConfig, cc.LogConfig))
 }

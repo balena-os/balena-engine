@@ -1,12 +1,12 @@
-package dockerversion
+package dockerversion // import "github.com/docker/docker/dockerversion"
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
 	"github.com/docker/docker/pkg/parsers/kernel"
 	"github.com/docker/docker/pkg/useragent"
-	"golang.org/x/net/context"
 )
 
 // UAStringKey is used as key type for user-agent string in net/context struct
@@ -17,7 +17,7 @@ const UAStringKey = "upstream-user-agent"
 //    [docker client's UA] UpstreamClient([upstream client's UA])
 func DockerUserAgent(ctx context.Context) string {
 	httpVersion := make([]useragent.VersionInfo, 0, 6)
-	httpVersion = append(httpVersion, useragent.VersionInfo{Name: "docker", Version: Version})
+	httpVersion = append(httpVersion, useragent.VersionInfo{Name: "balenaEngine", Version: Version})
 	httpVersion = append(httpVersion, useragent.VersionInfo{Name: "go", Version: runtime.Version()})
 	httpVersion = append(httpVersion, useragent.VersionInfo{Name: "git-commit", Version: GitCommit})
 	if kernelVersion, err := kernel.GetKernelVersion(); err == nil {

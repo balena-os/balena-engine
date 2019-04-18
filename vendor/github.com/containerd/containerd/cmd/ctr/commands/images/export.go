@@ -1,3 +1,19 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package images
 
 import (
@@ -5,7 +21,7 @@ import (
 	"os"
 
 	"github.com/containerd/containerd/cmd/ctr/commands"
-	oci "github.com/containerd/containerd/images/oci"
+	"github.com/containerd/containerd/images/oci"
 	"github.com/containerd/containerd/reference"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -36,6 +52,10 @@ Currently, only OCI format is supported.
 			Usage: "media type of manifest digest",
 			Value: ocispec.MediaTypeImageManifest,
 		},
+		cli.BoolFlag{
+			Name:  "all-platforms",
+			Usage: "exports content from all platforms",
+		},
 	},
 	Action: func(context *cli.Context) error {
 		var (
@@ -43,6 +63,9 @@ Currently, only OCI format is supported.
 			local = context.Args().Get(1)
 			desc  ocispec.Descriptor
 		)
+		if out == "" || local == "" {
+			return errors.New("please provide both an output filename and an image reference to export")
+		}
 		client, ctx, cancel, err := commands.NewClient(context)
 		if err != nil {
 			return err
@@ -82,7 +105,14 @@ Currently, only OCI format is supported.
 				return nil
 			}
 		}
-		r, err := client.Export(ctx, &oci.V1Exporter{}, desc)
+
+		var (
+			exportOpts []oci.V1ExporterOpt
+		)
+
+		exportOpts = append(exportOpts, oci.WithAllPlatforms(context.Bool("all-platforms")))
+
+		r, err := client.Export(ctx, desc, exportOpts...)
 		if err != nil {
 			return err
 		}

@@ -1,10 +1,10 @@
-package libcontainerd
+package libcontainerd // import "github.com/docker/docker/libcontainerd"
 
 import (
 	"time"
 
 	"github.com/containerd/cgroups"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
 // Summary is not used on linux

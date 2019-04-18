@@ -1,6 +1,7 @@
 package image
 
 import (
+	"context"
 	"io"
 	"os"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/urlutil"
 	"github.com/spf13/cobra"
-	"golang.org/x/net/context"
 )
 
 type importOptions struct {
@@ -19,6 +19,7 @@ type importOptions struct {
 	reference string
 	changes   dockeropts.ListOpts
 	message   string
+	platform  string
 }
 
 // NewImportCommand creates a new `docker import` command
@@ -43,6 +44,7 @@ func NewImportCommand(dockerCli command.Cli) *cobra.Command {
 	options.changes = dockeropts.NewListOpts(nil)
 	flags.VarP(&options.changes, "change", "c", "Apply Dockerfile instruction to the created image")
 	flags.StringVarP(&options.message, "message", "m", "", "Set commit message for imported image")
+	command.AddPlatformFlag(flags, &options.platform)
 
 	return cmd
 }
@@ -71,8 +73,9 @@ func runImport(dockerCli command.Cli, options importOptions) error {
 	}
 
 	importOptions := types.ImageImportOptions{
-		Message: options.message,
-		Changes: options.changes.GetAll(),
+		Message:  options.message,
+		Changes:  options.changes.GetAll(),
+		Platform: options.platform,
 	}
 
 	clnt := dockerCli.Client()

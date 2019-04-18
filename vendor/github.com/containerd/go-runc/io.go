@@ -1,12 +1,25 @@
+/*
+   Copyright The containerd Authors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package runc
 
 import (
 	"io"
 	"os"
 	"os/exec"
-
-	"github.com/pkg/errors"
-	"golang.org/x/sys/unix"
 )
 
 type IO interface {
@@ -21,49 +34,22 @@ type StartCloser interface {
 	CloseAfterStart() error
 }
 
-// NewPipeIO creates pipe pairs to be used with runc
-func NewPipeIO(uid, gid int) (i IO, err error) {
-	var pipes []*pipe
-	// cleanup in case of an error
-	defer func() {
-		if err != nil {
-			for _, p := range pipes {
-				p.Close()
-			}
-		}
-	}()
-	stdin, err := newPipe()
-	if err != nil {
-		return nil, err
-	}
-	pipes = append(pipes, stdin)
-	if err = unix.Fchown(int(stdin.r.Fd()), uid, gid); err != nil {
-		return nil, errors.Wrap(err, "failed to chown stdin")
-	}
+// IOOpt sets I/O creation options
+type IOOpt func(*IOOption)
 
-	stdout, err := newPipe()
-	if err != nil {
-		return nil, err
-	}
-	pipes = append(pipes, stdout)
-	if err = unix.Fchown(int(stdout.w.Fd()), uid, gid); err != nil {
-		return nil, errors.Wrap(err, "failed to chown stdout")
-	}
+// IOOption holds I/O creation options
+type IOOption struct {
+	OpenStdin  bool
+	OpenStdout bool
+	OpenStderr bool
+}
 
-	stderr, err := newPipe()
-	if err != nil {
-		return nil, err
+func defaultIOOption() *IOOption {
+	return &IOOption{
+		OpenStdin:  true,
+		OpenStdout: true,
+		OpenStderr: true,
 	}
-	pipes = append(pipes, stderr)
-	if err = unix.Fchown(int(stderr.w.Fd()), uid, gid); err != nil {
-		return nil, errors.Wrap(err, "failed to chown stderr")
-	}
-
-	return &pipeIO{
-		in:  stdin,
-		out: stdout,
-		err: stderr,
-	}, nil
 }
 
 func newPipe() (*pipe, error) {
@@ -83,9 +69,9 @@ type pipe struct {
 }
 
 func (p *pipe) Close() error {
-	err := p.r.Close()
-	if werr := p.w.Close(); err == nil {
-		err = werr
+	err := p.w.Close()
+	if rerr := p.r.Close(); err == nil {
+		err = rerr
 	}
 	return err
 }
@@ -97,14 +83,23 @@ type pipeIO struct {
 }
 
 func (i *pipeIO) Stdin() io.WriteCloser {
+	if i.in == nil {
+		return nil
+	}
 	return i.in.w
 }
 
 func (i *pipeIO) Stdout() io.ReadCloser {
+	if i.out == nil {
+		return nil
+	}
 	return i.out.r
 }
 
 func (i *pipeIO) Stderr() io.ReadCloser {
+	if i.err == nil {
+		return nil
+	}
 	return i.err.r
 }
 
@@ -115,28 +110,38 @@ func (i *pipeIO) Close() error {
 		i.out,
 		i.err,
 	} {
-		if cerr := v.Close(); err == nil {
-			err = cerr
+		if v != nil {
+			if cerr := v.Close(); err == nil {
+				err = cerr
+			}
 		}
 	}
 	return err
 }
 
 func (i *pipeIO) CloseAfterStart() error {
-	for _, f := range []*os.File{
-		i.out.w,
-		i.err.w,
+	for _, f := range []*pipe{
+		i.out,
+		i.err,
 	} {
-		f.Close()
+		if f != nil {
+			f.w.Close()
+		}
 	}
 	return nil
 }
 
 // Set sets the io to the exec.Cmd
 func (i *pipeIO) Set(cmd *exec.Cmd) {
-	cmd.Stdin = i.in.r
-	cmd.Stdout = i.out.w
-	cmd.Stderr = i.err.w
+	if i.in != nil {
+		cmd.Stdin = i.in.r
+	}
+	if i.out != nil {
+		cmd.Stdout = i.out.w
+	}
+	if i.err != nil {
+		cmd.Stderr = i.err.w
+	}
 }
 
 func NewSTDIO() (IO, error) {
