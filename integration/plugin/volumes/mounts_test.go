@@ -16,6 +16,7 @@ import (
 // TestPluginWithDevMounts tests very specific regression caused by mounts ordering
 // (sorted in the daemon). See #36698
 func TestPluginWithDevMounts(t *testing.T) {
+	t.Skip("plugins aren't supported")
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	skip.If(t, testEnv.IsRootless)
