@@ -16,6 +16,9 @@ import (
 
 func TestDockerNetworkConnectAlias(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)

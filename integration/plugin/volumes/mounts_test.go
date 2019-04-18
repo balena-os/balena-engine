@@ -20,6 +20,8 @@ func TestPluginWithDevMounts(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	t.Parallel()
 
+	t.Skip("Plugins are not supported")
+
 	d := daemon.New(t)
 	d.Start(t, "--iptables=false")
 	defer d.Stop(t)

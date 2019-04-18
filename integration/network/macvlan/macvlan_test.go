@@ -22,6 +22,8 @@ func TestDockerNetworkMacvlanPersistance(t *testing.T) {
 	skip.If(t, testEnv.IsRemoteDaemon())
 	skip.If(t, !macvlanKernelSupport(), "Kernel doesn't support macvlan")
 
+	t.Skip("Macvlan not supported")
+
 	d := daemon.New(t)
 	d.StartWithBusybox(t)
 	defer d.Stop(t)
@@ -45,6 +47,8 @@ func TestDockerNetworkMacvlanPersistance(t *testing.T) {
 func TestDockerNetworkMacvlan(t *testing.T) {
 	skip.If(t, testEnv.IsRemoteDaemon())
 	skip.If(t, !macvlanKernelSupport(), "Kernel doesn't support macvlan")
+
+	t.Skip("Macvlan not supported")
 
 	for _, tc := range []struct {
 		name string

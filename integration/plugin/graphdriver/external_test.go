@@ -49,6 +49,8 @@ func TestExternalGraphDriver(t *testing.T) {
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, !requirement.HasHubConnectivity(t))
 
+	t.Skip("Plugins are not supported")
+
 	// Setup plugin(s)
 	ec := make(map[string]*graphEventsCounter)
 	sserver := setupPluginViaSpecFile(t, ec)
@@ -409,6 +411,8 @@ func TestGraphdriverPluginV2(t *testing.T) {
 	skip.If(t, !requirement.HasHubConnectivity(t))
 	skip.If(t, os.Getenv("DOCKER_ENGINE_GOARCH") != "amd64")
 	skip.If(t, !requirement.Overlay2Supported(testEnv.DaemonInfo.KernelVersion))
+
+	t.Skip("Plugins are not supported")
 
 	d := daemon.New(t, daemon.WithExperimental)
 	d.Start(t)

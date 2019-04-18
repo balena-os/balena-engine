@@ -10,6 +10,9 @@ import (
 )
 
 func TestPluginInvalidJSON(t *testing.T) {
+
+	t.Skip("Plugins are not supported")
+
 	defer setupTest(t)()
 
 	endpoints := []string{"/plugins/foobar/set"}
