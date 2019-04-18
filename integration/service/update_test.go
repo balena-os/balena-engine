@@ -18,6 +18,8 @@ import (
 )
 
 func TestServiceUpdateLabel(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	ctx := setupTest(t)
 
@@ -74,6 +76,8 @@ func TestServiceUpdateLabel(t *testing.T) {
 }
 
 func TestServiceUpdateSecrets(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	ctx := setupTest(t)
 
@@ -136,6 +140,8 @@ func TestServiceUpdateSecrets(t *testing.T) {
 }
 
 func TestServiceUpdateConfigs(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	ctx := setupTest(t)
 
@@ -198,6 +204,8 @@ func TestServiceUpdateConfigs(t *testing.T) {
 }
 
 func TestServiceUpdateNetwork(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	ctx := setupTest(t)
 
@@ -251,6 +259,8 @@ func TestServiceUpdateNetwork(t *testing.T) {
 
 // TestServiceUpdatePidsLimit tests creating and updating a service with PidsLimit
 func TestServiceUpdatePidsLimit(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	tests := []struct {
 		name      string

@@ -80,6 +80,8 @@ func inspectServiceContainer(ctx context.Context, t *testing.T, client client.AP
 }
 
 func TestCreateServiceMultipleTimes(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	ctx := setupTest(t)
 
@@ -152,6 +154,8 @@ func TestCreateServiceMultipleTimes(t *testing.T) {
 }
 
 func TestCreateServiceConflict(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	ctx := setupTest(t)
 
@@ -174,6 +178,8 @@ func TestCreateServiceConflict(t *testing.T) {
 }
 
 func TestCreateServiceMaxReplicas(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	ctx := setupTest(t)
 
 	d := swarm.NewSwarm(ctx, t, testEnv)
@@ -195,6 +201,8 @@ func TestCreateServiceMaxReplicas(t *testing.T) {
 }
 
 func TestCreateServiceSecretFileMode(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	ctx := setupTest(t)
 
@@ -252,6 +260,8 @@ func TestCreateServiceSecretFileMode(t *testing.T) {
 }
 
 func TestCreateServiceConfigFileMode(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	ctx := setupTest(t)
 
@@ -331,6 +341,8 @@ func TestCreateServiceConfigFileMode(t *testing.T) {
 // confident won't be modified by the container runtime, and won't blow
 // anything up in the test environment
 func TestCreateServiceSysctls(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	ctx := setupTest(t)
 
 	d := swarm.NewSwarm(ctx, t, testEnv)
@@ -406,6 +418,8 @@ func TestCreateServiceSysctls(t *testing.T) {
 // capabilities option with the correct value, we can assume that the capabilities has been
 // plumbed correctly.
 func TestCreateServiceCapabilities(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	ctx := setupTest(t)
 
 	d := swarm.NewSwarm(ctx, t, testEnv)

@@ -109,6 +109,7 @@ func TestVolumesRemove(t *testing.T) {
 //
 // Regression test for https://github.com/docker/cli/issues/4082
 func TestVolumesRemoveSwarmEnabled(t *testing.T) {
+	t.Skip("swarm isn't supported")
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows", "TODO enable on windows")
 	ctx := setupTest(t)

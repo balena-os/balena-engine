@@ -13,6 +13,8 @@ import (
 )
 
 func TestInspectNetwork(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows", "FIXME")
 	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 	ctx := setupTest(t)

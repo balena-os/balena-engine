@@ -23,6 +23,8 @@ import (
 )
 
 func TestSecretInspect(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	ctx := setupTest(t)
@@ -45,6 +47,8 @@ func TestSecretInspect(t *testing.T) {
 }
 
 func TestSecretList(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	ctx := setupTest(t)
@@ -124,6 +128,8 @@ func createSecret(ctx context.Context, t *testing.T, client client.APIClient, na
 }
 
 func TestSecretsCreateAndDelete(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	ctx := setupTest(t)
@@ -171,6 +177,8 @@ func TestSecretsCreateAndDelete(t *testing.T) {
 }
 
 func TestSecretsUpdate(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	ctx := setupTest(t)
@@ -222,6 +230,8 @@ func TestSecretsUpdate(t *testing.T) {
 }
 
 func TestTemplatedSecret(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
 	ctx := testutil.StartSpan(baseContext, t)
@@ -334,6 +344,8 @@ func TestTemplatedSecret(t *testing.T) {
 
 // Test case for 28884
 func TestSecretCreateResolve(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 
 	ctx := setupTest(t)

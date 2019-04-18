@@ -26,6 +26,7 @@ import (
 // engine, and is well-tested there, so this test just needs to make sure that
 // statuses get correctly associated with the right services.
 func TestServiceListWithStatuses(t *testing.T) {
+	t.Skip("swarm isn't supported")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 

@@ -1376,6 +1376,8 @@ func (s *DockerDaemonSuite) TestCleanupMountsAfterGracefulShutdown(c *testing.T)
 }
 
 func (s *DockerDaemonSuite) TestDaemonRestartWithContainerRunning(t *testing.T) {
+	t.Skip("Pending balenaEngine compatibility investigation")
+
 	s.d.StartWithBusybox(testutil.GetContext(t), t)
 	if out, err := s.d.Cmd("run", "-d", "--name", "test", "busybox", "top"); err != nil {
 		t.Fatal(out, err)

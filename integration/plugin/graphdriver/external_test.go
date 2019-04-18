@@ -46,6 +46,8 @@ type graphEventsCounter struct {
 }
 
 func TestExternalGraphDriver(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	skip.If(t, testEnv.UsingSnapshotter())
 	skip.If(t, runtime.GOOS == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
@@ -408,6 +410,8 @@ func testGraphDriverPull(ctx context.Context, c client.APIClient, d *daemon.Daem
 }
 
 func TestGraphdriverPluginV2(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	skip.If(t, testEnv.UsingSnapshotter())
 	skip.If(t, runtime.GOOS == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")

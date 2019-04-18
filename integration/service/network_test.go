@@ -15,6 +15,7 @@ import (
 )
 
 func TestDockerNetworkConnectAliasPreV144(t *testing.T) {
+	t.Skip("swarm isn't supported")
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	ctx := setupTest(t)
 
@@ -77,6 +78,8 @@ func TestDockerNetworkConnectAliasPreV144(t *testing.T) {
 }
 
 func TestDockerNetworkReConnect(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	ctx := setupTest(t)
 

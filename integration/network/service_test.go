@@ -216,6 +216,8 @@ func TestDaemonWithBipAndDefaultNetworkPool(t *testing.T) {
 }
 
 func TestServiceWithPredefinedNetwork(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 	ctx := setupTest(t)
@@ -247,6 +249,7 @@ func TestServiceWithPredefinedNetwork(t *testing.T) {
 const ingressNet = "ingress"
 
 func TestServiceRemoveKeepsIngressNetwork(t *testing.T) {
+	t.Skip("swarm isn't supported")
 	t.Skip("FLAKY_TEST")
 	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 
@@ -338,6 +341,8 @@ func noServices(ctx context.Context, client client.ServiceAPIClient) func(log po
 }
 
 func TestServiceWithDataPathPortInit(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 	ctx := setupTest(t)
@@ -405,6 +410,8 @@ func TestServiceWithDataPathPortInit(t *testing.T) {
 }
 
 func TestServiceWithDefaultAddressPoolInit(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 	ctx := setupTest(t)

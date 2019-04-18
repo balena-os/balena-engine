@@ -55,6 +55,7 @@ func TestPingHead(t *testing.T) {
 }
 
 func TestPingSwarmHeader(t *testing.T) {
+	t.Skip("swarm isn't supported")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
