@@ -32,6 +32,8 @@ import (
 // TestPluginInvalidJSON tests that POST endpoints that expect a body return
 // the correct error when sending invalid JSON requests.
 func TestPluginInvalidJSON(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	t.Cleanup(setupTest(t))
 
 	// POST endpoints that accept / expect a JSON body;
