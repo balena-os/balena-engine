@@ -21,6 +21,9 @@ import (
 )
 
 func TestServiceCreateInit(t *testing.T) {
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	t.Run("daemonInitDisabled", testServiceCreateInit(false))
 	t.Run("daemonInitEnabled", testServiceCreateInit(true))
@@ -73,7 +76,9 @@ func inspectServiceContainer(t *testing.T, client client.APIClient, serviceID st
 }
 
 func TestCreateServiceMultipleTimes(t *testing.T) {
+
 	t.Skip("Swarm is not supported")
+
 	return
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	defer setupTest(t)()
@@ -126,6 +131,9 @@ func TestCreateServiceMultipleTimes(t *testing.T) {
 
 func TestCreateWithDuplicateNetworkNames(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -186,6 +194,9 @@ func TestCreateWithDuplicateNetworkNames(t *testing.T) {
 
 func TestCreateServiceSecretFileMode(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -252,6 +263,9 @@ func TestCreateServiceSecretFileMode(t *testing.T) {
 
 func TestCreateServiceConfigFileMode(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)

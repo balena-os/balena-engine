@@ -193,6 +193,9 @@ func TestDaemonWithBipAndDefaultNetworkPool(t *testing.T) {
 
 func TestServiceWithPredefinedNetwork(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -222,6 +225,9 @@ const ingressNet = "ingress"
 
 func TestServiceRemoveKeepsIngressNetwork(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -322,6 +328,9 @@ func noServices(client client.ServiceAPIClient) func(log poll.LogT) poll.Result 
 
 func TestServiceWithDefaultAddressPoolInit(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	var ops = []func(*daemon.Daemon){}
 	ipAddr := []string{"20.20.0.0/16"}

@@ -20,6 +20,9 @@ const defaultSwarmPort = 2477
 
 func TestInspectNetwork(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows", "FIXME")
+
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)

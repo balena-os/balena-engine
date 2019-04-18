@@ -22,6 +22,8 @@ import (
 func TestConfigList(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -104,6 +106,8 @@ func createConfig(ctx context.Context, t *testing.T, client client.APIClient, na
 func TestConfigsCreateAndDelete(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -131,6 +135,8 @@ func TestConfigsCreateAndDelete(t *testing.T) {
 
 func TestConfigsUpdate(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
 
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -185,6 +191,9 @@ func TestConfigsUpdate(t *testing.T) {
 
 func TestTemplatedConfig(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+
+	t.Skip("Swarm is not supported")
+
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
 	client := d.NewClientT(t)
@@ -326,6 +335,8 @@ func waitAndAssert(t *testing.T, timeout time.Duration, f func(*testing.T) bool)
 func TestConfigInspect(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
+	t.Skip("Swarm is not supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -349,6 +360,8 @@ func TestConfigInspect(t *testing.T) {
 
 func TestConfigCreateWithLabels(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
+
+	t.Skip("Swarm is not supported")
 
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -376,6 +389,8 @@ func TestConfigCreateWithLabels(t *testing.T) {
 // Test case for 28884
 func TestConfigCreateResolve(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
+
+	t.Skip("Swarm is not supported")
 
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
