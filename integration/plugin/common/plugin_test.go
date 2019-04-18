@@ -32,6 +32,8 @@ import (
 // TestPluginInvalidJSON tests that POST endpoints that expect a body return
 // the correct error when sending invalid JSON requests.
 func TestPluginInvalidJSON(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	t.Cleanup(setupTest(t))
 
 	// POST endpoints that accept / expect a JSON body;
@@ -89,6 +91,8 @@ func TestPluginInvalidJSON(t *testing.T) {
 }
 
 func TestPluginInstall(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of localhost")
@@ -240,6 +244,8 @@ func TestPluginInstall(t *testing.T) {
 }
 
 func TestPluginsWithRuntimes(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, testEnv.IsRootless, "Test not supported on rootless due to buggy daemon setup in rootless mode due to daemon restart")
 	skip.If(t, testEnv.OSType == "windows")
@@ -303,6 +309,8 @@ func TestPluginsWithRuntimes(t *testing.T) {
 }
 
 func TestPluginBackCompatMediaTypes(t *testing.T) {
+	t.Skip("plugins aren't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRootless, "Rootless has a different view of localhost (needed for test registry access)")

@@ -79,6 +79,8 @@ func inspectServiceContainer(t *testing.T, client client.APIClient, serviceID st
 }
 
 func TestCreateServiceMultipleTimes(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -152,6 +154,8 @@ func TestCreateServiceMultipleTimes(t *testing.T) {
 }
 
 func TestCreateServiceConflict(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -174,6 +178,8 @@ func TestCreateServiceConflict(t *testing.T) {
 }
 
 func TestCreateServiceMaxReplicas(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -194,6 +200,8 @@ func TestCreateServiceMaxReplicas(t *testing.T) {
 }
 
 func TestCreateWithDuplicateNetworkNames(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -247,6 +255,8 @@ func TestCreateWithDuplicateNetworkNames(t *testing.T) {
 }
 
 func TestCreateServiceSecretFileMode(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -304,6 +314,8 @@ func TestCreateServiceSecretFileMode(t *testing.T) {
 }
 
 func TestCreateServiceConfigFileMode(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -383,6 +395,8 @@ func TestCreateServiceConfigFileMode(t *testing.T) {
 // confident won't be modified by the container runtime, and won't blow
 // anything up in the test environment
 func TestCreateServiceSysctls(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(
 		t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.40"),
 		"setting service sysctls is unsupported before api v1.40",
@@ -466,6 +480,8 @@ func TestCreateServiceSysctls(t *testing.T) {
 // capabilities option with the correct value, we can assume that the capabilities has been
 // plumbed correctly.
 func TestCreateServiceCapabilities(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(
 		t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.41"),
 		"setting service capabilities is unsupported before api v1.41",
