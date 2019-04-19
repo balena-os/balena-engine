@@ -87,7 +87,8 @@ const (
 )
 
 type overlayOptions struct {
-	quota quota.Quota
+	quota     quota.Quota
+	syncDiffs bool
 }
 
 // Driver contains information about the home directory and the list of active
@@ -221,14 +222,19 @@ func Init(home string, options []string, idMap idtools.IdentityMapping) (graphdr
 		userxattr = "userxattr,"
 	}
 
+<<<<<<< HEAD
 	logger.Debugf("backingFs=%s, projectQuotaSupported=%v, usingMetacopy=%v, indexOff=%q, userxattr=%q",
 		backingFs, projectQuotaSupported, usingMetacopy, indexOff, userxattr)
+=======
+	logger.Debugf("backingFs=%s, projectQuotaSupported=%v, indexOff=%q, syncDiffs=%v, userxattr=%q",
+		backingFs, projectQuotaSupported, indexOff, opts.syncDiffs, userxattr)
+>>>>>>> fee2d72d1f (aufs,overlay2: Add driver opts for disk sync)
 
 	return d, nil
 }
 
 func parseOptions(options []string) (*overlayOptions, error) {
-	o := &overlayOptions{}
+	o := &overlayOptions{syncDiffs: true}
 	for _, option := range options {
 		key, val, err := parsers.ParseKeyValueOpt(option)
 		if err != nil {
@@ -245,6 +251,11 @@ func parseOptions(options []string) (*overlayOptions, error) {
 				return nil, err
 			}
 			o.quota.Size = uint64(size)
+		case "overlay2.sync_diffs":
+			o.syncDiffs, err = strconv.ParseBool(val)
+			if err != nil {
+				return nil, err
+			}
 		default:
 			return nil, fmt.Errorf("overlay2: unknown option %s", key)
 		}
@@ -697,9 +708,11 @@ func (d *Driver) ApplyDiff(id string, parent string, diff io.Reader) (size int64
 		return 0, err
 	}
 
-	// FIXME: Instead of syncing all the filesystems we should be fsyncing each
-	// file as the tar archive gets unpacked
-	syscall.Sync()
+	if d.options.syncDiffs {
+		// FIXME: Instead of syncing all the filesystems we should be fsyncing each
+		// file as the tar archive gets unpacked
+		syscall.Sync()
+	}
 
 	return directory.Size(context.TODO(), applyDir)
 }
