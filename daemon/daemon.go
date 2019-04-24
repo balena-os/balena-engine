@@ -1087,6 +1087,7 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 		MaxConcurrentDownloads:    config.MaxConcurrentDownloads,
 		MaxConcurrentUploads:      config.MaxConcurrentUploads,
 		MaxDownloadAttempts:       config.MaxDownloadAttempts,
+		MaxUploadAttempts:         config.MaxUploadAttempts,
 		ReferenceStore:            rs,
 		RegistryService:           registryService,
 		ContentNamespace:          config.ContainerdNamespace,
@@ -1114,6 +1115,7 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 	logrus.Debugf("Max Concurrent Downloads: %d", imgSvcConfig.MaxConcurrentDownloads)
 	logrus.Debugf("Max Concurrent Uploads: %d", imgSvcConfig.MaxConcurrentUploads)
 	logrus.Debugf("Max Download Attempts: %d", imgSvcConfig.MaxDownloadAttempts)
+	logrus.Debugf("Max Upload Attempts: %d", imgSvcConfig.MaxUploadAttempts)
 
 	go d.execCommandGC()
 
