@@ -12,7 +12,10 @@ import (
 	"github.com/docker/docker/pkg/progress"
 )
 
-const maxUploadConcurrency = 3
+const (
+	maxUploadConcurrency = 3
+	maxUploadAttempts    = 5
+)
 
 type mockUploadDescriptor struct {
 	currentUploads  *int32
@@ -79,7 +82,7 @@ func uploadDescriptors(currentUploads *int32) []UploadDescriptor {
 }
 
 func TestSuccessfulUpload(t *testing.T) {
-	lum := NewLayerUploadManager(maxUploadConcurrency, func(m *LayerUploadManager) { m.waitDuration = time.Millisecond })
+	lum := NewLayerUploadManager(maxUploadConcurrency, maxUploadAttempts, func(m *LayerUploadManager) { m.waitDuration = time.Millisecond })
 
 	progressChan := make(chan progress.Progress)
 	progressDone := make(chan struct{})
@@ -105,7 +108,7 @@ func TestSuccessfulUpload(t *testing.T) {
 }
 
 func TestCancelledUpload(t *testing.T) {
-	lum := NewLayerUploadManager(maxUploadConcurrency, func(m *LayerUploadManager) { m.waitDuration = time.Millisecond })
+	lum := NewLayerUploadManager(maxUploadConcurrency, maxUploadAttempts, func(m *LayerUploadManager) { m.waitDuration = time.Millisecond })
 
 	progressChan := make(chan progress.Progress)
 	progressDone := make(chan struct{})

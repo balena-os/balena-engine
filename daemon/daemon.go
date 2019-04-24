@@ -1068,6 +1068,8 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 		DeltaStore:                deltaStore,
 		MaxConcurrentDownloads:    *config.MaxConcurrentDownloads,
 		MaxConcurrentUploads:      *config.MaxConcurrentUploads,
+		MaxDownloadAttempts:       *config.MaxDownloadAttempts,
+		MaxUploadAttempts:         *config.MaxUploadAttempts,
 		ReferenceStore:            rs,
 		RegistryService:           registryService,
 		TrustKey:                  trustKey,

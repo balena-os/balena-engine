@@ -31,6 +31,14 @@ const (
 	// maximum number of uploads that
 	// may take place at a time for each push.
 	DefaultMaxConcurrentUploads = 5
+	// DefaultMaxDownloadAttempts is the default value for
+	// maximum number of times that
+	// a download may be retried during pull.
+	DefaultMaxDownloadAttempts = 5
+	// DefaultMaxUploadAttempts is the default value for
+	// maximum number of times that
+	// an upload may be retried during push.
+	DefaultMaxUploadAttempts = 5
 	// StockRuntimeName is the reserved name/alias used to represent the
 	// OCI runtime being shipped with the docker daemon package.
 	StockRuntimeName = "runc"
@@ -174,6 +182,14 @@ type CommonConfig struct {
 	// MaxConcurrentUploads is the maximum number of uploads that
 	// may take place at a time for each push.
 	MaxConcurrentUploads *int `json:"max-concurrent-uploads,omitempty"`
+
+	// MaxDownloadAttempts is the maximum number of times that failling downloads
+	// will be retried for each pull.
+	MaxDownloadAttempts *int `json:"max-download-attempts,omitempty"`
+
+	// MaxUploadAttempts is the maximum number of times that failling uploads
+	// will be retried for each push.
+	MaxUploadAttempts *int `json:"max-upload-attempts,omitempty"`
 
 	// ShutdownTimeout is the timeout value (in seconds) the daemon will wait for the container
 	// to stop when daemon is being shutdown
@@ -566,6 +582,14 @@ func Validate(config *Config) error {
 	// validate MaxConcurrentUploads
 	if config.MaxConcurrentUploads != nil && *config.MaxConcurrentUploads < 0 {
 		return fmt.Errorf("invalid max concurrent uploads: %d", *config.MaxConcurrentUploads)
+	}
+	// validate MaxDownloadAttempts
+	if config.MaxDownloadAttempts != nil && *config.MaxDownloadAttempts < 1 {
+		return fmt.Errorf("invalid max download attempts: %d", *config.MaxDownloadAttempts)
+	}
+	// validate MaxUploadAttempts
+	if config.MaxUploadAttempts != nil && *config.MaxUploadAttempts < 1 {
+		return fmt.Errorf("invalid max upload attempts: %d", *config.MaxUploadAttempts)
 	}
 
 	// validate that "default" runtime is not reset
