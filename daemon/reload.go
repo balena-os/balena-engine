@@ -48,6 +48,9 @@ func (daemon *Daemon) Reload(conf *config.Config) (err error) {
 	if err := daemon.reloadMaxDownloadAttempts(conf, attributes); err != nil {
 		return err
 	}
+	if err := daemon.reloadMaxUploadAttempts(conf, attributes); err != nil {
+		return err
+	}
 	daemon.reloadShutdownTimeout(conf, attributes)
 	daemon.reloadFeatures(conf, attributes)
 
@@ -132,6 +135,27 @@ func (daemon *Daemon) reloadMaxDownloadAttempts(conf *config.Config, attributes 
 
 	// prepare reload event attributes with updatable configurations
 	attributes["max-download-attempts"] = fmt.Sprintf("%d", *daemon.configStore.MaxDownloadAttempts)
+	return nil
+}
+
+// reloadMaxUploadAttempts updates configuration with max concurrent
+// upload attempts when a connection is lost and updates the passed attributes
+func (daemon *Daemon) reloadMaxUploadAttempts(conf *config.Config, attributes map[string]string) error {
+	if err := config.ValidateMaxUploadAttempts(conf); err != nil {
+		return err
+	}
+
+	// If no value is set for max-upload-attempts we assume it is the default value
+	// We always "reset" as the cost is lightweight and easy to maintain.
+	maxUploadAttempts := config.DefaultUploadAttempts
+	if conf.IsValueSet("max-upload-attempts") && conf.MaxUploadAttempts != nil {
+		maxUploadAttempts = *conf.MaxUploadAttempts
+	}
+	daemon.configStore.MaxUploadAttempts = &maxUploadAttempts
+	logrus.Debugf("Reset Max Upload Attempts: %d", *daemon.configStore.MaxUploadAttempts)
+
+	// prepare reload event attributes with updatable configurations
+	attributes["max-upload-attempts"] = fmt.Sprintf("%d", *daemon.configStore.MaxUploadAttempts)
 	return nil
 }
 
