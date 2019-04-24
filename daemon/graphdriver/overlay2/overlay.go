@@ -222,13 +222,8 @@ func Init(home string, options []string, idMap idtools.IdentityMapping) (graphdr
 		userxattr = "userxattr,"
 	}
 
-<<<<<<< HEAD
-	logger.Debugf("backingFs=%s, projectQuotaSupported=%v, usingMetacopy=%v, indexOff=%q, userxattr=%q",
-		backingFs, projectQuotaSupported, usingMetacopy, indexOff, userxattr)
-=======
-	logger.Debugf("backingFs=%s, projectQuotaSupported=%v, indexOff=%q, syncDiffs=%v, userxattr=%q",
-		backingFs, projectQuotaSupported, indexOff, opts.syncDiffs, userxattr)
->>>>>>> fee2d72d1f (aufs,overlay2: Add driver opts for disk sync)
+	logger.Debugf("backingFs=%s, projectQuotaSupported=%v, usingMetacopy=%v, indexOff=%q, syncDiffs=%v, userxattr=%q",
+		backingFs, projectQuotaSupported, usingMetacopy, indexOff, opts.syncDiffs, userxattr)
 
 	return d, nil
 }
