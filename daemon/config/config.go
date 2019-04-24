@@ -36,6 +36,10 @@ const (
 	// maximum number of attempts that
 	// may take place at a time for each pull when the connection is lost.
 	DefaultDownloadAttempts = 5
+	// DefaultUploadAttempts is the default value for
+	// maximum number of attempts that
+	// may take place at a time for each push when the connection is lost.
+	DefaultUploadAttempts = 5
 	// DefaultShmSize is the default value for container's shm size
 	DefaultShmSize = int64(67108864)
 	// DefaultNetworkMtu is the default value for network MTU
@@ -200,6 +204,10 @@ type CommonConfig struct {
 	// MaxDownloadAttempts is the maximum number of attempts that
 	// may take place at a time for each push.
 	MaxDownloadAttempts *int `json:"max-download-attempts,omitempty"`
+
+	// MaxUploadAttempts is the maximum number of attempts that
+	// may take place at a time for each push.
+	MaxUploadAttempts *int `json:"max-upload-attempts,omitempty"`
 
 	// ShutdownTimeout is the timeout value (in seconds) the daemon will wait for the container
 	// to stop when daemon is being shutdown
@@ -575,6 +583,9 @@ func Validate(config *Config) error {
 	if err := ValidateMaxDownloadAttempts(config); err != nil {
 		return err
 	}
+	if err := ValidateMaxUploadAttempts(config); err != nil {
+		return err
+	}
 
 	// validate that "default" runtime is not reset
 	if runtimes := config.GetAllRuntimes(); len(runtimes) > 0 {
@@ -604,6 +615,14 @@ func Validate(config *Config) error {
 func ValidateMaxDownloadAttempts(config *Config) error {
 	if config.MaxDownloadAttempts != nil && *config.MaxDownloadAttempts <= 0 {
 		return fmt.Errorf("invalid max download attempts: %d", *config.MaxDownloadAttempts)
+	}
+	return nil
+}
+
+// ValidateMaxUploadAttempts validates if the max-upload-attempts is within the valid range
+func ValidateMaxUploadAttempts(config *Config) error {
+	if config.MaxUploadAttempts != nil && *config.MaxUploadAttempts <= 0 {
+		return fmt.Errorf("invalid max upload attempts: %d", *config.MaxUploadAttempts)
 	}
 	return nil
 }
