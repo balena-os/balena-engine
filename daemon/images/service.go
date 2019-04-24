@@ -39,6 +39,8 @@ type ImageServiceConfig struct {
 	DeltaStore                image.Store
 	MaxConcurrentDownloads    int
 	MaxConcurrentUploads      int
+	MaxDownloadAttempts       int
+	MaxUploadAttempts         int
 	ReferenceStore            dockerreference.Store
 	RegistryService           registry.Service
 	TrustKey                  libtrust.PrivateKey
@@ -48,10 +50,12 @@ type ImageServiceConfig struct {
 func NewImageService(config ImageServiceConfig) *ImageService {
 	logrus.Debugf("Max Concurrent Downloads: %d", config.MaxConcurrentDownloads)
 	logrus.Debugf("Max Concurrent Uploads: %d", config.MaxConcurrentUploads)
+	logrus.Debugf("Max Download Attempts: %d", config.MaxDownloadAttempts)
+	logrus.Debugf("Max Uploads Attempts: %d", config.MaxUploadAttempts)
 	return &ImageService{
 		containers:                config.ContainerStore,
 		distributionMetadataStore: config.DistributionMetadataStore,
-		downloadManager:           xfer.NewLayerDownloadManager(config.LayerStores, config.MaxConcurrentDownloads),
+		downloadManager:           xfer.NewLayerDownloadManager(config.LayerStores, config.MaxConcurrentDownloads, config.MaxDownloadAttempts),
 		eventsService:             config.EventsService,
 		imageStore:                config.ImageStore,
 		layerStores:               config.LayerStores,
@@ -59,7 +63,7 @@ func NewImageService(config ImageServiceConfig) *ImageService {
 		referenceStore:            config.ReferenceStore,
 		registryService:           config.RegistryService,
 		trustKey:                  config.TrustKey,
-		uploadManager:             xfer.NewLayerUploadManager(config.MaxConcurrentUploads),
+		uploadManager:             xfer.NewLayerUploadManager(config.MaxConcurrentUploads, config.MaxUploadAttempts),
 	}
 }
 

@@ -20,7 +20,10 @@ import (
 	"github.com/opencontainers/go-digest"
 )
 
-const maxDownloadConcurrency = 3
+const (
+	maxDownloadConcurrency = 3
+	maxDownloadAttempts    = 5
+)
 
 type mockLayer struct {
 	layerData bytes.Buffer
@@ -285,7 +288,7 @@ func TestSuccessfulDownload(t *testing.T) {
 	layerStore := &mockLayerStore{make(map[layer.ChainID]*mockLayer)}
 	lsMap := make(map[string]layer.Store)
 	lsMap[runtime.GOOS] = layerStore
-	ldm := NewLayerDownloadManager(lsMap, maxDownloadConcurrency, func(m *LayerDownloadManager) { m.waitDuration = time.Millisecond })
+	ldm := NewLayerDownloadManager(lsMap, maxDownloadConcurrency, maxDownloadAttempts, func(m *LayerDownloadManager) { m.waitDuration = time.Millisecond })
 
 	progressChan := make(chan progress.Progress)
 	progressDone := make(chan struct{})
@@ -349,7 +352,7 @@ func TestCancelledDownload(t *testing.T) {
 	layerStore := &mockLayerStore{make(map[layer.ChainID]*mockLayer)}
 	lsMap := make(map[string]layer.Store)
 	lsMap[runtime.GOOS] = layerStore
-	ldm := NewLayerDownloadManager(lsMap, maxDownloadConcurrency, func(m *LayerDownloadManager) { m.waitDuration = time.Millisecond })
+	ldm := NewLayerDownloadManager(lsMap, maxDownloadConcurrency, maxDownloadAttempts, func(m *LayerDownloadManager) { m.waitDuration = time.Millisecond })
 	progressChan := make(chan progress.Progress)
 	progressDone := make(chan struct{})
 

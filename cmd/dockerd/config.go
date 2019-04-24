@@ -19,6 +19,7 @@ const (
 // installCommonConfigFlags adds flags to the pflag.FlagSet to configure the daemon
 func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
 	var maxConcurrentDownloads, maxConcurrentUploads int
+	var maxDownloadAttempts, maxUploadAttempts int
 
 	installRegistryServiceFlags(&conf.ServiceOptions, flags)
 
@@ -62,6 +63,8 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
 	flags.StringVar(&conf.CorsHeaders, "api-cors-header", "", "Set CORS headers in the Engine API")
 	flags.IntVar(&maxConcurrentDownloads, "max-concurrent-downloads", config.DefaultMaxConcurrentDownloads, "Set the max concurrent downloads for each pull")
 	flags.IntVar(&maxConcurrentUploads, "max-concurrent-uploads", config.DefaultMaxConcurrentUploads, "Set the max concurrent uploads for each push")
+	flags.IntVar(&maxDownloadAttempts, "max-download-attempts", config.DefaultMaxDownloadAttempts, "Set the max download attempts for each pull")
+	flags.IntVar(&maxUploadAttempts, "max-upload-attempts", config.DefaultMaxUploadAttempts, "Set the max upload attempts for each push")
 	flags.IntVar(&conf.ShutdownTimeout, "shutdown-timeout", defaultShutdownTimeout, "Set the default shutdown timeout")
 	flags.IntVar(&conf.NetworkDiagnosticPort, "network-diagnostic-port", 0, "TCP port number of the network diagnostic server")
 	flags.MarkHidden("network-diagnostic-port")
@@ -83,6 +86,8 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) {
 
 	conf.MaxConcurrentDownloads = &maxConcurrentDownloads
 	conf.MaxConcurrentUploads = &maxConcurrentUploads
+	conf.MaxDownloadAttempts = &maxDownloadAttempts
+	conf.MaxUploadAttempts = &maxUploadAttempts
 }
 
 func installRegistryServiceFlags(options *registry.ServiceOptions, flags *pflag.FlagSet) {
