@@ -18,6 +18,7 @@ func TestImagePullComparePullDuration(t *testing.T) {
 
 	for _, storageDriver := range []string{"aufs", "overlay2"} {
 		t.Run(fmt.Sprintf("storageDriver=%s", storageDriver), func(t *testing.T) {
+			skip.If(t, storageDriver == "aufs", "Aufs doesn't work with dind")
 
 			var (
 				durSync, durNoSync time.Duration
