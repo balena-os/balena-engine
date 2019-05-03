@@ -47,6 +47,7 @@ import (
 	"github.com/docker/docker/pkg/fileutils"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/plugingetter"
+	"github.com/docker/docker/pkg/storagemigration"
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/truncindex"
@@ -943,6 +944,16 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 
 	if err := d.setupDefaultLogConfig(); err != nil {
 		return nil, err
+	}
+
+	// attempt to run the aufs-to-overlay2 graphdriver migration on the
+	// state directory. since this is happening before we even initialize
+	// the graphdrivers it should be safe to do here.
+	_, doStorageMigration := os.LookupEnv("BALENA_MIGRATE_OVERLAY")
+	if config.GraphDriver == "overlay2" && doStorageMigration {
+		if err := storagemigration.Migrate(config.Root); err != nil {
+			return nil, err
+		}
 	}
 
 	layerStore, err := layer.NewStoreFromOptions(layer.StoreOptions{
