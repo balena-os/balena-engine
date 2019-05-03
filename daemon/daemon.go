@@ -57,6 +57,7 @@ import (
 	libcontainerdtypes "github.com/docker/docker/libcontainerd/types"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/plugingetter"
+	"github.com/docker/docker/pkg/storagemigration"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/truncindex"
 	"github.com/docker/docker/plugin"
@@ -995,6 +996,41 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 
 	if err := d.setupDefaultLogConfig(); err != nil {
 		return nil, err
+	}
+
+	// attempt to run the aufs-to-overlay2 graphdriver migration on the
+	// state directory. since this is happening before we even initialize
+	// the graphdrivers it should be safe to do here.
+	_, doStorageMigration := os.LookupEnv("BALENA_MIGRATE_OVERLAY")
+	if config.GraphDriver == "overlay2" && doStorageMigration {
+		logrus.Info("Starting storage migration from aufs to overlay2")
+		start := time.Now()
+		var err error
+		err = storagemigration.Migrate(config.Root)
+		if err != nil {
+			if err == storagemigration.ErrAuFSRootNotExists ||
+				err == storagemigration.ErrOverlayRootExists {
+				// gracefully handle missing aufs root or existing
+				// overlay root - we have nothing to migrate from
+				logrus.Infof("Storage migration skipped: %s", err)
+			} else {
+				// rollback partial migration
+				if err := storagemigration.FailCleanup(config.Root); err != nil {
+					// if this fails abort daemon startup
+					return nil, errors.Wrap(err, "failed to cleanup after failed storage migration")
+				}
+				// even though the migration failed with an error
+				// we continue daemon startup on aufs. This allows
+				// for debugging the failed migration by hand.
+				logrus.Errorf("Storage migration failed: %s", err)
+			}
+		} else {
+			// only commit if migration succeded
+			if err := storagemigration.Commit(config.Root); err != nil {
+				return nil, errors.Wrap(err, "failed to commit storage migration")
+			}
+			logrus.Infof("Finished storage migration from aufs to overlay2, took %s", time.Now().Sub(start))
+		}
 	}
 
 	for operatingSystem, gd := range d.graphDrivers {
