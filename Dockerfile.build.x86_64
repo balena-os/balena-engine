@@ -1,4 +1,4 @@
-FROM resin/amd64-golang:1.10
+FROM balenalib/amd64-golang:1.10
 
 RUN apt-get update \
 	&& apt-get install -y \
@@ -7,7 +7,6 @@ RUN apt-get update \
 		libdevmapper-dev \
 		libnl-3-dev \
 		libsystemd-dev \
-		libsystemd-journal-dev \
 		libudev-dev
 
 COPY . /balena-engine

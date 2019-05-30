@@ -1,4 +1,4 @@
-FROM resin/aarch64-golang:1.10
+FROM balenalib/raspberrypi3-64-golang:1.10
 
 # Enable QEMU emulation
 ENTRYPOINT [ "qemu-aarch64-static", "-execve" ]
@@ -11,7 +11,6 @@ RUN apt-get update \
 		libdevmapper-dev \
 		libnl-3-dev \
 		libsystemd-dev \
-		libsystemd-journal-dev \
 		libudev-dev
 
 COPY . /balena-engine
