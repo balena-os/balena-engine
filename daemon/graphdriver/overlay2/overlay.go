@@ -77,14 +77,14 @@ const (
 	lowerFile     = "lower"
 	maxDepth      = 128
 
-	// idLength represents the number of random characters
+	// IDLength represents the number of random characters
 	// which can be used to create the unique link identifier
 	// for every layer. If this value is too long then the
 	// page size limit for the mount command may be exceeded.
-	// The idLength should be selected such that following equation
+	// The IDLength should be selected such that following equation
 	// is true (512 is a buffer for label metadata).
-	// ((idLength + len(linkDir) + 1) * maxDepth) <= (pageSize - 512)
-	idLength = 26
+	// ((IDLength + len(linkDir) + 1) * maxDepth) <= (pageSize - 512)
+	IDLength = 26
 )
 
 type overlayOptions struct {
@@ -402,7 +402,7 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
 		return err
 	}
 
-	lid := overlayutils.GenerateID(idLength, logger)
+	lid := overlayutils.GenerateID(IDLength, logger)
 	if err := os.Symlink(path.Join("..", id, diffDirName), path.Join(d.home, linkDir, lid)); err != nil {
 		return err
 	}
