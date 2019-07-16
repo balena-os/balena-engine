@@ -1,44 +1,26 @@
-#!/bin/sh
+#!/bin/bash
 
-set -o errexit
+set -ex
 
-case "$(go env GOARCH)" in
-	"arm")
-		arch="armv$(go env GOARM)"
-		;;
-	"arm64")
-		arch="aarch64"
-		;;
-	"386")
-		arch="i386"
-		;;
-	"amd64")
-		arch="x86_64"
-		;;
-esac
+arch=${BUILD_ARCH:-$(uname -m)}
+version=${VERSION:-$(git describe --tags --always)}
+target=dynbinary-balena
 
-version=$(git describe --tags --always)
+if [ -n "${STATIC}" ]; then
+    target=binary-balena
+fi
 
-export AUTO_GOPATH=1
 export GOMAXPROCS=1
-export DOCKER_LDFLAGS="-s"
 export VERSION="$version"
-export DOCKER_BUILDTAGS='exclude_graphdriver_btrfs exclude_graphdirver_zfs exclude_graphdriver_devicemapper no_btrfs'
-./hack/make.sh binary-balena
+export DOCKER_LDFLAGS="-s" # strip resulting binary
+./hack/make.sh "$target"
 
-src="bundles/latest/binary-balena"
+src="bundles/latest/$target"
 dst="balena-engine"
 
-rm -rf "$dst"
+rm -rf "$dst" || true
 mkdir "$dst"
 
-cp -L "$src/balena-engine" "$dst/balena-engine"
-
-ln -s balena-engine "$dst/balena-engine-daemon"
-ln -s balena-engine "$dst/balena-engine-containerd"
-ln -s balena-engine "$dst/balena-engine-containerd-ctr"
-ln -s balena-engine "$dst/balena-engine-containerd-shim"
-ln -s balena-engine "$dst/balena-engine-proxy"
-ln -s balena-engine "$dst/balena-engine-runc"
+cp --no-dereference "$src"/balena-engine* "$dst/"
 
 tar czfv "balena-engine-$version-$arch.tar.gz" "$dst"
