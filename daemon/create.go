@@ -127,6 +127,21 @@ func (daemon *Daemon) containerCreate(ctx context.Context, daemonCfg *configStor
 	return containertypes.CreateResponse{ID: ctr.ID, Warnings: warnings}, nil
 }
 
+func setContainerIDEnv(ctx context.Context, container *container.Container, cidenv string) error {
+	if cidenv == "" {
+		return nil
+	}
+	// check if we already have an env var like that
+	for _, env := range container.Config.Env {
+		if strings.HasPrefix(env, cidenv) {
+			return errdefs.Conflict(fmt.Errorf("Error environment variable %s already defined", cidenv))
+		}
+	}
+	container.Config.Env = append(container.Config.Env, fmt.Sprintf("%s=%s", cidenv, container.ID))
+	log.G(ctx).WithField("balenaext", "cidenv").Debugf("adding %s=%s to container environment", cidenv, container.ID)
+	return nil
+}
+
 // Create creates a new container from the given configuration with a given name.
 func (daemon *Daemon) create(ctx context.Context, daemonCfg *config.Config, opts createOpts) (retC *container.Container, retErr error) {
 	var (
@@ -189,6 +204,10 @@ func (daemon *Daemon) create(ctx context.Context, daemonCfg *config.Config, opts
 			}
 		}
 	}()
+
+	if err := setContainerIDEnv(ctx, ctr, opts.params.HostConfig.ContainerIDEnv); err != nil {
+		return nil, err
+	}
 
 	if err := daemon.setSecurityOptions(daemonCfg, ctr, opts.params.HostConfig); err != nil {
 		return nil, err
