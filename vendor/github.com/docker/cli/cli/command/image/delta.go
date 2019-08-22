@@ -32,7 +32,7 @@ func NewDeltaCommand(dockerCli command.Cli) *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-	flags.StringVar(&options.tag, "tag", "t", "Name and optionally a tag in the 'name:tag' format")
+	flags.StringVarP(&options.tag, "tag", "t", "", "Name and optionally a tag in the 'name:tag' format")
 	command.AddTrustVerificationFlags(flags, &options.untrusted, dockerCli.ContentTrustEnabled())
 
 	return cmd
