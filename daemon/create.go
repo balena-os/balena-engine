@@ -78,6 +78,21 @@ func (daemon *Daemon) containerCreate(params types.ContainerCreateConfig, manage
 	return containertypes.ContainerCreateCreatedBody{ID: container.ID, Warnings: warnings}, nil
 }
 
+func setContainerIDEnv(container *container.Container, cidenv string) error {
+	if cidenv == "" {
+		return nil
+	}
+	// check if we already have an env var like that
+	for _, env := range container.Config.Env {
+		if strings.HasPrefix(env, cidenv) {
+			return errdefs.AlreadyExists(fmt.Errorf("Error environment variable %s already defined", cidenv))
+		}
+	}
+	container.Config.Env = append(container.Config.Env, fmt.Sprintf("%s=%s", cidenv, container.ID))
+	logrus.WithField("balenaext", "cidenv").Debugf("adding %s=%s to container environment", cidenv, container.ID)
+	return nil
+}
+
 // Create creates a new container from the given configuration with a given name.
 func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (retC *container.Container, retErr error) {
 	var (
@@ -130,6 +145,10 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 			}
 		}
 	}()
+
+	if err := setContainerIDEnv(container, params.HostConfig.ContainerIDEnv); err != nil {
+		return nil, err
+	}
 
 	if err := daemon.setSecurityOptions(container, params.HostConfig); err != nil {
 		return nil, err
