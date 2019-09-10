@@ -124,6 +124,8 @@ type Daemon struct {
 
 	attachmentStore       network.AttachmentStore
 	attachableNetworkLock *locker.Locker
+
+	devfsWatchers map[string]*devfsWatcher
 }
 
 // StoreHosts stores the addresses the daemon is listening on

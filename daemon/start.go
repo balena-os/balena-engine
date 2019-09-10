@@ -159,6 +159,10 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 		return errdefs.System(err)
 	}
 
+	if err := daemon.attachDevfsWatcher(container, spec); err != nil {
+		return err
+	}
+
 	if resetRestartManager {
 		container.ResetRestartManager(true)
 	}
