@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -e
+
+binaries=(
+    balena-engine-daemon
+    balena-engine-containerd
+    balena-engine-containerd-shim
+    balena-engine-containerd-ctr
+    balena-engine-runc
+    balena-engine-proxy
+)
+
+for file in "${binaries[@]}"; do
+        ln -sf $balena_BINARY_NAME "$DEST/$file"
+done
