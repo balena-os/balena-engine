@@ -1,0 +1,182 @@
+# syntax=docker/dockerfile:1.1-experimental
+# vim: ft=dockerfile fdm=marker
+#
+# THIS DOCKERFILE MAKES USE OF EXPERIMENTAL SYNTAX
+# https://github.com/docker/buildx
+#
+# Usage:
+# 	DOCKER_BUILDKIT=1 docker build -f Dockerfile.build --build-arg=BUILD_ARCH=amd64 -o . .
+#
+# or without buildkit:
+#
+# 	docker build -f Dockerfile.build --build-arg=BUILD_ARCH=amd64 --target=ci --tag=balena-engine-ci:amd64 .
+# 	docker run --rm -it \
+# 		--mount=type=bind,source=$(pwd),target=/go/src/github.com/docker/docker \
+# 		balena-engine-ci:amd64 \
+# 		/bin/bash build.sh
+#
+# supported values for ARCH: amd64 i386 aarch64 armv7hf armv5e
+#
+
+ARG GO_VERSION=1.10.8
+ARG BUILD_ARCH=amd64
+
+# multi-arch base-images {{{
+# makes sure we also set up qemu-based emulation
+FROM balenalib/amd64-golang:$GO_VERSION-stretch-build AS amd64-base
+FROM balenalib/i386-golang:$GO_VERSION-stretch-build AS i386-base
+
+FROM balenalib/aarch64-golang:$GO_VERSION-stretch-build AS aarch64-base
+ENTRYPOINT [ "qemu-aarch64-static", "-execve" ]
+SHELL      [ "qemu-aarch64-static", "-execve", "/bin/sh", "-c" ]
+
+FROM balenalib/armv7hf-golang:$GO_VERSION-stretch-build AS armv7hf-base
+ENTRYPOINT [ "qemu-arm-static", "-execve" ]
+SHELL      [ "qemu-arm-static", "-execve", "/bin/sh", "-c" ]
+
+FROM balenalib/armv5e-golang:$GO_VERSION-stretch-build AS armv5e-base
+ENTRYPOINT [ "qemu-arm-static", "-execve" ]
+SHELL      [ "qemu-arm-static", "-execve", "/bin/sh", "-c" ]
+# }}}
+
+# ci target {{{
+# - selects the base-images according to $BUILD_ARCH
+FROM $BUILD_ARCH-base AS ci
+ARG BUILD_ARCH=$BUILD_ARCH
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		btrfs-tools \
+		build-essential \
+		curl \
+		cmake \
+		gcc \
+		git \
+		libapparmor-dev \
+		libdevmapper-dev \
+		libseccomp-dev \
+		ca-certificates \
+		e2fsprogs \
+		iptables \
+		pkg-config \
+		pigz \
+		procps \
+		xfsprogs \
+		xz-utils \
+		\
+		aufs-tools \
+		\
+		libnl-3-dev \
+		libsystemd-dev \
+		libudev-dev \
+	&& rm -rf /var/lib/apt/lists/*
+
+ENV BUILD_ARCH=$BUILD_ARCH
+VOLUME /var/lib/balena-engine
+VOLUME /var/lib/docker
+WORKDIR /go/src/github.com/docker/docker
+# }}}
+
+# test target {{{
+# TODO: probably only run some light smoke-tests to verify the build is not
+# completely broken
+FROM ci AS run_test
+RUN --mount=target=/go/src/github.com/docker/docker,ro \
+	set -ex; \
+		echo noop;
+# copy out test artifacts
+FROM scratch AS test
+# COPY --from=run_test
+# }}}
+
+# build target {{{
+# - to build a static binary set $BUILD_STATIC
+FROM ci AS run_build
+ARG BUILD_STATIC
+ARG BUILD_DEBUG
+ARG BUILDTAGS
+ENV \
+	BUILD_STATIC=$BUILD_STATIC \
+	BUILD_DEBUG=$BUILD_DEBUG \
+	BUILDTAGS=$BUILDTAGS \
+	BUILD_DEST=/build
+RUN --mount=target=/go/src/github.com/docker/docker,ro \
+	set -ex; \
+		./build.sh;
+# copy out build artifacts
+FROM scratch AS build
+COPY --from=run_build \
+	/build/* /
+# }}}
+
+# copy out test and build artifacts into one target
+FROM scratch AS artifacts
+COPY --from=test /* /
+COPY --from=build /* /
+
+# balena-engine-in-docker target {{{
+# client {{{2
+FROM balenalib/amd64-debian:stretch-run AS balena
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		ca-certificates \
+	&& rm -rf /var/lib/apt/lists/*
+
+# set up nsswitch.conf for Go's "netgo" implementation (which Docker explicitly uses)
+# - https://github.com/docker/docker-ce/blob/v17.09.0-ce/components/engine/hack/make.sh#L149
+# - https://github.com/golang/go/blob/go1.9.1/src/net/conf.go#L194-L275
+# - docker run --rm debian:stretch grep '^hosts:' /etc/nsswitch.conf
+RUN set -ex; \
+	if [ ! -e /etc/nsswitch.conf ]; then \
+		echo 'hosts: files dns' > /etc/nsswitch.conf; \
+	fi;
+
+RUN --mount=from=artifacts,target=/from \
+	set -ex; \
+	tar 	--extract \
+		--file /from/balena-engine-*.tar.gz \
+		--strip-components 1 \
+		--directory /usr/local/bin/ ; \
+	balena-engine-daemon --version; \
+	balena-engine --version
+
+COPY contrib/beind/modprobe.sh /usr/local/bin/modprobe
+COPY contrib/beind/balena-entrypoint.sh /usr/local/bin/
+
+ENTRYPOINT ["/usr/local/bin/balena-entrypoint.sh"]
+CMD []
+# }}}2
+
+# daemon {{{2
+FROM balena AS beind
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends \
+		aufs-tools \
+		btrfs-tools \
+		e2fsprogs \
+		iptables \
+		pigz \
+		xfsprogs \
+		xz-utils \
+	&& rm -rf /var/lib/apt/lists/*; \
+	curl -sSfL https://github.com/krallin/tini/releases/download/v0.18.0/tini \
+		-o /usr/local/bin/balena-engine-init
+
+RUN set -ex \
+	&& addgroup --system dockremap \
+	&& adduser --system --ingroup dockremap dockremap \
+	&& echo 'dockremap:165536:65536' >> /etc/subuid \
+	&& echo 'dockremap:165536:65536' >> /etc/subgid
+
+COPY hack/dind /usr/local/bin/beind
+COPY contrib/beind/balenad-entrypoint.sh /usr/local/bin/
+VOLUME /var/lib/balena-engine
+EXPOSE 3275
+ENTRYPOINT ["/usr/local/bin/balenad-entrypoint.sh"]
+CMD []
+# }}}2
+# }}}
+
+# make sure to only output artifacts when running:
+# docker build -o <output> <context>
+# would otherwise litter the <output> with the beind layer contents
+FROM artifacts
