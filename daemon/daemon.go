@@ -51,6 +51,7 @@ import (
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/libcontainerd"
 	"github.com/docker/docker/migrate/v1"
+	"github.com/docker/docker/pkg/devnotify"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/locker"
 	"github.com/docker/docker/pkg/plugingetter"
@@ -125,7 +126,7 @@ type Daemon struct {
 	attachmentStore       network.AttachmentStore
 	attachableNetworkLock *locker.Locker
 
-	devfsWatchers map[string]*devfsWatcher
+	devfsWatchers map[string]devnotify.Watcher
 }
 
 // StoreHosts stores the addresses the daemon is listening on

@@ -2,6 +2,8 @@ package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"runtime"
 	"time"
 
@@ -159,10 +161,6 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 		return errdefs.System(err)
 	}
 
-	if err := daemon.attachDevfsWatcher(container, spec); err != nil {
-		return err
-	}
-
 	if resetRestartManager {
 		container.ResetRestartManager(true)
 	}
@@ -173,6 +171,18 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 
 	if checkpoint != "" {
 		checkpointDir, err = getCheckpointDir(checkpointDir, checkpoint, container.Name, container.ID, container.CheckpointDir(), false)
+		if err != nil {
+			return err
+		}
+	}
+
+	// TODO(robertgzr): setup a proper hostconfig option to toggle this
+	if _, ok := os.LookupEnv("BALENA_DEVFS"); ok {
+		watcher, ok := daemon.devfsWatchers[container.ID]
+		if !ok {
+			return fmt.Errorf("no devfs watcher for %v registered", container.ID)
+		}
+		err := watcher.Start()
 		if err != nil {
 			return err
 		}

@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/image"
+	"github.com/docker/docker/pkg/devnotify"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
@@ -176,6 +177,14 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 	initFunc := setupInitLayer(daemon.idMapping)
 	if params.HostConfig.Runtime == "bare" {
 		initFunc = nil
+	}
+	// TODO(robertgzr): setup a proper hostconfig option to toggle this
+	if _, ok := os.LookupEnv("BALENA_DEVFS"); ok {
+		watcher, err := daemon.setupDevfsWatcher(container)
+		if err != nil {
+			return nil, err
+		}
+		initFunc = devnotify.WrapInitFunc(initFunc, watcher)
 	}
 
 	// Set RWLayer for container after mount labels have been set

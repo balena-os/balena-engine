@@ -5,11 +5,7 @@ import (
 )
 
 // CloneTree will create a duplicate of /dev under `dest`.
-func CloneTree(dest string) error {
-	logger := logrus.WithFields(logrus.Fields{
-		"is":   "CloneTree",
-		"dest": dest,
-	})
+func CloneTree(logger *logrus.Logger, dest string) error {
 	logger.Infof("Cloning %v device(s)", len(devices.t))
 
 	for _, d := range devices.t {

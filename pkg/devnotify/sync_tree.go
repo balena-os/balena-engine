@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sirupsen/logrus"
 	"github.com/fsnotify/fsnotify"
 	libcontainer_configs "github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/sirupsen/logrus"
 
 	"github.com/docker/docker/pkg/filenotify"
 )
@@ -18,12 +18,7 @@ import (
 // This blocks and handles filesystem events until it is
 // manually aborted using the passed context.
 //
-func SyncTree(ctx context.Context, dest string) error {
-	logger := logrus.WithFields(logrus.Fields{
-		"is":   "SyncTree",
-		"dest": dest,
-	})
-
+func SyncTree(ctx context.Context, logger *logrus.Logger, dest string) error {
 	logger.Debug("Setting up watcher")
 	watcher, err := filenotify.New()
 	if err != nil {
@@ -61,7 +56,7 @@ func SyncTree(ctx context.Context, dest string) error {
 			// TODO: do we need rate-limiting for when
 			// something get's really busy?
 
-			logger = logger.WithFields(logrus.Fields{
+			logger := logger.WithFields(logrus.Fields{
 				"event": ev.String(),
 				"dev":   d.Path,
 			})
