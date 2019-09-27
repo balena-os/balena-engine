@@ -12,8 +12,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const slashDev = "/dev"
-
 var devices *DeviceTable
 
 func init() {
@@ -46,7 +44,7 @@ func (dt *DeviceTable) Lookup(path string) (d *libcontainer_configs.Device, ok b
 
 func (dt *DeviceTable) Sync() {
 	dt.logger.Debug("Syncing devices")
-	devs, err := libcontainer_devices.GetDevices(slashDev)
+	devs, err := libcontainer_devices.HostDevices()
 	if err != nil {
 		dt.logger.WithError(err).Fatal("Failed to get devices")
 		return
