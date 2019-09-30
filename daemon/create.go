@@ -3,6 +3,7 @@ package daemon // import "github.com/docker/docker/daemon"
 import (
 	"fmt"
 	"net"
+	ospkg "os"
 	"runtime"
 	"strings"
 	"time"
@@ -179,7 +180,7 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 		initFunc = nil
 	}
 	// TODO(robertgzr): setup a proper hostconfig option to toggle this
-	if _, ok := os.LookupEnv("BALENA_DEVFS"); ok {
+	if _, ok := ospkg.LookupEnv("BALENA_DEVFS"); ok {
 		watcher, err := daemon.setupDevfsWatcher(container)
 		if err != nil {
 			return nil, err
