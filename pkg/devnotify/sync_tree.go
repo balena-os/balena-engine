@@ -18,8 +18,8 @@ import (
 // This blocks and handles filesystem events until it is
 // manually aborted using the passed context.
 //
-func SyncTree(ctx context.Context, logger *logrus.Logger, dest string) error {
-	logger.Debug("Setting up watcher")
+func SyncTree(ctx context.Context, logger logrus.FieldLogger, dest string) error {
+	logger.Debug("Syncing device tree")
 	watcher, err := filenotify.New()
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func SyncTree(ctx context.Context, logger *logrus.Logger, dest string) error {
 
 		// this is where the magic happens...
 		case ev := <-watcher.Events():
-			logger.WithField("file", ev.Name).Debug("recv event")
+			logger.Debugf(">RECV event: %#+v", ev)
 
 			d, ok := getDeviceFromEvent(ev)
 			if !ok {
@@ -111,14 +111,11 @@ func syncDeviceChange(logger logrus.FieldLogger,
 		logger.Info("Deleted device node")
 
 	case fsnotify.Rename:
-		logger.Warning("TODO: Rename")
-		logger.Warningf("%#+v", ev)
+		logger.Warning("TODO: Rename device node")
 		// err := os.Rename()
 		// if err != nil {
 		// 	return err
 		// }
-
 	}
-
 	return nil
 }
