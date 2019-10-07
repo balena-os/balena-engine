@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/fsnotify/fsnotify"
 	libcontainer_configs "github.com/opencontainers/runc/libcontainer/configs"
@@ -46,12 +47,12 @@ func SyncTree(ctx context.Context, logger logrus.FieldLogger, dest string) error
 
 		// this is where the magic happens...
 		case ev := <-watcher.Events():
-			logger.Debugf(">RECV event: %#+v", ev)
-
 			d, ok := getDeviceFromEvent(ev)
 			if !ok {
 				continue
 			}
+
+			logger.Debugf(">RECV event: %#+v", ev)
 
 			// TODO: do we need rate-limiting for when
 			// something get's really busy?
@@ -70,6 +71,13 @@ func SyncTree(ctx context.Context, logger logrus.FieldLogger, dest string) error
 }
 
 func getDeviceFromEvent(ev fsnotify.Event) (*libcontainer_configs.Device, bool) {
+	// filter out invalid events
+	if ev.Op == fsnotify.Write {
+		return nil, false
+	}
+	if strings.HasPrefix(ev.Name, "/dev/tty") {
+		return nil, false
+	}
 	// update the device table
 	// TODO(urgent) need to think of a better way to do this we can't rerun
 	// the GetDevices func every time we receive a create or delete event
