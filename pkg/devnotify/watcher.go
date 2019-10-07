@@ -37,9 +37,7 @@ func (w *watcher) Prepare(path string) error {
 		"balenaext": "devfs-watcher",
 		"container": w.containerID,
 	})
-	logger.Warning("hello from balena-devfs initFunc / watcher.Prepare")
-
-	return CloneTree(logger.Logger, w.path)
+	return CloneTree(logger, w.path)
 }
 
 // Start syncs changes from `/dev` to the destination that was passed to
@@ -60,7 +58,7 @@ func (w *watcher) Start() error {
 	w.ctx, w.cancelfn = context.WithCancel(ctx)
 
 	logger.WithField("target-dir", w.path).Warn("Watching host devfs")
-	go SyncTree(w.ctx, logger.Logger, w.path)
+	go SyncTree(w.ctx, logger, w.path)
 
 	return nil
 }
