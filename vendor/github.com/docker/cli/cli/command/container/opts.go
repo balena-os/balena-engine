@@ -119,6 +119,7 @@ type containerOptions struct {
 	runtime            string
 	autoRemove         bool
 	init               bool
+	deviceSync         bool
 
 	Image string
 	Args  []string
@@ -242,6 +243,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
 	flags.Var(&copts.blkioWeightDevice, "blkio-weight-device", "Block IO weight (relative device weight)")
 	flags.StringVar(&copts.containerIDFile, "cidfile", "", "Write the container ID to the file")
 	flags.StringVar(&copts.containerIDEnv, "cidenv", "", "Write the container ID to the environment variable")
+	flags.SetAnnotation("cidenv", "balenaext", []string{"cidenv"})
 	flags.StringVar(&copts.cpusetCpus, "cpuset-cpus", "", "CPUs in which to allow execution (0-3, 0,1)")
 	flags.StringVar(&copts.cpusetMems, "cpuset-mems", "", "MEMs in which to allow execution (0-3, 0,1)")
 	flags.Int64Var(&copts.cpuCount, "cpu-count", 0, "CPU count (Windows only)")
@@ -282,6 +284,9 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
 	flags.Var(&copts.shmSize, "shm-size", "Size of /dev/shm")
 	flags.StringVar(&copts.utsMode, "uts", "", "UTS namespace to use")
 	flags.StringVar(&copts.runtime, "runtime", "", "Runtime to use for this container")
+
+	flags.BoolVar(&copts.deviceSync, "device-sync", false, "Run a file-watcher on the host devfs and sync back changes to the container")
+	flags.SetAnnotation("device-sync", "balenaext", []string{"devfs-watcher"})
 
 	flags.BoolVar(&copts.init, "init", false, "Run an init inside the container that forwards signals and reaps processes")
 	flags.SetAnnotation("init", "version", []string{"1.25"})
@@ -617,6 +622,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions) (*containerConfig, err
 		Sysctls:        copts.sysctls.GetAll(),
 		Runtime:        copts.runtime,
 		Mounts:         mounts,
+		DeviceSync:     copts.deviceSync,
 	}
 
 	if copts.autoRemove && !hostConfig.RestartPolicy.IsNone() {

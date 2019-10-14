@@ -3,7 +3,6 @@ package daemon // import "github.com/docker/docker/daemon"
 import (
 	"fmt"
 	"net"
-	ospkg "os"
 	"runtime"
 	"strings"
 	"time"
@@ -190,8 +189,7 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 	// of the overlay filesystem, which expects changes to only be applied
 	// to the top-most layer
 	//
-	// TODO(robertgzr): setup a proper hostconfig option to toggle this
-	if _, ok := ospkg.LookupEnv("BALENA_DEVFS"); ok {
+	if params.HostConfig.DeviceSync {
 		watcher, err := daemon.createDevfsWatcher(container)
 		if err != nil {
 			return nil, err
