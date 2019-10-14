@@ -7,7 +7,7 @@ import (
 	"github.com/docker/docker/pkg/devnotify"
 )
 
-func (daemon *Daemon) setupDevfsWatcher(c *container.Container) (devnotify.Watcher, error) {
+func (daemon *Daemon) createDevfsWatcher(c *container.Container) (devnotify.Watcher, error) {
 	if daemon.devfsWatchers == nil {
 		daemon.devfsWatchers = make(map[string]devnotify.Watcher)
 	}

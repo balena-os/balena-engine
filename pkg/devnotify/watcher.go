@@ -7,12 +7,13 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/docker/docker/container"
+	"github.com/docker/docker/layer"
 )
 
 // Watcher is responsible for mirroring and syncing the host devfs to the
 // location passed to `Prepare`.
 type Watcher interface {
-	Prepare(path string) error
+	Prepare(layer.RWLayer) error
 	Start() error
 	Stop() error
 }
@@ -30,14 +31,23 @@ type watcher struct {
 
 // Prepare sets up a mirror of the current devfs at `path`. This does not start
 // syncing any changes.
-func (w *watcher) Prepare(path string) error {
-	w.path = path
+func (w *watcher) Prepare(rwLayer layer.RWLayer) error {
+	fs, err := rwLayer.Mount("")
+	if err != nil {
+		return err
+	}
 
+	w.path = fs.Path()
 	logger := logrus.WithFields(logrus.Fields{
 		"balenaext": "devfs-watcher",
 		"container": w.containerID,
 	})
-	return CloneTree(logger, w.path)
+	err = CloneTree(logger, w.path)
+	if err != nil {
+		return err
+	}
+
+	return rwLayer.Unmount()
 }
 
 // Start syncs changes from `/dev` to the destination that was passed to

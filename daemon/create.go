@@ -14,7 +14,6 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/image"
-	"github.com/docker/docker/pkg/devnotify"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
@@ -179,20 +178,30 @@ func (daemon *Daemon) create(params types.ContainerCreateConfig, managed bool) (
 	if params.HostConfig.Runtime == "bare" {
 		initFunc = nil
 	}
-	// TODO(robertgzr): setup a proper hostconfig option to toggle this
-	if _, ok := ospkg.LookupEnv("BALENA_DEVFS"); ok {
-		watcher, err := daemon.setupDevfsWatcher(container)
-		if err != nil {
-			return nil, err
-		}
-		initFunc = devnotify.WrapInitFunc(initFunc, watcher)
-	}
 
 	// Set RWLayer for container after mount labels have been set
 	rwLayer, err := daemon.imageService.CreateLayer(container, initFunc)
 	if err != nil {
 		return nil, errdefs.System(err)
 	}
+
+	// Setup a watcher in the rw layer of the container.
+	// We cannot use the init layer as this would be against the assumptions
+	// of the overlay filesystem, which expects changes to only be applied
+	// to the top-most layer
+	//
+	// TODO(robertgzr): setup a proper hostconfig option to toggle this
+	if _, ok := ospkg.LookupEnv("BALENA_DEVFS"); ok {
+		watcher, err := daemon.createDevfsWatcher(container)
+		if err != nil {
+			return nil, err
+		}
+		err = watcher.Prepare(rwLayer)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	container.RWLayer = rwLayer
 
 	rootIDs := daemon.idMapping.RootPair()
