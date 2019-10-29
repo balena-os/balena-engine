@@ -19,7 +19,12 @@ esac
 
 version=$(git describe --tags --always)
 
-AUTO_GOPATH=1 GOMAXPROCS=1 DOCKER_LDFLAGS="-s" VERSION="$version" ./hack/make.sh binary-balena
+export AUTO_GOPATH=1
+export GOMAXPROCS=1
+export DOCKER_LDFLAGS="-s"
+export VERSION="$version"
+export DOCKER_BUILDTAGS='exclude_graphdriver_btrfs exclude_graphdirver_zfs exclude_graphdriver_devicemapper no_btrfs'
+./hack/make.sh binary-balena
 
 src="bundles/latest/binary-balena"
 dst="balena-engine"
