@@ -45,14 +45,12 @@ FROM $BUILD_ARCH-base AS ci
 ARG BUILD_ARCH=$BUILD_ARCH
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
-		btrfs-tools \
 		build-essential \
 		curl \
 		cmake \
 		gcc \
 		git \
 		libapparmor-dev \
-		libdevmapper-dev \
 		libseccomp-dev \
 		ca-certificates \
 		e2fsprogs \
