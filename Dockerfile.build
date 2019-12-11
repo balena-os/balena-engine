@@ -15,7 +15,7 @@
 # 		balena-engine-ci:amd64 \
 # 		/bin/bash build.sh
 #
-# supported values for ARCH: amd64 i386 aarch64 armv7hf armv5e
+# supported values for ARCH: amd64 i386 aarch64 armv7hf armv6l armv5e
 #
 
 ARG GO_VERSION=1.10.8
@@ -31,6 +31,11 @@ ENTRYPOINT [ "qemu-aarch64-static", "-execve" ]
 SHELL      [ "qemu-aarch64-static", "-execve", "/bin/sh", "-c" ]
 
 FROM balenalib/armv7hf-golang:$GO_VERSION-stretch-build AS armv7hf-base
+ENTRYPOINT [ "qemu-arm-static", "-execve" ]
+SHELL      [ "qemu-arm-static", "-execve", "/bin/sh", "-c" ]
+
+# we need to use the raspberry pi base image to get armv6
+FROM balenalib/raspberry-pi-golang:$GO_VERSION-stretch-build AS armv6l-base
 ENTRYPOINT [ "qemu-arm-static", "-execve" ]
 SHELL      [ "qemu-arm-static", "-execve", "/bin/sh", "-c" ]
 
