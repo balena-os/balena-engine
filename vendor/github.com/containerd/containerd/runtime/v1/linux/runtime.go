@@ -61,8 +61,8 @@ var (
 
 const (
 	configFilename = "config.json"
-	defaultRuntime = "runc"
-	defaultShim    = "containerd-shim"
+	defaultRuntime = "balena-engine-runc"
+	defaultShim    = "balena-engine-containerd-shim"
 )
 
 func init() {
