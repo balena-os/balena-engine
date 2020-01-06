@@ -1,0 +1,12 @@
+diff a/vendor/github.com/containerd/containerd/runtime/v1/linux/runtime.go b/vendor/github.com/containerd/containerd/runtime/v1/linux/runtime.go	(rejected hunks)
+@@ -61,8 +61,8 @@ var (
+ 
+ const (
+ 	configFilename = "config.json"
+-	defaultRuntime = "runc"
+-	defaultShim    = "containerd-shim"
++	defaultRuntime = "balena-engine-runc"
++	defaultShim    = "balena-engine-containerd-shim"
+ )
+ 
+ func init() {
