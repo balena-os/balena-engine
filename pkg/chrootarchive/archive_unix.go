@@ -47,6 +47,10 @@ func untar() {
 		fatal(err)
 	}
 
+	if err := set_ionice(dst); err != nil {
+		fatal(err)
+	}
+
 	if err := archive.Unpack(os.Stdin, dst, &options); err != nil {
 		fatal(err)
 	}
