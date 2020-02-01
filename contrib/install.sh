@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -eo pipefail
+set -e
 
 tag="v17.12.0"
 tag=$(echo "$tag" | sed 's|+|.|g')
