@@ -192,7 +192,7 @@ func (m *Manager) Apply(pid int) error {
 		slice = c.Parent
 	}
 
-	properties = append(properties, systemdDbus.PropDescription("libcontainer container "+c.Name))
+	properties = append(properties, systemdDbus.PropDescription("ag libcontainer container "+c.Name))
 
 	// if we create a slice, the parent is defined via a Wants=
 	if strings.HasSuffix(unitName, ".slice") {
@@ -278,6 +278,7 @@ func (m *Manager) Apply(pid int) error {
 	}
 
 	if strings.HasSuffix(unitName, ".slice") {
+		logrus.Infof("Applying slice with TaskMax property")
 		properties = append(properties,
 			newProp("TasksAccounting", true),
 			newProp("TasksMax", "infinity"))

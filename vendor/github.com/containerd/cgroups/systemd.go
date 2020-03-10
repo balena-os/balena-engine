@@ -25,6 +25,7 @@ import (
 	systemdDbus "github.com/coreos/go-systemd/dbus"
 	"github.com/godbus/dbus"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -118,11 +119,10 @@ func (s *SystemdController) Create(path string, resources *specs.LinuxResources)
 		properties = append(properties, newProperty("Delegate", true))
 	}
 
-        if strings.HasSuffix(unitName, ".slice") {
-               properties = append(properties,
-                       newProp("TasksAccounting", true),
-                       newProp("TasksMax", "infinity"))
-        }
+        properties = append(properties,
+                   newProperty("TasksAccounting", true),
+                   newProperty("TasksMax", "infinity"))
+	logrus.Infof("Creating slice with TaskMax property")
 
 	ch := make(chan string)
 	_, err = conn.StartTransientUnit(name, "replace", properties, ch)
