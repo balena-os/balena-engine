@@ -118,6 +118,12 @@ func (s *SystemdController) Create(path string, resources *specs.LinuxResources)
 		properties = append(properties, newProperty("Delegate", true))
 	}
 
+        if strings.HasSuffix(unitName, ".slice") {
+               properties = append(properties,
+                       newProp("TasksAccounting", true),
+                       newProp("TasksMax", "infinity"))
+        }
+
 	ch := make(chan string)
 	_, err = conn.StartTransientUnit(name, "replace", properties, ch)
 	if err != nil {
