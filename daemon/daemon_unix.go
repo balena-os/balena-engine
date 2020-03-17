@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	containerd_cgroups "github.com/containerd/cgroups"
+	statsV1 "github.com/containerd/cgroups/stats/v1"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/blkiodev"
 	pblkiodev "github.com/docker/docker/api/types/blkiodev"
@@ -193,8 +193,9 @@ func getBlkioWeightDevices(config containertypes.Resources) ([]specs.LinuxWeight
 		}
 		weight := weightDevice.Weight
 		d := specs.LinuxWeightDevice{Weight: &weight}
-		d.Major = int64(unix.Major(stat.Rdev))
-		d.Minor = int64(unix.Minor(stat.Rdev))
+		// The type is 32bit on mips.
+		d.Major = int64(unix.Major(uint64(stat.Rdev))) // nolint: unconvert
+		d.Minor = int64(unix.Minor(uint64(stat.Rdev))) // nolint: unconvert
 		blkioWeightDevices = append(blkioWeightDevices, d)
 	}
 
@@ -264,8 +265,9 @@ func getBlkioThrottleDevices(devs []*blkiodev.ThrottleDevice) ([]specs.LinuxThro
 			return nil, err
 		}
 		d := specs.LinuxThrottleDevice{Rate: d.Rate}
-		d.Major = int64(unix.Major(stat.Rdev))
-		d.Minor = int64(unix.Minor(stat.Rdev))
+		// the type is 32bit on mips
+		d.Major = int64(unix.Major(uint64(stat.Rdev))) // nolint: unconvert
+		d.Minor = int64(unix.Minor(uint64(stat.Rdev))) // nolint: unconvert
 		throttleDevices = append(throttleDevices, d)
 	}
 
@@ -1348,7 +1350,7 @@ func (daemon *Daemon) conditionalUnmountOnCleanup(container *container.Container
 	return daemon.Unmount(container)
 }
 
-func copyBlkioEntry(entries []*containerd_cgroups.BlkIOEntry) []types.BlkioStatEntry {
+func copyBlkioEntry(entries []*statsV1.BlkIOEntry) []types.BlkioStatEntry {
 	out := make([]types.BlkioStatEntry, len(entries))
 	for i, re := range entries {
 		out[i] = types.BlkioStatEntry{

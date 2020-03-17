@@ -247,7 +247,7 @@ keywords: "API, Docker, rcli, REST, documentation"
 * `GET /containers/create` now takes a `DeviceCgroupRules` field in `HostConfig` allowing to set custom device cgroup rules for the created container.
 * Optional query parameter `verbose` for `GET /networks/(id or name)` will now list all services with all the tasks, including the non-local tasks on the given network.
 * `GET /containers/(id or name)/attach/ws` now returns WebSocket in binary frame format for API version >= v1.28, and returns WebSocket in text frame format for API version< v1.28, for the purpose of backward-compatibility.
-* `GET /networks` is optimised only to return list of all networks and network specific information. List of all containers attached to a specific network is removed from this API and is only available using the network specific `GET /networks/{network-id}.
+* `GET /networks` is optimised only to return list of all networks and network specific information. List of all containers attached to a specific network is removed from this API and is only available using the network specific `GET /networks/{network-id}`.
 * `GET /containers/json` now supports `publish` and `expose` filters to filter containers that expose or publish certain ports.
 * `POST /services/create` and `POST /services/(id or name)/update` now accept the `ReadOnly` parameter, which mounts the container's root filesystem as read only.
 * `POST /build` now accepts `extrahosts` parameter to specify a host to ip mapping to use during the build.
@@ -315,6 +315,9 @@ keywords: "API, Docker, rcli, REST, documentation"
 * The `HostConfig` field now includes `CpuCount` that represents the number of CPUs available for execution by the container. Windows daemon only.
 * `POST /services/create` and `POST /services/(id or name)/update` now accept the `TTY` parameter, which allocate a pseudo-TTY in container.
 * `POST /services/create` and `POST /services/(id or name)/update` now accept the `DNSConfig` parameter, which specifies DNS related configurations in resolver configuration file (resolv.conf) through `Nameservers`, `Search`, and `Options`.
+* `POST /services/create` and `POST /services/(id or name)/update` now support
+  `node.platform.arch` and `node.platform.os` constraints in the services 
+  `TaskSpec.Placement.Constraints` field.
 * `GET /networks/(id or name)` now includes IP and name of all peers nodes for swarm mode overlay networks.
 * `GET /plugins` list plugins.
 * `POST /plugins/pull?name=<plugin name>` pulls a plugin.
