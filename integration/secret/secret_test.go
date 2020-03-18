@@ -346,6 +346,8 @@ func TestTemplatedSecret(t *testing.T) {
 
 // Test case for 28884
 func TestSecretCreateResolve(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 
 	defer setupTest(t)()
