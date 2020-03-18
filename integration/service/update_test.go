@@ -16,6 +16,8 @@ import (
 )
 
 func TestServiceUpdateLabel(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -72,6 +74,8 @@ func TestServiceUpdateLabel(t *testing.T) {
 }
 
 func TestServiceUpdateSecrets(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -134,6 +138,8 @@ func TestServiceUpdateSecrets(t *testing.T) {
 }
 
 func TestServiceUpdateConfigs(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
@@ -196,6 +202,8 @@ func TestServiceUpdateConfigs(t *testing.T) {
 }
 
 func TestServiceUpdateNetwork(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)

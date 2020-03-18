@@ -14,7 +14,7 @@ import (
 
 // TestDaemonRestartWithPluginEnabled tests state restore for an enabled plugin
 func (s *DockerDaemonSuite) TestDaemonRestartWithPluginEnabled(c *testing.T) {
-	t.Skip("Plugins aren't supported")
+	c.Skip("Plugins aren't supported")
 
 	testRequires(c, IsAmd64, Network)
 
@@ -45,7 +45,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithPluginEnabled(c *testing.T) {
 
 // TestDaemonRestartWithPluginDisabled tests state restore for a disabled plugin
 func (s *DockerDaemonSuite) TestDaemonRestartWithPluginDisabled(c *testing.T) {
-	t.Skip("Plugins aren't supported")
+	c.Skip("Plugins aren't supported")
 
 	testRequires(c, IsAmd64, Network)
 
