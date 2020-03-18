@@ -38,7 +38,7 @@ func testPullWithSyncDiffs(t *testing.T, syncDiffs bool) {
 
 	var args = []string{
 		"--storage-driver=overlay2",
-		fmt.Sprintf("--storage-opt=overlay2.sync_diffs=false", syncDiffs),
+		fmt.Sprintf("--storage-opt=overlay2.sync_diffs=%t", syncDiffs),
 	}
 
 	d := daemon.New(t)
