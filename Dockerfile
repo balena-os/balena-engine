@@ -243,13 +243,15 @@ COPY --from=gotestsum /build/ /usr/local/bin/
 COPY --from=tomlv /build/ /usr/local/bin/
 COPY --from=vndr /build/ /usr/local/bin/
 COPY --from=tini /build/ /usr/local/bin/
-COPY --from=proxy /build/ /usr/local/bin/
+# COPY --from=proxy /build/ /usr/local/bin/
 COPY --from=registry /build/registry* /usr/local/bin/
 COPY --from=criu /build/ /usr/local/
 COPY --from=rootlesskit /build/ /usr/local/bin/
 COPY --from=djs55/vpnkit@sha256:e508a17cfacc8fd39261d5b4e397df2b953690da577e2c987a47630cd0c42f8e /vpnkit /usr/local/bin/vpnkit.x86_64
 
-ENV DOCKER_BUILDTAGS apparmor seccomp selinux
+ENV DOCKER_BUILDTAGS no_btrfs no_cri no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs
+ENV DOCKER_LDFLAGS -s
+
 WORKDIR /go/src/github.com/docker/docker
 VOLUME /var/lib/balena-engine
 # Wrap all commands in the "docker-in-docker" script to allow nested containers

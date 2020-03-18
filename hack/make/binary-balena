@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
 set -e
+rm -rf "$DEST"
 
 (
-	[ -z "$KEEPDEST" ] && rm -rf "$DEST"
 	source "${MAKEDIR}/.binary-setup"
-	export BINARY_SHORT_NAME="$balena_BINARY_NAME"
-	export GO_PACKAGE='github.com/docker/docker/cmd/balena-engine'
-	export LDFLAGS="$LDFLAGS"
-	export BUILDFLAGS=( "${BUILDFLAGS[@]/netgo /}" ) # disable netgo, since we don't need it for a dynamic binary
-	source "${MAKEDIR}/.binary"
-
-	for file in balena-engine-daemon balena-engine-containerd balena-engine-containerd-shim balena-engine-containerd-ctr balena-engine-runc balena-engine-proxy; do
-		ln -sf $balena_BINARY_NAME "$DEST/$file"
-	done
+	. hack/make/binary-daemon
+	. hack/make/.binary-symlinks
 )
