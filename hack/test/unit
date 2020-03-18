@@ -12,11 +12,11 @@
 #
 set -eux -o pipefail
 
-BUILDFLAGS=(-tags 'netgo libdm_no_deferred_remove')
+BUILDFLAGS=(-tags "netgo libdm_no_deferred_remove $DOCKER_BUILDTAGS")
 TESTFLAGS+=" -test.timeout=${TIMEOUT:-5m}"
 TESTDIRS="${TESTDIRS:-./...}"
 exclude_paths='/vendor/|/integration'
-pkg_list=$(go list $TESTDIRS | grep -vE "($exclude_paths)")
+pkg_list=$(go list "${BUILDFLAGS[@]}" $TESTDIRS | grep -vE "($exclude_paths)")
 
 base_pkg_list=$(echo "${pkg_list}" | grep --fixed-strings -v "/libnetwork" || :)
 libnetwork_pkg_list=$(echo "${pkg_list}" | grep --fixed-strings "/libnetwork" || :)

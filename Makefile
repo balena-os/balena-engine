@@ -44,7 +44,6 @@ DOCKER_ENVS := \
 	-e DOCKER_EXPERIMENTAL \
 	-e DOCKER_GITCOMMIT \
 	-e DOCKER_GRAPHDRIVER \
-	-e DOCKER_LDFLAGS \
 	-e DOCKER_PORT \
 	-e DOCKER_REMAP_ROOT \
 	-e DOCKER_ROOTLESS \
@@ -74,8 +73,12 @@ DOCKER_ENVS := \
 	-e PLATFORM \
 	-e DEFAULT_PRODUCT_LICENSE \
 	-e PRODUCT \
-	-e PACKAGER_NAME
-# note: we _cannot_ add "-e DOCKER_BUILDTAGS" here because even if it's unset in the shell, that would shadow the "ENV DOCKER_BUILDTAGS" set in our Dockerfile, which is very important for our official builds
+	-e PACKAGER_NAME \
+	-e DOCKER_BUILDTAGS
+
+# balenaEngine build tags - excludes drivers that need special test privileges
+DOCKER_BUILDTAGS ?= apparmor seccomp no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs
+export DOCKER_BUILDTAGS
 
 # to allow `make BIND_DIR=. shell` or `make BIND_DIR= test`
 # (default to no bind mount if DOCKER_HOST is set)

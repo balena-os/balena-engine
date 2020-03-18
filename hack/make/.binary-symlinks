@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -e
+
+symlink_binaries() {
+    local bin="$1"
+    local dest="$2"
+
+    binaries=(
+        balena-engine-daemon
+        balena-engine-containerd
+        balena-engine-containerd-shim
+        balena-engine-containerd-ctr
+        balena-engine-runc
+        balena-engine-proxy
+    )
+
+    for file in "${binaries[@]}"; do
+            ln -sf "$bin" "$dest/$file"
+    done
+}
+
+symlink_binaries balena-engine "$DEST"
