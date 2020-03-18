@@ -3,7 +3,7 @@ package types // import "github.com/docker/docker/libcontainerd/types"
 import (
 	"time"
 
-	statsV1 "github.com/containerd/cgroups/stats/v1"
+	statsV1 "github.com/containerd/cgroups"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
