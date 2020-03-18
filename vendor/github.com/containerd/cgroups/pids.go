@@ -23,7 +23,6 @@ import (
 	"strconv"
 	"strings"
 
-	v1 "github.com/containerd/cgroups/stats/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -63,7 +62,7 @@ func (p *pidsController) Update(path string, resources *specs.LinuxResources) er
 	return p.Create(path, resources)
 }
 
-func (p *pidsController) Stat(path string, stats *v1.Metrics) error {
+func (p *pidsController) Stat(path string, stats *Metrics) error {
 	current, err := readUint(filepath.Join(p.Path(path), "pids.current"))
 	if err != nil {
 		return err
@@ -78,7 +77,7 @@ func (p *pidsController) Stat(path string, stats *v1.Metrics) error {
 			return err
 		}
 	}
-	stats.Pids = &v1.PidsStat{
+	stats.Pids = &PidsStat{
 		Current: current,
 		Limit:   max,
 	}

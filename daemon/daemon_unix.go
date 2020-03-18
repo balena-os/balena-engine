@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	statsV1 "github.com/containerd/cgroups/stats/v1"
+	statsV1 "github.com/containerd/cgroups"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/blkiodev"
 	pblkiodev "github.com/docker/docker/api/types/blkiodev"

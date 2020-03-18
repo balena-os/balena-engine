@@ -19,7 +19,6 @@ package cgroups
 import (
 	"os"
 
-	v1 "github.com/containerd/cgroups/stats/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -69,7 +68,7 @@ type Cgroup interface {
 	// subsystems are moved one at a time
 	MoveTo(Cgroup) error
 	// Stat returns the stats for all subsystems in the cgroup
-	Stat(...ErrorHandler) (*v1.Metrics, error)
+	Stat(...ErrorHandler) (*Metrics, error)
 	// Update updates all the subsystems with the provided resource changes
 	Update(resources *specs.LinuxResources) error
 	// Processes returns all the processes in a select subsystem for the cgroup
