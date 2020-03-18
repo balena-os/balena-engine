@@ -401,6 +401,7 @@ func TestServiceWithDataPathPortInit(t *testing.T) {
 }
 
 func TestServiceWithDefaultAddressPoolInit(t *testing.T) {
+	t.Skip("swarm isn't supported")
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 	defer setupTest(t)()
