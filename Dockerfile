@@ -626,8 +626,7 @@ RUN --mount=type=bind,target=.,rw \
   target=$([ "$DOCKER_STATIC" = "1" ] && echo "binary" || echo "dynbinary")
   xx-go --wrap
   PKG_CONFIG=$(xx-go env PKG_CONFIG) ./hack/make.sh $target
-  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/balena-engine-daemon$([ "$(xx-info os)" = "windows" ] && echo ".exe")
-  # balena-engine-proxy is a symlink to the multicall binary, not a standalone binary
+  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/balena-engine$([ "$(xx-info os)" = "windows" ] && echo ".exe")
   mkdir /build
   mv /tmp/bundles/${target}-daemon/* /build/
 EOT
@@ -660,8 +659,8 @@ WORKDIR /usr/local/bin
 COPY --from=build /build .
 RUN <<EOT
   set -ex
-  file balena-engine-daemon
-  balena-engine-daemon --version
+  file balena-engine
+  balena-engine --version
   file balena-engine-proxy
   balena-engine-proxy --version
 EOT
