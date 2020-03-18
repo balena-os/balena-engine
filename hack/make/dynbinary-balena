@@ -3,21 +3,6 @@ set -e
 
 (
 	source "${MAKEDIR}/.binary-setup"
-	export BINARY_SHORT_NAME="$balena_BINARY_NAME"
-	export GO_PACKAGE='github.com/docker/docker/cmd/balena-engine'
-	export IAMSTATIC='false'
-	export LDFLAGS_STATIC_DOCKER=''
-	export BUILDFLAGS=( "${BUILDFLAGS[@]/netgo /}" ) # disable netgo, since we don't need it for a dynamic binary
-	export BUILDFLAGS=( "${BUILDFLAGS[@]/osusergo /}" ) # ditto for osusergo
-	export BUILDFLAGS=( "${BUILDFLAGS[@]/static_build /}" ) # we're not building a "static" binary here
-	source "${MAKEDIR}/.binary"
-
-	for file in balena-engine-daemon \
-	            balena-engine-containerd \
-				balena-engine-containerd-shim \
-				balena-engine-containerd-ctr \
-				balena-engine-runc \
-				balena-engine-proxy; do
-		ln -sf $balena_BINARY_NAME "$DEST/$file"
-	done
+	. hack/make/dynbinary-daemon
+	. hack/make/.binary-symlinks
 )
