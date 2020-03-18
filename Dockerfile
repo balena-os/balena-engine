@@ -8,6 +8,8 @@ ARG XX_VERSION=1.6.1
 ARG VPNKIT_VERSION=0.5.0
 ARG DOCKERCLI_VERSION=v17.06.2-ce
 
+ARG DOCKER_BUILDTAGS="apparmor seccomp no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs"
+
 ARG SYSTEMD="false"
 ARG DOCKER_STATIC=1
 
