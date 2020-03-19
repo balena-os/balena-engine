@@ -1,3 +1,6 @@
+//go:build !no_buildkit
+// +build !no_buildkit
+
 package label
 
 // Pre-defined label keys similar to BuildKit ones
