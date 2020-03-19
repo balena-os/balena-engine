@@ -1,4 +1,4 @@
-// +build linux,cgo,!static_build
+// +build linux,cgo,!static_build,!no_devmapper
 // +build libdm_dlsym_deferred_remove,!libdm_no_deferred_remove
 
 package devicemapper

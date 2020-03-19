@@ -1,4 +1,4 @@
-// +build !windows
+// +build !windows,!no_devmapper
 
 package main
 
