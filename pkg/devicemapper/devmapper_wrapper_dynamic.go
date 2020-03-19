@@ -1,5 +1,5 @@
 //go:build linux && cgo && !static_build
-// +build linux,cgo,!static_build
+// +build linux,cgo,!static_build,!no_devmapper
 
 package devicemapper // import "github.com/docker/docker/pkg/devicemapper"
 
