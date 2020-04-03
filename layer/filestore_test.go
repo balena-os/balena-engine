@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/docker/docker/pkg/stringid"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -55,7 +56,7 @@ func TestCommitFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tx, err := fms.StartTransaction()
+	tx, err := fms.StartTransaction(stringid.GenerateRandomID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +80,7 @@ func TestStartTransactionFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := fms.StartTransaction()
+	_, err := fms.StartTransaction(stringid.GenerateRandomID())
 	if err == nil {
 		t.Fatalf("Expected error starting transaction with invalid layer parent directory")
 	}
@@ -89,7 +90,7 @@ func TestStartTransactionFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tx, err := fms.StartTransaction()
+	tx, err := fms.StartTransaction(stringid.GenerateRandomID())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,5 +101,18 @@ func TestStartTransactionFailure(t *testing.T) {
 
 	if err := tx.Cancel(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFileMetadataStore_StartTransaction(t *testing.T) {
+	fms, _, cleanup := newFileMetadataStore(t)
+	defer cleanup()
+
+	errTx, err := fms.StartTransaction("")
+	if err == nil {
+		t.Errorf("An error was expected for empty cacheID")
+	}
+	if errTx != nil {
+		t.Errorf("nil shuld be returned instead of the transaction in case of an error")
 	}
 }
