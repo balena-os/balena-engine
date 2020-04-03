@@ -36,6 +36,16 @@ type fileMetadataTransaction struct {
 	ws    *ioutils.AtomicWriteSet
 }
 
+type fileMetadataTxData string
+
+func (txData fileMetadataTxData) GetCacheID() (string, error) {
+	return readCacheID(filepath.Join(string(txData), "cache-id"))
+}
+
+func (txData fileMetadataTxData) Delete() error {
+	return os.RemoveAll(string(txData))
+}
+
 // newFSMetadataStore returns an instance of a metadata store
 // which is backed by files on disk using the provided root
 // as the root of metadata files.
@@ -46,6 +56,20 @@ func newFSMetadataStore(root string) (*fileMetadataStore, error) {
 	return &fileMetadataStore{
 		root: root,
 	}, nil
+}
+
+func readCacheID(path string) (string, error) {
+	contentBytes, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	content := strings.TrimSpace(string(contentBytes))
+
+	if content == "" {
+		return "", errors.Errorf("invalid cache id value")
+	}
+
+	return content, nil
 }
 
 func (fms *fileMetadataStore) getLayerDirectory(layer ChainID) string {
@@ -65,7 +89,10 @@ func (fms *fileMetadataStore) getMountFilename(mount, filename string) string {
 	return filepath.Join(fms.getMountDirectory(mount), filename)
 }
 
-func (fms *fileMetadataStore) StartTransaction() (*fileMetadataTransaction, error) {
+func (fms *fileMetadataStore) StartTransaction(cacheID string) (*fileMetadataTransaction, error) {
+	if len(cacheID) == 0 {
+		return nil, errors.New("cacheID is not specified for the transaction")
+	}
 	tmpDir := filepath.Join(fms.root, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return nil, err
@@ -75,10 +102,32 @@ func (fms *fileMetadataStore) StartTransaction() (*fileMetadataTransaction, erro
 		return nil, err
 	}
 
-	return &fileMetadataTransaction{
+	tx := &fileMetadataTransaction{
 		store: fms,
 		ws:    ws,
-	}, nil
+	}
+	if err = tx.ws.WriteFile("cache-id", []byte(cacheID), 0644); err != nil {
+		_ = tx.Cancel()
+		return nil, err
+	}
+	return tx, nil
+}
+
+func (fms *fileMetadataStore) ListExistingTransactions() ([]fileMetadataTxData, error) {
+	tmpDir := filepath.Join(fms.root, "tmp")
+	entries, err := os.ReadDir(tmpDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	result := make([]fileMetadataTxData, len(entries))
+	for i, entry := range entries {
+		result[i] = fileMetadataTxData(filepath.Join(tmpDir, entry.Name()))
+	}
+	return result, nil
 }
 
 func (fm *fileMetadataTransaction) SetSize(size int64) error {
@@ -91,10 +140,6 @@ func (fm *fileMetadataTransaction) SetParent(parent ChainID) error {
 
 func (fm *fileMetadataTransaction) SetDiffID(diff DiffID) error {
 	return fm.ws.WriteFile("diff", []byte(digest.Digest(diff).String()), 0o644)
-}
-
-func (fm *fileMetadataTransaction) SetCacheID(cacheID string) error {
-	return fm.ws.WriteFile("cache-id", []byte(cacheID), 0o644)
 }
 
 func (fm *fileMetadataTransaction) SetDescriptor(ref distribution.Descriptor) error {
@@ -186,17 +231,7 @@ func (fms *fileMetadataStore) GetDiffID(layer ChainID) (DiffID, error) {
 }
 
 func (fms *fileMetadataStore) GetCacheID(layer ChainID) (string, error) {
-	contentBytes, err := os.ReadFile(fms.getLayerFilename(layer, "cache-id"))
-	if err != nil {
-		return "", err
-	}
-	content := strings.TrimSpace(string(contentBytes))
-
-	if content == "" {
-		return "", errors.Errorf("invalid cache id value")
-	}
-
-	return content, nil
+	return readCacheID(fms.getLayerFilename(layer, "cache-id"))
 }
 
 func (fms *fileMetadataStore) GetDescriptor(layer ChainID) (distribution.Descriptor, error) {
