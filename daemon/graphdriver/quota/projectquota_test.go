@@ -1,4 +1,4 @@
-// +build linux
+// +build linux,!exclude_disk_quota
 
 package quota // import "github.com/docker/docker/daemon/graphdriver/quota"
 
