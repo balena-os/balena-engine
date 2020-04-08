@@ -68,7 +68,7 @@ for cmd in curl tar; do
 done
 [ $abort ] && exit 1
 
-tarball="/var/tmp/balena-engine-${tag}-${arch}.tar.gz"
+tarball="/usr/local/bin/balena-engine-${tag}-${arch}.tar.gz"
 curl -sSL "$url" --continue-at "-" --output "$tarball"
 $sudo tar xzfv "$tarball" -C /usr/local/bin --strip-components=1
 rm -f "$tarball"
