@@ -69,9 +69,9 @@ done
 [ $abort ] && exit 1
 
 tarball="/usr/local/bin/balena-engine-${tag}-${arch}.tar.gz"
-curl -sSL "$url" --continue-at "-" --output "$tarball"
+$sudo curl -sSL "$url" --continue-at "-" --output "$tarball"
 $sudo tar xzfv "$tarball" -C /usr/local/bin --strip-components=1
-rm -f "$tarball"
+$sudo rm -f "$tarball"
 
 cat <<-EOF
 
