@@ -1,6 +1,7 @@
 package graphdriver // import "github.com/docker/docker/daemon/graphdriver"
 
 import (
+	"fmt"
 	"io"
 	"time"
 
@@ -172,4 +173,12 @@ func (gdw *NaiveDiffDriver) DiffSize(id, parent string) (size int64, err error) 
 	defer driver.Put(id)
 
 	return archive.ChangesSize(layerFs.Path(), changes), nil
+}
+
+// List implements InspectableDriver interface if embedded ProtoDriver supports it.
+func (gdw *NaiveDiffDriver) List() ([]string, error) {
+	if iDriver, supported := gdw.ProtoDriver.(InspectableDriver); supported {
+		return iDriver.List()
+	}
+	return nil, fmt.Errorf("driver %s does not support List operation", gdw.ProtoDriver)
 }
