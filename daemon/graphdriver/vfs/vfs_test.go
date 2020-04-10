@@ -37,6 +37,10 @@ func TestVfsSetQuota(t *testing.T) {
 	graphtest.DriverTestSetQuota(t, "vfs", false)
 }
 
+func TestVfsList(t *testing.T) {
+	graphtest.DriverTestList(t, "vfs")
+}
+
 func TestVfsTeardown(t *testing.T) {
 	graphtest.PutDriver(t)
 }
