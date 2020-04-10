@@ -766,3 +766,20 @@ func (d *Driver) Diff(id, parent string) (io.ReadCloser, error) {
 func (d *Driver) Changes(id, parent string) ([]archive.Change, error) {
 	return d.naiveDiff.Changes(id, parent)
 }
+
+func (d *Driver) List() ([]string, error) {
+	entries, err := ioutil.ReadDir(d.home)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ids := make([]string, 0, len(entries)-1)
+	for _, file := range entries {
+		if file.Name() != linkDir {
+			ids = append(ids, file.Name())
+		}
+	}
+	return ids, nil
+}
