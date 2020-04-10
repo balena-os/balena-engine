@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/daemon/graphdriver"
+	"github.com/docker/docker/daemon/graphdriver/graphtest"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/reexec"
@@ -638,6 +639,10 @@ func TestApplyDiff(t *testing.T) {
 	if _, err := os.Stat(path.Join(mountPoint, "test_file")); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestAufsList(t *testing.T) {
+	graphtest.DriverTestList(t, "aufs")
 }
 
 func hash(c string) string {
