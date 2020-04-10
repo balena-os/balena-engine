@@ -10,12 +10,12 @@ import (
 	"path"
 	"strconv"
 
-	"golang.org/x/sys/unix"
 	"github.com/pkg/errors"
+	"golang.org/x/sys/unix"
 )
 
 func set_ionice(dst string) error {
-	ioniceStr, ok := os.LookupEnv("MOBY_UNTAR_IONICE");
+	ioniceStr, ok := os.LookupEnv("MOBY_UNTAR_IONICE")
 	if !ok {
 		// noop
 		return nil
@@ -77,6 +77,13 @@ func set_ionice(dst string) error {
 	}()
 
 setioprio:
+	fmt.Printf("IONICE: destination: %s\n", dst)
+	fmt.Printf("IONICE: MOBY_UNTAR_IONICE: %s\n", ioniceStr)
+
+	if ioniceStr == "idle" {
+		return unix.IoprioSet(unix.IOPRIO_WHO_PROCESS, 0, unix.IOPRIO_CLASS_IDLE, 0)
+	}
+
 	val, err := strconv.ParseInt(ioniceStr, 10, 8)
 	if err != nil {
 		return err
