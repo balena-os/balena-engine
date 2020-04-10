@@ -609,6 +609,21 @@ func (a *Driver) Cleanup() error {
 	return mount.RecursiveUnmount(a.root)
 }
 
+func (a *Driver) List() ([]string, error) {
+	entries, err := ioutil.ReadDir(a.diffPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ids := make([]string, len(entries))
+	for i, file := range entries {
+		ids[i] = file.Name()
+	}
+	return ids, nil
+}
+
 func (a *Driver) aufsMount(ro []string, rw, target, mountLabel string) (err error) {
 	defer func() {
 		if err != nil {
