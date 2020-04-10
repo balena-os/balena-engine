@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"sort"
 	"testing"
 	"unsafe"
 
@@ -317,6 +318,8 @@ func DriverTestSetQuota(t *testing.T, drivername string, required bool) {
 	defer PutDriver(t)
 
 	createBase(t, driver, "Base")
+	defer driver.Remove("Base")
+
 	createOpts := &graphdriver.CreateOpts{}
 	createOpts.StorageOpt = make(map[string]string, 1)
 	createOpts.StorageOpt["size"] = "50M"
@@ -350,4 +353,38 @@ func DriverTestSetQuota(t *testing.T, drivername string, required bool) {
 		os.Remove(path.Join(mountPath.Path(), "bigfile"))
 		t.Fatalf("expect write() to fail with %v or %v, got %v", unix.EDQUOT, unix.ENOSPC, pathError.Err)
 	}
+}
+
+func DriverTestList(t *testing.T, drivername string) {
+	driver := GetDriver(t, drivername)
+	defer PutDriver(t)
+
+	testDriver, ok := driver.(*Driver)
+	if !ok {
+		t.Fatalf("Unexpected driver type: %s, %s", driver, reflect.TypeOf(driver))
+	}
+
+	iDriver, supported := testDriver.Driver.(graphdriver.InspectableDriver)
+	if !supported {
+		t.Errorf("Driver %s (%#v) does not support List opreation", drivername, testDriver.Driver)
+		return
+	}
+
+	err := driver.Create("test-list-1", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer driver.Remove("test-list-1")
+	err = driver.Create("test-list-2", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer driver.Remove("test-list-2")
+
+	ids, err := iDriver.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(ids)
+	assert.DeepEqual(t, ids, []string{"test-list-1", "test-list-2"})
 }

@@ -74,6 +74,11 @@ func TestLayerMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root := filepath.Join(td, "layers")
+	ls, err := newStoreFromGraphDriver(root, graph, runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	graphID1 := stringid.GenerateRandomID()
 	if err := graph.Create(graphID1, "", nil); err != nil {
@@ -85,12 +90,6 @@ func TestLayerMigration(t *testing.T) {
 
 	tf1 := filepath.Join(td, "tar1.json.gz")
 	if err := writeTarSplitFile(tf1, tar1); err != nil {
-		t.Fatal(err)
-	}
-
-	root := filepath.Join(td, "layers")
-	ls, err := newStoreFromGraphDriver(root, graph, runtime.GOOS)
-	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,6 +199,12 @@ func TestLayerMigrationNoTarsplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	root := filepath.Join(td, "layers")
+	ls, err := newStoreFromGraphDriver(root, graph, runtime.GOOS)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	graphID1 := stringid.GenerateRandomID()
 	graphID2 := stringid.GenerateRandomID()
 
@@ -209,12 +214,6 @@ func TestLayerMigrationNoTarsplit(t *testing.T) {
 	}
 
 	tar2, err := tarFromFilesInGraph(graph, graphID2, graphID1, layer2Files...)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	root := filepath.Join(td, "layers")
-	ls, err := newStoreFromGraphDriver(root, graph, runtime.GOOS)
 	if err != nil {
 		t.Fatal(err)
 	}
