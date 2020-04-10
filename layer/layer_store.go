@@ -127,12 +127,26 @@ func newStoreFromGraphDriver(root string, driver graphdriver.Driver) (Store, err
 	if err != nil {
 		return nil, err
 	}
+
+	// To heal already affected devices, we also try to get the unused FS layers using
+	// graphdriver since previous versions of the engine were not properly persisting cacheID.
+	leakedDriverLayers, err := ls.findUnreferencedDriverLayers()
+	if err != nil {
+		log.G(context.TODO()).Errorf("Failed to detect leaked driver layers: %s", err)
+		leakedDriverLayers = nil
+	}
+
 	// Data deletion can take time. So once we identify what needs to be deleted,
 	// we start the operation in background.
 	go func() {
+		totalDeletionsCount := 0
+
 		deletedCacheIDs := ls.prune(txData)
-		if len(deletedCacheIDs) > 0 {
-			log.G(context.TODO()).Infof("Pruned %d unused graph driver layers", len(deletedCacheIDs))
+		totalDeletionsCount += len(deletedCacheIDs)
+		totalDeletionsCount += ls.deleteUnreferencedDriverLayers(leakedDriverLayers)
+
+		if totalDeletionsCount > 0 {
+			log.G(context.TODO()).Infof("Pruned %d unused graph driver layers", totalDeletionsCount)
 		}
 	}()
 
@@ -843,6 +857,63 @@ func (ls *layerStore) prune(txData []fileMetadataTxData) []string {
 	}
 
 	return treatedCacheIDs
+}
+
+func (ls *layerStore) findUnreferencedDriverLayers() ([]string, error) {
+	d, supported := ls.driver.(graphdriver.InspectableDriver)
+	if !supported {
+		return nil, nil
+	}
+	cacheIDs, err := d.List()
+	if err != nil {
+		return nil, err
+	}
+
+	ls.layerL.Lock()
+	defer ls.layerL.Unlock()
+	ls.mountL.Lock()
+	defer ls.mountL.Unlock()
+
+	diff := len(cacheIDs) - len(ls.layerMap) - len(ls.mounts)
+	if diff == 0 {
+		return nil, nil
+	}
+	if diff < 0 {
+		return nil, fmt.Errorf("driver [%s] layers count (%d) is smaller than number of engine layers (%d + %d)",
+			ls.driver, len(cacheIDs), len(ls.layerMap), len(ls.mounts))
+	}
+	unused := make([]string, 0, diff)
+
+	usedLayers := make(map[string]struct{}, len(ls.layerMap)+len(ls.mounts)*2)
+	used := struct{}{}
+	for _, v := range ls.layerMap {
+		usedLayers[v.cacheID] = used
+	}
+	for _, v := range ls.mounts {
+		usedLayers[v.mountID] = used
+		if len(v.initID) > 0 {
+			usedLayers[v.initID] = used
+		}
+	}
+
+	for _, cacheID := range cacheIDs {
+		if _, used := usedLayers[cacheID]; !used {
+			unused = append(unused, cacheID)
+		}
+	}
+
+	return unused, nil
+}
+
+func (ls *layerStore) deleteUnreferencedDriverLayers(ids []string) int {
+	total := 0
+	for _, leakedCachedID := range ids {
+		if err := ls.driver.Remove(leakedCachedID); err == nil {
+			log.G(context.TODO()).Debugf("Deleted leaked driver layer %s", leakedCachedID)
+			total++
+		}
+	}
+	return total
 }
 
 type naiveDiffPathDriver struct {

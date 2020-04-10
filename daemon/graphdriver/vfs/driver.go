@@ -227,3 +227,18 @@ func (d *Driver) Exists(id string) bool {
 	_, err := os.Stat(d.dir(id))
 	return err == nil
 }
+
+func (d *Driver) List() ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(d.home, "dir"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ids := make([]string, len(entries))
+	for i, entry := range entries {
+		ids[i] = entry.Name()
+	}
+	return ids, nil
+}
