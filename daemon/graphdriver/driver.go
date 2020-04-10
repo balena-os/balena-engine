@@ -105,6 +105,13 @@ type Driver interface {
 	DiffDriver
 }
 
+// InspectableDriver is an optional interface that can be implemented by a driver
+// that allows to inspect the managed layers.
+type InspectableDriver interface {
+	// List returns a slice of layer IDs managed by the driver.
+	List() ([]string, error)
+}
+
 // Capabilities defines a list of capabilities a driver may implement.
 // These capabilities are not required; however, they do determine how a
 // graphdriver can be used.

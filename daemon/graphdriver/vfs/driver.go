@@ -2,6 +2,7 @@ package vfs // import "github.com/docker/docker/daemon/graphdriver/vfs"
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -211,4 +212,19 @@ func (d *Driver) Put(id string) error {
 func (d *Driver) Exists(id string) bool {
 	_, err := os.Stat(d.dir(id))
 	return err == nil
+}
+
+func (d *Driver) List() ([]string, error) {
+	entries, err := ioutil.ReadDir(filepath.Join(d.home, "dir"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	ids := make([]string, len(entries))
+	for i, entry := range entries {
+		ids[i] = entry.Name()
+	}
+	return ids, nil
 }
