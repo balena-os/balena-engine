@@ -28,8 +28,8 @@ balenaEngine instance to be able pull the **target** using deltas it must have t
 doesn't have the appropriate data to apply the delta.
 
 Unlike layer based pulling, with container deltas if any part of any file of
-any layer is shared between the two images it will be referenced instaed of
-being transferred. This amount to huge bandwidth savings that range between
+any layer is shared between the two images it will be referenced instead of
+being transferred. This amounts to huge bandwidth savings that range between
 10-70x for most cases.
 
 ### Using deltas
