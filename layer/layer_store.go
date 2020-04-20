@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"sync"
+	"os"
 
 	"github.com/docker/distribution"
 	"github.com/docker/docker/daemon/graphdriver"
@@ -290,7 +291,13 @@ func (ls *layerStore) applyTar(tx *fileMetadataTransaction, ts io.Reader, parent
 		}
 	}
 
-	applySize, err := ls.driver.ApplyDiff(layer.cacheID, parent, rdr)
+	var (
+		applySize int64
+		err error
+	)
+	if _, ok := os.LookupEnv("MOBY_LAYER_SKIP_APPLY"); !ok {
+		applySize, err = ls.driver.ApplyDiff(layer.cacheID, parent, rdr)
+	}
 	// discard trailing data but ensure metadata is picked up to reconstruct stream
 	// unconditionally call io.Copy here before checking err to ensure the resources
 	// allocated by NewInputTarStream above are always released
