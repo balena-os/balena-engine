@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"strings"
 	"sync"
 
 	"github.com/docker/distribution"
 	"github.com/docker/docker/daemon/graphdriver"
-	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
@@ -73,8 +74,7 @@ func NewStoreFromOptions(options StoreOptions) (Store, error) {
 }
 
 // newStoreFromGraphDriver creates a new Store instance using the provided
-// metadata store and graph driver. The metadata store will be used to restore
-// the Store.
+// root directory and graph driver. The data in the root directory will be used to restore the Store.
 func newStoreFromGraphDriver(root string, driver graphdriver.Driver, os string) (Store, error) {
 	if !system.IsOSSupported(os) {
 		return nil, fmt.Errorf("failed to initialize layer store as operating system '%s' is not supported", os)
@@ -119,6 +119,35 @@ func newStoreFromGraphDriver(root string, driver graphdriver.Driver, os string) 
 			logrus.Debugf("Failed to load mount %s: %s", mount, err)
 		}
 	}
+
+	// We just created the layer store, no new transactions could have been started.
+	// It's a good moment to run the clean up procedure.
+	txData, err := ls.store.ListExistingTransactions()
+	if err != nil {
+		return nil, err
+	}
+
+	// To heal already affected devices, we also try to get the unused FS layers using
+	// graphdriver since previous versions of the engine were not properly persisting cacheID.
+	leakedDriverLayers, err := ls.findUnreferencedDriverLayers()
+	if err != nil {
+		logrus.Errorf("Failed to detect leaked driver layers: %s", err)
+		leakedDriverLayers = nil
+	}
+
+	// Data deletion can take time. So once we identify what needs to be deleted,
+	// we start the operation in background.
+	go func() {
+		totalDeletionsCount := 0
+
+		deletedCacheIDs := ls.prune(txData)
+		totalDeletionsCount += len(deletedCacheIDs)
+		totalDeletionsCount += ls.deleteUnreferencedDriverLayers(leakedDriverLayers)
+
+		if totalDeletionsCount > 0 {
+			logrus.Infof("Pruned %d unused graph driver layers", totalDeletionsCount)
+		}
+	}()
 
 	return ls, nil
 }
@@ -312,12 +341,14 @@ func (ls *layerStore) registerWithDescriptor(ts io.Reader, parent ChainID, descr
 		descriptor:     descriptor,
 	}
 
-	if err = ls.driver.Create(layer.cacheID, pid, nil); err != nil {
+	// New transaction should be persisted before we do any operations with the graph driver
+	// to avoid a possibility of having an FS layer not referenced from the layer store.
+	tx, err := ls.store.StartTransaction(layer.cacheID)
+	if err != nil {
 		return nil, err
 	}
 
-	tx, err := ls.store.StartTransaction()
-	if err != nil {
+	if err = ls.driver.Create(layer.cacheID, pid, nil); err != nil {
 		return nil, err
 	}
 
@@ -765,6 +796,89 @@ func (ls *layerStore) DriverStatus() [][2]string {
 
 func (ls *layerStore) DriverName() string {
 	return ls.driver.String()
+}
+
+func (ls *layerStore) prune(txData []fileMetadataTxData) []string {
+	treatedCacheIDs := make([]string, 0, len(txData))
+
+	for _, tx := range txData {
+		if cacheID, err := tx.GetCacheID(); err == nil {
+			if err := ls.driver.Remove(cacheID); err == nil {
+				logrus.Debugf("Deleted layer %s", cacheID)
+				treatedCacheIDs = append(treatedCacheIDs, cacheID)
+			} else {
+				logrus.Debugf("Failed to delete layer %s: %s", cacheID, err)
+			}
+		} else {
+			logrus.Errorf("Failed to read cacheID from tx [%s] data: %s", tx, err)
+		}
+		if err := tx.Delete(); err != nil {
+			logrus.Errorf("Failed to delete tx [%s] data that should be pruned: %s", tx, err)
+		}
+	}
+
+	return treatedCacheIDs
+}
+
+func (ls *layerStore) findUnreferencedDriverLayers() ([]string, error) {
+	d, supported := ls.driver.(graphdriver.InspectableDriver)
+	if !supported {
+		return nil, nil
+	}
+	cacheIDs, err := d.List()
+	if err != nil {
+		return nil, err
+	}
+
+	ls.layerL.Lock()
+	defer ls.layerL.Unlock()
+
+	diff := len(cacheIDs) - len(ls.layerMap)
+	if diff == 0 {
+		return nil, nil
+	}
+	if diff < 0 {
+		return nil, fmt.Errorf("driver [%s] layers count (%d) is smaller than number of engine layers (%d)",
+			ls.driver, len(cacheIDs), len(ls.layerMap))
+	}
+	candidates := make([]string, 0, diff)
+
+	usedLayers := make(map[string]struct{}, len(ls.layerMap))
+	for _, v := range ls.layerMap {
+		usedLayers[v.cacheID] = struct{}{}
+	}
+
+	containerLayers := make(map[string]struct{}, diff)
+
+	for _, cacheID := range cacheIDs {
+		if _, used := usedLayers[cacheID]; !used {
+			if strings.HasSuffix(cacheID, "-init") {
+				containerLayers[strings.TrimSuffix(cacheID, "-init")] = struct{}{}
+			} else {
+				candidates = append(candidates, cacheID)
+			}
+		}
+	}
+
+	unused := make([]string, 0, diff)
+	for _, cacheID := range candidates {
+		if _, isContainer := containerLayers[cacheID]; !isContainer {
+			unused = append(unused, cacheID)
+		}
+	}
+
+	return unused, nil
+}
+
+func (ls *layerStore) deleteUnreferencedDriverLayers(ids []string) int {
+	total := 0
+	for _, leakedCachedID := range ids {
+		if err := ls.driver.Remove(leakedCachedID); err == nil {
+			logrus.Debugf("Deleted leaked driver layer %s", leakedCachedID)
+			total++
+		}
+	}
+	return total
 }
 
 type naiveDiffPathDriver struct {
