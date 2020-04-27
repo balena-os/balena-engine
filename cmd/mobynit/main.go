@@ -9,9 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	_ "github.com/docker/docker/daemon/graphdriver/overlay2"
-	"github.com/docker/docker/layer"
-	"github.com/docker/docker/pkg/idtools"
+	"github.com/docker/docker/cmd/mobynit/hostapp"
 	"github.com/moby/sys/mountinfo"
 	"golang.org/x/sys/unix"
 )
@@ -20,34 +18,6 @@ const (
 	LAYER_ROOT = "/docker"
 	PIVOT_PATH = "/mnt/sysroot/active"
 )
-
-func mountContainer(layer_root, containerID, graphDriver string) string {
-	ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
-		Root:                      layer_root,
-		MetadataStorePathTemplate: filepath.Join(layer_root, "image", "%s", "layerdb"),
-		IDMapping:                 idtools.IdentityMapping{},
-		GraphDriver:               graphDriver,
-	})
-	if err != nil {
-		log.Fatal("error loading layer store:", err)
-	}
-
-	rwlayer, err := ls.GetRWLayer(containerID)
-	if err != nil {
-		log.Fatal("error getting container layer:", err)
-	}
-
-	newRootPath, err := rwlayer.Mount("")
-	if err != nil {
-		log.Fatal("error mounting container fs:", err)
-	}
-
-	if err := unix.Mount("", newRootPath, "", unix.MS_REMOUNT, ""); err != nil {
-		log.Fatal("error remounting container as read/write:", err)
-	}
-
-	return newRootPath
-}
 
 func prepareForPivot(containerID, graphDriver string) string {
 	if err := os.MkdirAll("/dev/shm", os.ModePerm); err != nil {
@@ -59,7 +29,7 @@ func prepareForPivot(containerID, graphDriver string) string {
 	}
 	defer unix.Unmount("/dev/shm", unix.MNT_DETACH)
 
-	newRootPath := mountContainer(filepath.Join("", LAYER_ROOT), containerID, graphDriver)
+	newRootPath := hostapp.MountContainer(filepath.Join("", LAYER_ROOT), containerID, graphDriver)
 
 	defer unix.Mount("", newRootPath, "", unix.MS_REMOUNT|unix.MS_RDONLY, "")
 
@@ -90,7 +60,7 @@ func main() {
 	sysrootPtr := flag.String("sysroot", "", "root of partition e.g. /mnt/sysroot/inactive. Mount destination is returned in stdout")
 	flag.Parse()
 
-	// Any mounts done by initrd will be transfered in the new root
+	// Any mounts done by initrd will be transferred in the new root
 	mounts, err := mountinfo.GetMounts(nil)
 	if err != nil {
 		log.Fatal("could not get mounts:", err)
@@ -101,7 +71,7 @@ func main() {
 	// If a custom sysroot is passed, use it instead of LAYER_ROOT
 	if *sysrootPtr != "" {
 		graphDriver, containerID = getStorageDriverAndContainerID(*sysrootPtr)
-		newRootPath := mountContainer(filepath.Join(*sysrootPtr, LAYER_ROOT), containerID, graphDriver)
+		newRootPath := hostapp.MountContainer(filepath.Join(*sysrootPtr, LAYER_ROOT), containerID, graphDriver)
 		fmt.Print(newRootPath)
 	} else {
 		graphDriver, containerID = getStorageDriverAndContainerID("")
