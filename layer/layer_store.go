@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/docker/distribution"
@@ -889,37 +888,33 @@ func (ls *layerStore) findUnreferencedDriverLayers() ([]string, error) {
 
 	ls.layerL.Lock()
 	defer ls.layerL.Unlock()
+	ls.mountL.Lock()
+	defer ls.mountL.Unlock()
 
-	diff := len(cacheIDs) - len(ls.layerMap)
+	diff := len(cacheIDs) - len(ls.layerMap) - len(ls.mounts)
 	if diff == 0 {
 		return nil, nil
 	}
 	if diff < 0 {
-		return nil, fmt.Errorf("driver [%s] layers count (%d) is smaller than number of engine layers (%d)",
-			ls.driver, len(cacheIDs), len(ls.layerMap))
+		return nil, fmt.Errorf("driver [%s] layers count (%d) is smaller than number of engine layers (%d + %d)",
+			ls.driver, len(cacheIDs), len(ls.layerMap), len(ls.mounts))
 	}
-	candidates := make([]string, 0, diff)
+	unused := make([]string, 0, diff)
 
-	usedLayers := make(map[string]struct{}, len(ls.layerMap))
+	usedLayers := make(map[string]struct{}, len(ls.layerMap)+len(ls.mounts)*2)
+	used := struct{}{}
 	for _, v := range ls.layerMap {
-		usedLayers[v.cacheID] = struct{}{}
+		usedLayers[v.cacheID] = used
 	}
-
-	containerLayers := make(map[string]struct{}, diff)
-
-	for _, cacheID := range cacheIDs {
-		if _, used := usedLayers[cacheID]; !used {
-			if strings.HasSuffix(cacheID, "-init") {
-				containerLayers[strings.TrimSuffix(cacheID, "-init")] = struct{}{}
-			} else {
-				candidates = append(candidates, cacheID)
-			}
+	for _, v := range ls.mounts {
+		usedLayers[v.mountID] = used
+		if len(v.initID) > 0 {
+			usedLayers[v.initID] = used
 		}
 	}
 
-	unused := make([]string, 0, diff)
-	for _, cacheID := range candidates {
-		if _, isContainer := containerLayers[cacheID]; !isContainer {
+	for _, cacheID := range cacheIDs {
+		if _, used := usedLayers[cacheID]; !used {
 			unused = append(unused, cacheID)
 		}
 	}
