@@ -5,6 +5,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/docker/docker/daemon/graphdriver"
+	"github.com/docker/docker/pkg/containerfs"
 	"gotest.tools/skip"
 )
 
@@ -53,8 +55,25 @@ func TestLayerStore_unreferencedDriverLayers(t *testing.T) {
 
 	createGraphDriverLayer(t, lStore, "test-leaked-layer1")
 	createGraphDriverLayer(t, lStore, "test-leaked-layer2")
-	createGraphDriverLayer(t, lStore, "test-container-layer1")
-	createGraphDriverLayer(t, lStore, "test-container-layer1-init")
+
+	_, err := lStore.CreateRWLayer("test-container-1", "", &CreateRWLayerOpts{
+		InitFunc: func(root containerfs.ContainerFS) error {
+			return nil
+		}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Create RW (container) layer without init func - this will not create an -init layer.
+	_, err = lStore.CreateRWLayer("test-container-2", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2 leaked layers + 2 containers + init layer for one of container.
+	if ids, _ := lStore.driver.(graphdriver.InspectableDriver).List(); len(ids) != 5 {
+		t.Fatalf("Unexpected graphdriver storage state: %s", ids)
+	}
 
 	txData, err := lStore.store.ListExistingTransactions()
 	if err != nil {
