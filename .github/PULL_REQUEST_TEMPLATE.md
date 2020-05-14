@@ -4,10 +4,7 @@ https://github.com/balena-os/balena-engine/blob/master/CONTRIBUTING.md
 
 ** Make sure all your commits include a signature generated with `git commit -s` **
 
-For general information on balenaEngine visit https://www.balenaengine.io
-
-If this is a bug fix, make sure your description includes "fixes #xxxx", or
-"closes #xxxx"
+For general information on balenaEngine visit https://www.balena.io/engine
 
 Please provide the following information:
 -->
