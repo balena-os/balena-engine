@@ -320,6 +320,26 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 > * Add IMAGE_NAME attribute to journald log events. [moby/moby#38032](https://github.com/moby/moby/pull/38032)
 </details>
 
+# v18.9.17
+## (2020-04-27)
+
+* Add integration tests for hostapp handling [Robert Günzler]
+* Fix container data deletion [Roman Mazur]
+
+# v18.9.16
+## (2020-04-20)
+
+* overlay2: Add List support [Roman Mazur]
+* aufs: Add List support [Roman Mazur]
+* layer: Remove unreferenced driver layers on create [Roman Mazur]
+* layer: Prune unused data on layer store creation [Roman Mazur]
+* layer: Persist cacheID early on transaction start [Roman Mazur]
+
+# v18.9.15
+## (2020-04-11)
+
+* Fixed typos in getting-started.md docs [Miguel Casqueira]
+
 # v18.9.14
 ## (2020-03-25)
 
