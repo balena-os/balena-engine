@@ -64,9 +64,9 @@ else
 	exit 1
 fi
 LDFLAGS="\
-    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli.GitCommit=${GITCOMMIT}\" \
-    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli.BuildTime=${BUILDTIME}\" \
-    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli.Version=${VERSION}\" \
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli/version.GitCommit=${GITCOMMIT}\" \
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli/version.BuildTime=${BUILDTIME}\" \
+    -X \"github.com/docker/docker/vendor/github.com/docker/cli/cli/version.Version=${VERSION}\" \
 "
 
 if [ "$AUTO_GOPATH" ]; then
