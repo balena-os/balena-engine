@@ -4,6 +4,8 @@ already open. You can ensure this by searching the issue list for this
 repository. If there is a duplicate, please close your issue and add a comment
 to the existing issue instead.
 
+Also make sure to search the upstream issues at https://github.com/moby/moby/issues
+
 If you suspect your issue is a bug, please edit your issue description to
 include the BUG REPORT INFORMATION shown below. If you fail to provide this
 information within 7 days, we cannot debug your issue and will close it. We
@@ -16,9 +18,9 @@ GENERAL SUPPORT INFORMATION
 ---------------------------------------------------
 
 The GitHub issue tracker is for bug reports and feature requests.
-General support for **docker** can be found at the following locations:
+General support for **balenaEngine** can be found at the following locations:
 
-- Resin.io Support Forums - https://forums.resin.io/
+- balena.io Support Forums - https://forums.balena.io/
 
 General support for **moby** can be found at the following locations:
 
@@ -64,4 +66,4 @@ Briefly describe the problem you are having in a few paragraphs.
 (paste your output here)
 ```
 
-**Additional environment details (AWS, VirtualBox, physical, etc.):**
+**Additional environment details (device type, OS, etc.):**
