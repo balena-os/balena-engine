@@ -1,3 +1,33 @@
+- commits:
+    - subject: Add changelog template to allow generating nested changelogs
+      hash: f272b547ee6c27c41be70da6b913699a2c5ef928
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+    - subject: Update github issue and pr templates
+      hash: 123449f806b691e3d193c340a9e72285839f8bb9
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+    - subject: Update codeowners
+      hash: 538f01a22413db44ce0304dedb704c285189d3a5
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+  version: 19.03.13
+  date: 2020-05-28T17:25:57.813Z
 - version: 19.03.11
   date: '2020-05-04T10:36:19.000Z'
   commits:
