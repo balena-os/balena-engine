@@ -1,33 +1,14 @@
-# This file describes the standard way to build Docker, using docker
-#
-# Usage:
-#
-# # Use make to build a development environment image and run it in a container.
-# # This is slow the first time.
-# make BIND_DIR=. shell
-#
-# The following commands are executed inside the running container.
+# syntax=docker/dockerfile:1.1.7-experimental
 
-# # Make a dockerd binary.
-# # hack/make.sh binary
-#
-# # Install dockerd to /usr/local/bin
-# # make install
-#
-# # Run unit tests
-# # hack/test/unit
-#
-# # Run tests e.g. integration, py
-# # hack/make.sh binary test-integration test-docker-py
-#
-# Note: AppArmor used to mess with privileged mode, but this is no longer
-# the case. Therefore, you don't have to disable it anymore.
-#
+# This file describes the standard way to build Docker, using docker
 
 ARG CROSS="false"
 # IMPORTANT: When updating this please note that stdlib archive/tar pkg is vendored
 ARG GO_VERSION=1.12.17
 ARG DEBIAN_FRONTEND=noninteractive
+ARG DOCKER_BUILDTAGS="no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs no_buildkit"
+ARG DOCKER_LDFLAGS="-s"
+ARG PRODUCT="balenaEngine"
 
 FROM golang:${GO_VERSION}-stretch AS base
 ARG APT_MIRROR
@@ -105,97 +86,105 @@ RUN /download-frozen-image-v2.sh /build \
 
 FROM base AS cross-false
 
-FROM base AS cross-true
+FROM --platform=linux/amd64 base AS cross-true
 ARG DEBIAN_FRONTEND
 RUN dpkg --add-architecture armhf
 RUN dpkg --add-architecture arm64
 RUN dpkg --add-architecture armel
-RUN if [ "$(go env GOHOSTARCH)" = "amd64" ]; then \
-	apt-get update && apt-get install -y --no-install-recommends \
-		crossbuild-essential-armhf \
-		crossbuild-essential-arm64 \
-		crossbuild-essential-armel \
-		&& rm -rf /var/lib/apt/lists/*; \
-	fi
+RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/apt \
+    --mount=type=cache,sharing=locked,id=moby-cross-true-aptcache,target=/var/cache/apt \
+        apt-get update && apt-get install -y --no-install-recommends \
+            crossbuild-essential-arm64 \
+            crossbuild-essential-armel \
+            crossbuild-essential-armhf
 
 FROM cross-${CROSS} as dev-base
 
 FROM dev-base AS runtime-dev-cross-false
 ARG DEBIAN_FRONTEND
-RUN apt-get update && apt-get install -y --no-install-recommends \
-	libapparmor-dev \
-	libseccomp-dev \
-	&& rm -rf /var/lib/apt/lists/*
-FROM cross-true AS runtime-dev-cross-true
+RUN --mount=type=cache,sharing=locked,id=moby-cross-false-aptlib,target=/var/lib/apt \
+    --mount=type=cache,sharing=locked,id=moby-cross-false-aptcache,target=/var/cache/apt \
+        apt-get update && apt-get install -y --no-install-recommends \
+            binutils-mingw-w64 \
+            g++-mingw-w64-x86-64 \
+            libapparmor-dev \
+            libseccomp-dev \
+            libsystemd-dev \
+            libudev-dev
+
+FROM --platform=linux/amd64 runtime-dev-cross-false AS runtime-dev-cross-true
 ARG DEBIAN_FRONTEND
 # These crossbuild packages rely on gcc-<arch>, but this doesn't want to install
 # on non-amd64 systems.
 # Additionally, the crossbuild-amd64 is currently only on debian:buster, so
 # other architectures cannnot crossbuild amd64.
-RUN if [ "$(go env GOHOSTARCH)" = "amd64" ]; then \
-	apt-get update && apt-get install -y --no-install-recommends \
-		libseccomp-dev:armhf \
-		libseccomp-dev:arm64 \
-		libseccomp-dev:armel \
-		libapparmor-dev:armhf \
-		libapparmor-dev:arm64 \
-		libapparmor-dev:armel \
-		# install this arches seccomp here due to compat issues with the v0 builder
-		# This is as opposed to inheriting from runtime-dev-cross-false
-		libapparmor-dev \
-		libseccomp-dev \
-		&& rm -rf /var/lib/apt/lists/*; \
-	fi
+RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/apt \
+    --mount=type=cache,sharing=locked,id=moby-cross-true-aptcache,target=/var/cache/apt \
+        apt-get update && apt-get install -y --no-install-recommends \
+            libapparmor-dev:arm64 \
+            libapparmor-dev:armel \
+            libapparmor-dev:armhf \
+            libseccomp-dev:arm64 \
+            libseccomp-dev:armel \
+            libseccomp-dev:armhf
 
 FROM runtime-dev-cross-${CROSS} AS runtime-dev
 
 FROM base AS tomlv
-ENV INSTALL_BINARY_NAME=tomlv
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+ARG TOMLV_COMMIT
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh tomlv
 
 FROM base AS vndr
-ENV INSTALL_BINARY_NAME=vndr
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+ARG VNDR_COMMIT
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh vndr
 
-FROM base AS proxy
-ENV INSTALL_BINARY_NAME=proxy
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+FROM dev-base AS proxy
+ARG LIBNETWORK_COMMIT
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh proxy
 
-FROM base AS gometalinter
-ENV INSTALL_BINARY_NAME=gometalinter
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+FROM dev-base AS gometalinter
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh gometalinter
 
 FROM base AS gotestsum
-ENV INSTALL_BINARY_NAME=gotestsum
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+ARG GOTESTSUM_COMMIT
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh gotestsum
 
 FROM dev-base AS tini
 ARG DEBIAN_FRONTEND
-RUN apt-get update && apt-get install -y --no-install-recommends \
-	cmake \
-	vim-common \
-	&& rm -rf /var/lib/apt/lists/*
-COPY hack/dockerfile/install/install.sh ./install.sh
-ENV INSTALL_BINARY_NAME=tini
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build ./install.sh $INSTALL_BINARY_NAME
+ARG TINI_COMMIT
+RUN --mount=type=cache,sharing=locked,id=moby-tini-aptlib,target=/var/lib/apt \
+    --mount=type=cache,sharing=locked,id=moby-tini-aptcache,target=/var/cache/apt \
+        apt-get update && apt-get install -y --no-install-recommends \
+            cmake \
+            vim-common
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh tini
 
 FROM dev-base AS rootlesskit
-ENV INSTALL_BINARY_NAME=rootlesskit
-COPY hack/dockerfile/install/install.sh ./install.sh
-COPY hack/dockerfile/install/$INSTALL_BINARY_NAME.installer ./
-RUN PREFIX=/build/ ./install.sh $INSTALL_BINARY_NAME
-COPY ./contrib/dockerd-rootless.sh /build
+ARG ROOTLESSKIT_COMMIT
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
+        PREFIX=/build /tmp/install/install.sh rootlesskit
+
+FROM djs55/vpnkit@sha256:e508a17cfacc8fd39261d5b4e397df2b953690da577e2c987a47630cd0c42f8e AS vpnkit
 
 # TODO: Some of this is only really needed for testing, it would be nice to split this up
 FROM runtime-dev AS dev
@@ -210,15 +199,15 @@ RUN ln -s /usr/local/completion/bash/docker /etc/bash_completion.d/docker
 RUN ldconfig
 # This should only install packages that are specifically needed for the dev environment and nothing else
 # Do you really need to add another package here? Can it be done in a different build stage?
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
+    --mount=type=cache,sharing=locked,id=moby-dev-aptcache,target=/var/cache/apt \
+        apt-get update && apt-get install -y --no-install-recommends \
 	apparmor \
 	aufs-tools \
 	bash-completion \
-	btrfs-tools \
 	iptables \
 	jq \
 	libcap2-bin \
-	libdevmapper-dev \
 	libudev-dev \
 	libsystemd-dev \
 	binutils-mingw-w64 \
@@ -242,26 +231,79 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN pip3 install yamllint==1.16.0
 
-COPY --from=swagger /build/swagger* /usr/local/bin/
 COPY --from=frozen-images /build/ /docker-frozen-images
-COPY --from=gometalinter /build/ /usr/local/bin/
-COPY --from=gotestsum /build/ /usr/local/bin/
-COPY --from=tomlv /build/ /usr/local/bin/
-COPY --from=vndr /build/ /usr/local/bin/
-COPY --from=tini /build/ /usr/local/bin/
-COPY --from=proxy /build/ /usr/local/bin/
-COPY --from=registry /build/registry* /usr/local/bin/
-COPY --from=criu /build/ /usr/local/
-COPY --from=rootlesskit /build/ /usr/local/bin/
-COPY --from=djs55/vpnkit@sha256:e508a17cfacc8fd39261d5b4e397df2b953690da577e2c987a47630cd0c42f8e /vpnkit /usr/local/bin/vpnkit.x86_64
+COPY --from=swagger       /build/ /usr/local/bin/
+COPY --from=tomlv         /build/ /usr/local/bin/
+COPY --from=tini          /build/ /usr/local/bin/
+COPY --from=registry      /build/ /usr/local/bin/
+COPY --from=criu          /build/ /usr/local/
+COPY --from=vndr          /build/ /usr/local/bin/
+COPY --from=gotestsum     /build/ /usr/local/bin/
+COPY --from=gometalinter  /build/ /usr/local/bin/
+COPY --from=rootlesskit   /build/ /usr/local/bin/
+COPY --from=vpnkit        /vpnkit /usr/local/bin/vpnkit.x86_64
+COPY --from=proxy         /build/ /usr/local/bin/
 
-ENV DOCKER_BUILDTAGS no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs no_buildkit
-ENV DOCKER_LDFLAGS -s
+ARG DOCKER_BUILDTAGS
+ENV DOCKER_BUILDTAGS="${DOCKER_BUILDTAGS}"
+ARG DOCKER_LDFLAGS
+ENV DOCKER_LDFLAGS="${DOCKER_LDFLAGS}"
 
 WORKDIR /go/src/github.com/docker/docker
 VOLUME /var/lib/balena-engine
 # Wrap all commands in the "docker-in-docker" script to allow nested containers
 ENTRYPOINT ["hack/dind"]
+
+FROM runtime-dev AS binary-base
+ARG DOCKER_GITCOMMIT=HEAD
+ENV DOCKER_GITCOMMIT=${DOCKER_GITCOMMIT}
+ARG VERSION
+ENV VERSION=${VERSION}
+ARG PLATFORM
+ENV PLATFORM=${PLATFORM}
+ARG PRODUCT
+ENV PRODUCT=${PRODUCT}
+ARG DEFAULT_PRODUCT_LICENSE
+ENV DEFAULT_PRODUCT_LICENSE=${DEFAULT_PRODUCT_LICENSE}
+ARG DOCKER_BUILDTAGS
+ENV DOCKER_BUILDTAGS="${DOCKER_BUILDTAGS}"
+ARG DOCKER_LDFLAGS
+ENV DOCKER_LDFLAGS="${DOCKER_LDFLAGS}"
+ENV PREFIX=/build
+
+# TODO: This is here because hack/make.sh binary copies these extras binaries
+# from $PATH into the bundles dir.
+# It would be nice to handle this in a different way.
+COPY --from=tini        /build/ /usr/local/bin/
+COPY --from=rootlesskit /build/ /usr/local/bin/
+COPY --from=proxy       /build/ /usr/local/bin/
+COPY --from=vpnkit      /vpnkit /usr/local/bin/vpnkit.x86_64
+WORKDIR /go/src/github.com/docker/docker
+
+FROM binary-base AS build-binary
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,target=/go/src/github.com/docker/docker \
+        hack/make.sh binary-balena
+
+FROM binary-base AS build-dynbinary
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,target=/go/src/github.com/docker/docker \
+        hack/make.sh dynbinary-balena
+
+FROM binary-base AS build-cross
+ARG DOCKER_CROSSPLATFORMS
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=bind,target=/go/src/github.com/docker/docker \
+        hack/make.sh cross
+
+FROM scratch AS binary
+COPY --from=build-binary /build/bundles/ /
+
+FROM scratch AS dynbinary
+COPY --from=build-dynbinary /build/bundles/ /
+
+FROM scratch AS cross
+COPY --from=build-cross /build/bundles/ /
 
 FROM dev AS final
 # Upload docker source
