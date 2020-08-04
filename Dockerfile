@@ -98,6 +98,8 @@ RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/
             crossbuild-essential-armel \
             crossbuild-essential-armhf
 
+FROM base AS cross-rpi
+
 FROM cross-${CROSS} as dev-base
 
 FROM dev-base AS runtime-dev-cross-false
@@ -109,7 +111,7 @@ RUN --mount=type=cache,sharing=locked,id=moby-cross-false-aptlib,target=/var/lib
             g++-mingw-w64-x86-64 \
             libapparmor-dev \
             libseccomp-dev \
-            libsystemd-dev \
+            # libsystemd-dev \
             libudev-dev
 
 FROM --platform=linux/amd64 runtime-dev-cross-false AS runtime-dev-cross-true
@@ -127,6 +129,27 @@ RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/
             libseccomp-dev:arm64 \
             libseccomp-dev:armel \
             libseccomp-dev:armhf
+
+FROM --platform=linux/arm/v7 golang:${GO_VERSION}-stretch AS golang-rpi
+FROM balenalib/rpi-raspbian:buster AS runtime-dev-cross-rpi
+ARG DEBIAN_FRONTEND
+ENV \
+    GOPROXY=direct \
+    GO111MODULE=off \
+    GOPATH=/go \
+    PATH=$PATH:/usr/local/go/bin:$GOPATH/bin
+RUN [ "cross-build-start" ]
+COPY --from=golang-rpi /usr/local/go /usr/local/go
+RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/apt \
+    --mount=type=cache,sharing=locked,id=moby-cross-true-aptcache,target=/var/cache/apt \
+        apt-get update && apt-get install -y --no-install-recommends \
+	    build-essential \
+            binutils-mingw-w64 \
+            g++-mingw-w64-x86-64 \
+            libapparmor-dev \
+            libseccomp-dev \
+            # libsystemd-dev \
+            libudev-dev
 
 FROM runtime-dev-cross-${CROSS} AS runtime-dev
 
@@ -209,7 +232,7 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
 	jq \
 	libcap2-bin \
 	libudev-dev \
-	libsystemd-dev \
+	# libsystemd-dev \
 	binutils-mingw-w64 \
 	g++-mingw-w64-x86-64 \
 	net-tools \
