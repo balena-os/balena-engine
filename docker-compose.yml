@@ -1,0 +1,34 @@
+# needed because buildx only supports >=3
+# 3.4 is needed for the 'target' field
+version: '3.4'
+
+services:
+  binary-amd64:
+    image: balena/balena-engine:${VERSION:?err}-amd64
+    build:
+      target: cross
+      args:
+      - "CROSS=false"
+      - "VERSION=${VERSION}"
+      - "DOCKER_CROSSPLATFORMS=linux/amd64"
+      - "DOCKER_BUILDTAGS=${BUILDTAGS:?err}"
+
+  binary-aarch64:
+    image: balena/balena-engine:${VERSION:?err}-aarch64
+    build:
+      target: cross
+      args:
+      - "CROSS=true"
+      - "VERSION=${VERSION}"
+      - "DOCKER_CROSSPLATFORMS=linux/arm64"
+      - "DOCKER_BUILDTAGS=${BUILDTAGS:?err}"
+
+  binary-rpi:
+    image: balena/balena-engine:${VERSION:?err}-rpi
+    build:
+      target: cross
+      args:
+      - "CROSS=rpi"
+      - "VERSION=${VERSION}"
+      - "DOCKER_CROSSPLATFORMS=linux/arm/v7"
+      - "DOCKER_BUILDTAGS=${BUILDTAGS:?err}"
