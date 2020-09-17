@@ -1,4 +1,4 @@
-// +build linux,cgo,!static_build,journald
+// +build linux,cgo,journald
 
 package journald // import "github.com/docker/docker/daemon/logger/journald"
 

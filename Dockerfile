@@ -107,11 +107,12 @@ ARG DEBIAN_FRONTEND
 RUN --mount=type=cache,sharing=locked,id=moby-cross-false-aptlib,target=/var/lib/apt \
     --mount=type=cache,sharing=locked,id=moby-cross-false-aptcache,target=/var/cache/apt \
         apt-get update && apt-get install -y --no-install-recommends \
+	    libc6-dev \
             binutils-mingw-w64 \
             g++-mingw-w64-x86-64 \
             libapparmor-dev \
             libseccomp-dev \
-            # libsystemd-dev \
+            libsystemd-dev \
             libudev-dev
 
 FROM --platform=linux/amd64 runtime-dev-cross-false AS runtime-dev-cross-true
@@ -144,11 +145,12 @@ RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/
     --mount=type=cache,sharing=locked,id=moby-cross-true-aptcache,target=/var/cache/apt \
         apt-get update && apt-get install -y --no-install-recommends \
 	    build-essential \
+	    libc6-dev \
             binutils-mingw-w64 \
             g++-mingw-w64-x86-64 \
             libapparmor-dev \
             libseccomp-dev \
-            # libsystemd-dev \
+            libsystemd-dev \
             libudev-dev
 
 FROM runtime-dev-cross-${CROSS} AS runtime-dev
@@ -209,6 +211,38 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM djs55/vpnkit@sha256:e508a17cfacc8fd39261d5b4e397df2b953690da577e2c987a47630cd0c42f8e AS vpnkit
 
+# NOTE: this uses buster instead of stretch!
+FROM debian:buster AS libsystemd-static
+ARG DEBIAN_FRONTEND
+RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/apt \
+    --mount=type=cache,sharing=locked,id=moby-cross-true-aptcache,target=/var/cache/apt \
+	grep '^deb ' /etc/apt/sources.list | perl -pe 's/deb /deb-src /' >> /etc/apt/sources.list \
+	&& apt-get update \
+        && apt-get install -y --no-install-recommends \
+		ca-certificates \
+		curl \
+	&& apt-get build-dep -y \
+		libsystemd-dev
+ARG SYSTEMD_VERSION=241
+RUN --mount=type=cache,sharing=locked,id=moby-dev-systemd,target=/src/build \
+	set -ex; \
+	mkdir -p /src; \
+	curl -LSsf https://github.com/systemd/systemd-stable/archive/v${SYSTEMD_VERSION}.tar.gz \
+		| tar xzf - -C /src/ --strip-components=1; \
+	cd /src/ || exit 1; \
+	meson \
+		-Dstatic-libsystemd=true \
+		-Dhostnamed=false \
+		-Dlocaled=false \
+		-Dman=false \
+		-Dnetworkd=false \
+		-Drfkill=false \
+		-Dtimedated=false \
+		-Dtmpfiles=false \
+		-Dvconsole=false \
+		--reconfigure build && ninja -C build; \
+	mkdir -p /out && mv build/libsystemd.a /out;
+
 # TODO: Some of this is only really needed for testing, it would be nice to split this up
 FROM runtime-dev AS dev
 ARG DEBIAN_FRONTEND
@@ -230,9 +264,10 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
 	bash-completion \
 	iptables \
 	jq \
+	libc6-dev \
 	libcap2-bin \
 	libudev-dev \
-	# libsystemd-dev \
+	libsystemd-dev \
 	binutils-mingw-w64 \
 	g++-mingw-w64-x86-64 \
 	net-tools \
@@ -302,6 +337,9 @@ COPY --from=rootlesskit /build/ /usr/local/bin/
 COPY --from=proxy       /build/ /usr/local/bin/
 COPY --from=vpnkit      /vpnkit /usr/local/bin/vpnkit.x86_64
 WORKDIR /go/src/github.com/docker/docker
+
+COPY --from=libsystemd-static /out/libsystemd.a /usr/lib64/
+RUN ldconfig && pkg-config libsystemd
 
 FROM binary-base AS build-binary
 RUN --mount=type=cache,target=/root/.cache/go-build \
