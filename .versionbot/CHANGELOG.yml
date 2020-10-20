@@ -1,4 +1,20 @@
 - commits:
+    - subject: Bump balena-os/balena-containerd to 1da48a8
+      hash: ab1a49816fd8ae2ec73dc83152ad06a05a6b9799
+      body: |
+        Fixes balena-engine-runc version format.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Connects-to: balena-os/balena-containerd#6
+        connects-to: balena-os/balena-containerd#6
+        Signed-off-by: Tian Yuanhao <tianyuanhao@aliyun.com>
+        signed-off-by: Tian Yuanhao <tianyuanhao@aliyun.com>
+      author: Tian Yuanhao
+      nested: []
+  version: 19.03.14
+  date: 2020-10-19T03:40:02.003Z
+- commits:
     - subject: Add changelog template to allow generating nested changelogs
       hash: f272b547ee6c27c41be70da6b913699a2c5ef928
       body: ''
@@ -1295,7 +1311,7 @@
       footers:
         signed-off-by: Paulo Castro <paulo@balena.io>
       subject: 'Have the balena-engine binary accept being called as balena, balenad...'
-      body: 'Addresses resin-os/meta-resin#1215'
+      body: Addresses resin-os/meta-resin#1215
     - hash: a9c160256fee050d7021a9631dd3fe11399a8620
       author: Paulo Castro
       footers:
