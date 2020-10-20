@@ -46,14 +46,14 @@ var extraCmds = []cli.Command{}
 func init() {
 	// Discard grpc logs so that they don't mess with our stdio
 	grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
-
-	cli.VersionPrinter = func(c *cli.Context) {
-		fmt.Println(c.App.Name, version.Package, c.App.Version)
-	}
 }
 
 // New returns a *cli.App instance.
 func New() *cli.App {
+	cli.VersionPrinter = func(c *cli.Context) {
+		fmt.Println(c.App.Name, version.Package, c.App.Version)
+	}
+
 	app := cli.NewApp()
 	app.Name = "ctr"
 	app.Version = version.Version

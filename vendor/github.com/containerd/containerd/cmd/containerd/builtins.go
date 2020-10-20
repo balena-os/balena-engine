@@ -30,7 +30,6 @@ import (
 	_ "github.com/containerd/containerd/services/introspection"
 	_ "github.com/containerd/containerd/services/leases"
 	_ "github.com/containerd/containerd/services/namespaces"
-	_ "github.com/containerd/containerd/services/opt"
 	_ "github.com/containerd/containerd/services/snapshots"
 	_ "github.com/containerd/containerd/services/tasks"
 	_ "github.com/containerd/containerd/services/version"
