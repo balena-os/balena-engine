@@ -1,4 +1,4 @@
-package images
+package images // import "github.com/docker/docker/daemon/images"
 
 import (
 	"archive/tar"
@@ -48,6 +48,14 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 	}
 	defer srcData.Close()
 
+	// NOTE we do this to avoid having the destination image removed from under us
+	// while the fingerprinting is run
+	dstLock, err := newImageLock(ls, dstImg)
+	if err != nil {
+		return err
+	}
+	defer dstLock.unlock(ls)
+
 	srcDataLen, err := ioutils.SeekerSize(srcData)
 	if err != nil {
 		return err
@@ -56,12 +64,13 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 	progressReader := progress.NewProgressReader(srcData, progressOutput, srcDataLen, deltaSrc, "Fingerprinting")
 	defer progressReader.Close()
 
+	sigStart := time.Now()
 	srcSig, err := librsync.Signature(bufio.NewReaderSize(progressReader, 65536), ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
 	if err != nil {
 		return err
 	}
 
-	progress.Update(progressOutput, deltaSrc, "Fingerprint complete")
+	progress.Update(progressOutput, deltaSrc, "Fingerprint complete, took "+time.Since(sigStart).String())
 
 	deltaRootFS := image.NewRootFS()
 
@@ -73,9 +82,7 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 	statDeltaSize := int64(0)
 
 	for i, diffID := range dstImg.RootFS.DiffIDs {
-		var (
-			layerData io.Reader
-		)
+		var layerData io.Reader
 
 		commonLayer := false
 		dstRootFS := *dstImg.RootFS
@@ -250,4 +257,31 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 	outStream.Write(streamformatter.FormatStatus("", "Successfully tagged %s\n", reference.FamiliarString(ref)))
 
 	return nil
+}
+
+type imglock struct {
+	layers []layer.Layer
+}
+
+func newImageLock(ls layer.Store, img *image.Image) (*imglock, error) {
+	var lock imglock
+	for i := range img.RootFS.DiffIDs {
+		rootFS := *img.RootFS
+		rootFS.DiffIDs = rootFS.DiffIDs[:i+1]
+
+		l, err := ls.Get(rootFS.ChainID())
+		if err != nil {
+			// free previously leased layers
+			lock.unlock(ls)
+			return nil, errors.Wrapf(err, "failed to aquire lease on %v", l.DiffID())
+		}
+		lock.layers = append(lock.layers, l)
+	}
+	return &lock, nil
+}
+
+func (lock *imglock) unlock(ls layer.Store) {
+	for _, l := range lock.layers {
+		layer.ReleaseAndLog(ls, l)
+	}
 }
