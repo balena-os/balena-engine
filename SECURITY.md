@@ -1,9 +1,13 @@
-# Reporting security issues
+# Security Policy
 
-The Moby maintainers take security seriously. If you discover a security issue, please bring it to their attention right away!
+## Reporting a Vulnerability
 
-### Reporting a Vulnerability
+To report a vulnerability, send an email to `security@balena.io` detailing the
+issue and steps to reproduce. We strive to acknowledge receiving reports
+and reply to the author(s) within a working day.
 
-Please **DO NOT** file a public issue, instead send your report privately to security@docker.com.
+Please *DO NOT* file a public issue containing any details before the report was
+reviewed and a public disclosure timeline was agreed upon.
 
-Security reports are greatly appreciated and we will publicly thank you for it, although we keep your name confidential if you request it. We also like to send gifts—if you're into schwag, make sure to let us know. We currently do not offer a paid security bounty program, but are not ruling it out in the future.
+The reporter(s) are expected to be available for further questions/discussion
+of the vulnerability and follow-up measures.
