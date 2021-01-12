@@ -171,14 +171,18 @@ func (daemon *Daemon) ContainerTop(name string, psArgs string) (*container.Conta
 		// so retry without it
 		output, err = exec.Command("ps", args...).Output()
 		if err != nil {
-			if ee, ok := err.(*exec.ExitError); ok {
-				// first line of stderr shows why ps failed
-				line := bytes.SplitN(ee.Stderr, []byte{'\n'}, 2)
-				if len(line) > 0 && len(line[0]) > 0 {
-					err = errors.New(string(line[0]))
+			// busybox ps compiled in non-desktop mode supports no args
+			output, err = exec.Command("ps").Output()
+			if err != nil {
+				if ee, ok := err.(*exec.ExitError); ok {
+					// first line of stderr shows why ps failed
+					line := bytes.SplitN(ee.Stderr, []byte{'\n'}, 2)
+					if len(line) > 0 && len(line[0]) > 0 {
+						err = errors.New(string(line[0]))
+					}
 				}
-			}
-			return nil, errdefs.System(errors.Wrap(err, "ps"))
+				return nil, errdefs.System(errors.Wrap(err, "ps"))
+		}
 		}
 	}
 	procList, err := parsePSOutput(output, procs)
