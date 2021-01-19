@@ -1,4 +1,17 @@
 - commits:
+    - subject: Add a SECURITY.md
+      hash: 477d70db260a8dda71e2dba12ccd9f169fe9b480
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.16
+  date: 2021-01-19T14:46:28.526Z
+- commits:
     - subject: 'top_unix.go: allow busybox ps with no args'
       hash: 6617c4d76d275e05d6055d91aabbd7df25332342
       body: |
