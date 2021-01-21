@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
+	"path"
+	"regexp"
+	"sort"
 	"sync"
 
 	"github.com/docker/distribution"
@@ -151,6 +155,21 @@ func newStoreFromGraphDriver(root string, driver graphdriver.Driver, os string) 
 
 		if totalDeletionsCount > 0 {
 			logrus.Infof("Pruned %d unused graph driver layers", totalDeletionsCount)
+		}
+	}()
+
+	unusedOverlayFiles, err := ls.findUnusedOverlayFiles()
+	if err != nil {
+		logrus.Warnf("Failed to detect unused overlay files: %s", err)
+		unusedOverlayFiles = nil
+	}
+
+	go func() {
+		totalDeletionsCount := 0
+		totalDeletionsCount += ls.deleteUnusedOverlayFiles(unusedOverlayFiles)
+
+		if totalDeletionsCount > 0 {
+			logrus.Infof("Pruned %d unused overlay files", totalDeletionsCount)
 		}
 	}()
 
@@ -895,6 +914,74 @@ func (ls *layerStore) deleteUnreferencedDriverLayers(ids []string) int {
 			logrus.Debugf("Deleted leaked driver layer %s", leakedCachedID)
 			total++
 		}
+	}
+	return total
+}
+
+func (ls *layerStore) findUnusedOverlayFiles() ([]string, error) {
+	var fileNameOverlayIdRegex = regexp.MustCompile("^([a-z0-9]+).*")
+	var overlaysDir = "/var/lib/docker/overlay2"
+
+	files, err := ioutil.ReadDir(overlaysDir)
+	if err != nil {
+		return nil, err
+	}
+
+	fileIDs := make([]string, 0, len(files))
+	// var fileIDs []string
+	for _, info := range files {
+		if match := fileNameOverlayIdRegex.FindStringSubmatch(info.Name()); match != nil {
+			if match[1] != "l" {
+				fileIDs = append(fileIDs, match[1])
+			}
+		}
+	}
+
+	ls.layerL.Lock()
+	defer ls.layerL.Unlock()
+	ls.mountL.Lock()
+	defer ls.mountL.Unlock()
+
+	diff := len(fileIDs) - len(ls.layerMap) - len(ls.mounts)
+	if diff == 0 {
+		return nil, nil
+	}
+	if diff < 0 {
+		return nil, fmt.Errorf("filesystem layers count (%d) is smaller than number of engine layers (%d + %d)",
+			len(fileIDs), len(ls.layerMap), len(ls.mounts))
+	}
+	unused := make([]string, 0, diff)
+
+	usedLayers := make(map[string]struct{}, len(ls.layerMap)+len(ls.mounts)*2)
+	used := struct{}{}
+	for _, v := range ls.layerMap {
+		usedLayers[v.cacheID] = used
+	}
+	for _, v := range ls.mounts {
+		usedLayers[v.mountID] = used
+		if len(v.initID) > 0 {
+			usedLayers[v.initID] = used
+		}
+	}
+
+	for _, fileID := range fileIDs {
+		if _, used := usedLayers[fileID]; !used {
+			unused = append(unused, path.Join(overlaysDir, fileID))
+		} else {
+			logrus.Debugf("Found in-use overlay file %s", path.Join(overlaysDir, fileID))
+		}
+	}
+
+	sort.Strings(unused)
+	return unused, nil
+}
+
+func (ls *layerStore) deleteUnusedOverlayFiles(files []string) int {
+	total := 0
+	for _, file := range files {
+		logrus.Warnf("Removing unreferenced overlay file %s", file)
+		defer os.RemoveAll(file)
+		total++
 	}
 	return total
 }
