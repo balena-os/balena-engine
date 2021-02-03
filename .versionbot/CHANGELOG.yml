@@ -1,4 +1,21 @@
 - commits:
+    - subject: Added garbage collector for image layers
+      hash: 2759958ad4a24d5b1f8a6bb5c45fbdb1aeaa417d
+      body: |
+        https://github.com/moby/moby/pull/40412
+
+        Manually merge this PR to pick up garbage collector changes
+        prior to 20.10 if needed.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Kyle Harding <kyle@balena.io>
+        signed-off-by: Kyle Harding <kyle@balena.io>
+      author: Kyle Harding
+      nested: []
+  version: 19.03.17
+  date: 2021-02-03T16:36:48.384Z
+- commits:
     - subject: Add a SECURITY.md
       hash: 477d70db260a8dda71e2dba12ccd9f169fe9b480
       body: ''
