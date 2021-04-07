@@ -3,6 +3,7 @@ package image
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"strings"
@@ -28,7 +29,9 @@ func TestDeltaCreate(t *testing.T) {
 		client = testEnv.APIClient()
 	)
 
-	pullBaseAndTargetImages(t, client, base, target)
+	if err := pullImages(client, []string{base, target}); err != nil {
+		t.Fatal(err)
+	}
 
 	rc, err = client.ImageDelta(ctx,
 		base,
@@ -122,24 +125,28 @@ func TestDeltaCreateDestinationLock(t *testing.T) {
 	assert.Assert(t, inspectDelta.Config.Labels["io.resin.delta.base"] == inspectBase.ID)
 }
 
-func pullBaseAndTargetImages(t *testing.T, client apiclient.APIClient, base, target string) {
+func pullImages(client apiclient.APIClient, images []string) error {
 	var (
 		err error
 		rc  io.ReadCloser
 		ctx = context.Background()
 	)
 
-	rc, err = client.ImagePull(ctx,
-		base,
-		types.ImagePullOptions{})
-	assert.NilError(t, err)
-	io.Copy(ioutil.Discard, rc)
-	rc.Close()
+	for _, image := range images {
+		rc, err = client.ImagePull(ctx,
+			image,
+			types.ImagePullOptions{
+				All:           false,
+				RegistryAuth:  "",
+				PrivilegeFunc: nil,
+				Platform:      "",
+			})
+		if err != nil {
+			return fmt.Errorf("Failed to pull image %q: %s", image, err)
+		}
+		io.Copy(ioutil.Discard, rc)
+		rc.Close()
+	}
 
-	rc, err = client.ImagePull(ctx,
-		target,
-		types.ImagePullOptions{})
-	assert.NilError(t, err)
-	io.Copy(ioutil.Discard, rc)
-	rc.Close()
+	return nil
 }
