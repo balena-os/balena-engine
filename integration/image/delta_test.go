@@ -24,7 +24,6 @@ func TestDeltaCreate(t *testing.T) {
 
 	var (
 		err    error
-		rc     io.ReadCloser
 		ctx    = context.Background()
 		client = testEnv.APIClient()
 	)
@@ -33,15 +32,9 @@ func TestDeltaCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rc, err = client.ImageDelta(ctx,
-		base,
-		target,
-		types.ImageDeltaOptions{
-			Tag: delta,
-		})
-	assert.NilError(t, err)
-	io.Copy(ioutil.Discard, rc)
-	rc.Close()
+	if err := doDelta(client, base, target, delta); err != nil {
+		t.Fatal(err)
+	}
 
 	inspectDelta, _, err := client.ImageInspectWithRaw(ctx, delta)
 	assert.NilError(t, err)
@@ -148,5 +141,21 @@ func pullImages(client apiclient.APIClient, images []string) error {
 		rc.Close()
 	}
 
+	return nil
+}
+
+func doDelta(client apiclient.APIClient, source, target, tag string) error {
+	rc, err := client.ImageDelta(context.Background(),
+		source,
+		target,
+		types.ImageDeltaOptions{
+			Tag: tag,
+		})
+	if err != nil {
+		return fmt.Errorf("Creating delta: %s", err)
+	}
+	io.Copy(ioutil.Discard, rc)
+	// io.Copy(os.Stdout, rc)
+	rc.Close()
 	return nil
 }
