@@ -3,10 +3,10 @@ package daemon // import "github.com/docker/docker/daemon"
 import (
 	"context"
 
+	"github.com/containerd/containerd/pkg/apparmor"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/oci/caps"
-	"github.com/opencontainers/runc/libcontainer/apparmor"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -25,7 +25,7 @@ func (daemon *Daemon) execSetPlatformOpt(c *container.Container, ec *exec.Config
 			Effective: caps.GetAllCapabilities(),
 		}
 	}
-	if apparmor.IsEnabled() {
+	if apparmor.HostSupports() {
 		var appArmorProfile string
 		if c.AppArmorProfile != "" {
 			appArmorProfile = c.AppArmorProfile
