@@ -6,17 +6,17 @@ package daemon
 import (
 	"testing"
 
+	"github.com/containerd/containerd/pkg/apparmor"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/daemon/exec"
-	"github.com/opencontainers/runc/libcontainer/apparmor"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"gotest.tools/v3/assert"
 )
 
 func TestExecSetPlatformOpt(t *testing.T) {
-	if !apparmor.IsEnabled() {
+	if !apparmor.HostSupports() {
 		t.Skip("requires AppArmor to be enabled")
 	}
 	d := &Daemon{configStore: &config.Config{}}
@@ -44,7 +44,7 @@ func TestExecSetPlatformOpt(t *testing.T) {
 // following test case in the more recent Moby codebase:
 // https://github.com/moby/moby/blob/572ca799db4b67b7be35904e487f0cc51c3f9f06/daemon/exec_linux_test.go#L37-L39
 func TestExecSetPlatformOptPrivileged(t *testing.T) {
-	if !apparmor.IsEnabled() {
+	if !apparmor.HostSupports() {
 		t.Skip("requires AppArmor to be enabled")
 	}
 	d := &Daemon{configStore: &config.Config{}}
