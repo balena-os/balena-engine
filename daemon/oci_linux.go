@@ -13,6 +13,7 @@ import (
 	cdcgroups "github.com/containerd/cgroups"
 	"github.com/containerd/containerd/containers"
 	coci "github.com/containerd/containerd/oci"
+	"github.com/containerd/containerd/pkg/apparmor"
 	"github.com/containerd/containerd/sys"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
@@ -25,7 +26,6 @@ import (
 	volumemounts "github.com/docker/docker/volume/mounts"
 	"github.com/moby/sys/mount"
 	"github.com/moby/sys/mountinfo"
-	"github.com/opencontainers/runc/libcontainer/apparmor"
 	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runc/libcontainer/devices"
 	"github.com/opencontainers/runc/libcontainer/user"
@@ -127,7 +127,7 @@ func WithSelinux(c *container.Container) coci.SpecOpts {
 // WithApparmor sets the apparmor profile
 func WithApparmor(c *container.Container) coci.SpecOpts {
 	return func(ctx context.Context, _ coci.Client, _ *containers.Container, s *coci.Spec) error {
-		if apparmor.IsEnabled() {
+		if apparmor.HostSupports() {
 			var appArmorProfile string
 			if c.AppArmorProfile != "" {
 				appArmorProfile = c.AppArmorProfile
