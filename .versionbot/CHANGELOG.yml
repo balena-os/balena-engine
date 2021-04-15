@@ -1,4 +1,28 @@
 - commits:
+    - subject: Update the README
+      hash: 4a95df5bc30a40389191d9b2417b0f9bf35fefdc
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+    - subject: Cleanup repo
+      hash: de3a38940ab7410fbb3fd719190db401e419b77d
+      body: |
+        remove some obsolete files/directories
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.17
+  date: 2021-01-19T14:57:58.525Z
+- commits:
     - subject: Add a SECURITY.md
       hash: 477d70db260a8dda71e2dba12ccd9f169fe9b480
       body: ''
