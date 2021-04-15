@@ -1,4 +1,19 @@
 - commits:
+    - subject: Add aufs to overlay2 migrator
+      hash: b3a976b1294469e75222752bdc1fdc06bfcc97b8
+      body: |
+        The main logic is under pkg/storagemigration. This is able to seamlessly
+        migrate images and containers from AUFS to overlay2.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.18
+  date: 2021-04-15T12:46:30.283Z
+- commits:
     - subject: Update the README
       hash: 4a95df5bc30a40389191d9b2417b0f9bf35fefdc
       body: ''
