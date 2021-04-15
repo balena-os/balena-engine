@@ -14,8 +14,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// generateID creates a new random string identifier with the given length
-func generateID(l int) string {
+// GenerateID creates a new random string identifier with the given length
+func GenerateID(l int) string {
 	const (
 		// ensures we backoff for less than 450ms total. Use the following to
 		// select new value, in units of 10ms:
