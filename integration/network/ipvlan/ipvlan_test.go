@@ -142,9 +142,6 @@ func testIpvlanOverlapParent(client dclient.APIClient) func(*testing.T) {
 
 func testIpvlanL2NilParent(client dclient.APIClient) func(*testing.T) {
 	return func(t *testing.T) {
-
-		t.Skip("TODO investivate compatibility with balenaEngine")
-
 		// ipvlan l2 mode - dummy parent interface is provisioned dynamically
 		netName := "di-nil-parent"
 		net.CreateNoError(context.Background(), t, client, netName,
@@ -163,9 +160,6 @@ func testIpvlanL2NilParent(client dclient.APIClient) func(*testing.T) {
 
 func testIpvlanL2InternalMode(client dclient.APIClient) func(*testing.T) {
 	return func(t *testing.T) {
-
-		t.Skip("TODO investivate compatibility with balenaEngine")
-
 		netName := "di-internal"
 		net.CreateNoError(context.Background(), t, client, netName,
 			net.WithIPvlan("", ""),
@@ -187,9 +181,6 @@ func testIpvlanL2InternalMode(client dclient.APIClient) func(*testing.T) {
 
 func testIpvlanL3NilParent(client dclient.APIClient) func(*testing.T) {
 	return func(t *testing.T) {
-
-		t.Skip("TODO investivate compatibility with balenaEngine")
-
 		netName := "di-nil-parent-l3"
 		net.CreateNoError(context.Background(), t, client, netName,
 			net.WithIPvlan("", "l3"),
@@ -215,9 +206,6 @@ func testIpvlanL3NilParent(client dclient.APIClient) func(*testing.T) {
 
 func testIpvlanL3InternalMode(client dclient.APIClient) func(*testing.T) {
 	return func(t *testing.T) {
-
-		t.Skip("TODO investivate compatibility with balenaEngine")
-
 		netName := "di-internal-l3"
 		net.CreateNoError(context.Background(), t, client, netName,
 			net.WithIPvlan("", "l3"),
@@ -247,9 +235,6 @@ func testIpvlanL3InternalMode(client dclient.APIClient) func(*testing.T) {
 
 func testIpvlanL2MultiSubnet(client dclient.APIClient) func(*testing.T) {
 	return func(t *testing.T) {
-
-		t.Skip("TODO investivate compatibility with balenaEngine")
-
 		netName := "dualstackl2"
 		net.CreateNoError(context.Background(), t, client, netName,
 			net.WithIPvlan("", ""),
@@ -317,9 +302,6 @@ func testIpvlanL2MultiSubnet(client dclient.APIClient) func(*testing.T) {
 
 func testIpvlanL3MultiSubnet(client dclient.APIClient) func(*testing.T) {
 	return func(t *testing.T) {
-
-		t.Skip("TODO investivate compatibility with balenaEngine")
-
 		netName := "dualstackl3"
 		net.CreateNoError(context.Background(), t, client, netName,
 			net.WithIPvlan("", "l3"),
@@ -387,9 +369,6 @@ func testIpvlanL3MultiSubnet(client dclient.APIClient) func(*testing.T) {
 
 func testIpvlanAddressing(client dclient.APIClient) func(*testing.T) {
 	return func(t *testing.T) {
-
-		t.Skip("TODO investivate compatibility with balenaEngine")
-
 		// Verify ipvlan l2 mode sets the proper default gateway routes via netlink
 		// for either an explicitly set route by the user or inferred via default IPAM
 		netNameL2 := "dualstackl2"
