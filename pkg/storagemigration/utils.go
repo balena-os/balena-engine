@@ -91,3 +91,34 @@ func switchContainerStorageDriver(root, containerID, newStorageDriver string) er
 	}
 	return nil
 }
+
+func setupLogs(logpath string) (teardown func(), err error) {
+	logfile, err := os.OpenFile(logpath, os.O_WRONLY|os.O_CREATE, 0444)
+	if err != nil {
+		return nil, err
+	}
+
+	// copy the previous hooks
+	hooks := logrus.StandardLogger().Hooks
+	prev := make(logrus.LevelHooks, len(hooks))
+	for k, v := range hooks {
+		prev[k] = v
+	}
+
+	logrus.AddHook(&writer.Hook{
+		Writer: logfile,
+		LogLevels: []logrus.Level{
+			logrus.TraceLevel,
+			logrus.DebugLevel,
+			logrus.InfoLevel,
+			logrus.WarnLevel,
+			logrus.ErrorLevel,
+			logrus.FatalLevel,
+			logrus.PanicLevel,
+		},
+	})
+
+	return func() {
+		logrus.StandardLogger().ReplaceHooks(prev)
+	}, nil
+}
