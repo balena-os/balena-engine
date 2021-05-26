@@ -1003,7 +1003,17 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 	// the graphdrivers it should be safe to do here.
 	_, doStorageMigration := os.LookupEnv("BALENA_MIGRATE_OVERLAY")
 	if config.GraphDriver == "overlay2" && doStorageMigration {
-		logrus.Info("Starting storage migration from aufs to overlay2")
+		if storagemigration.CheckAufsRootExists(config.Root) != nil &&
+			storagemigration.CheckOverlayRootExists(config.Root) != nil {
+			// if both roots exist, assume migration succeeded during a previous run
+			// and commit (dropping aufs data)
+			logrus.Infof("Storage migration commit")
+			if err := storagemigration.Commit(config.Root); err != nil {
+				return nil, errors.Wrap(err, "failed to commit storage migration")
+			}
+		}
+
+		logrus.Info("Storage migration from aufs to overlay2 starting")
 		start := time.Now()
 		var err error
 		err = storagemigration.Migrate(config.Root)
@@ -1024,13 +1034,8 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 				// for debugging the failed migration by hand.
 				logrus.Errorf("Storage migration failed: %s", err)
 			}
-		} else {
-			// only commit if migration succeded
-			if err := storagemigration.Commit(config.Root); err != nil {
-				return nil, errors.Wrap(err, "failed to commit storage migration")
-			}
-			logrus.Infof("Finished storage migration from aufs to overlay2, took %s", time.Now().Sub(start))
 		}
+		logrus.Infof("Storage migration finished, took %s", time.Now().Sub(start))
 	}
 
 	for operatingSystem, gd := range d.graphDrivers {
