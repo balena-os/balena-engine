@@ -13,11 +13,28 @@ import (
 )
 
 // Migrate migrates the state of the storage from aufs -> overlay2
-func Migrate(root string) error {
+func Migrate(root string) (err error) {
+	if logpath, ok := os.LookupEnv("BALENA_MIGRATE_OVERLAY_LOGFILE"); ok {
+		// setup a logrus hook to duplicate logs at <logpath>
+		var teardownLogs func()
+		teardownLogs, err = setupLogs(logpath)
+		if err != nil {
+			return err
+		}
+		// remove the logrus hook
+		defer func() {
+			teardownLogs()
+			if err == nil {
+				// cleanup the logs file if there was no errors during Migrate
+				os.Remove(logpath)
+			}
+		}()
+	}
+
 	logrus.WithField("storage_root", root).Debug("starting aufs to overlay2 migration")
 
 	// make sure we actually have an aufs tree to migrate from
-	err := CheckAufsRootExists(root)
+	err = CheckAufsRootExists(root)
 	if err != nil {
 		return err
 	}
