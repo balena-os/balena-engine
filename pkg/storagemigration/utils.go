@@ -58,9 +58,7 @@ func replicate(sourceDir, targetDir string) error {
 			return err
 		}
 
-		var (
-			targetPath = strings.Replace(path, sourceDir, targetDir, 1)
-		)
+		targetPath := strings.Replace(path, sourceDir, targetDir, 1)
 		if fi.IsDir() {
 			err = os.MkdirAll(targetPath, os.ModeDir|0755)
 			if err != nil {
@@ -87,7 +85,7 @@ func switchContainerStorageDriver(root, containerID, newStorageDriver string) er
 	}
 	defer f.Close()
 
-	var containerConfig = make(map[string]interface{})
+	containerConfig := make(map[string]interface{})
 	err = json.NewDecoder(f).Decode(&containerConfig)
 	if err != nil {
 		return err
