@@ -167,9 +167,7 @@ func transformStateToOverlay(root string, state *State) error {
 	// move to overlay filetree
 	for _, layer := range state.Layers {
 
-		var (
-			layerDir = filepath.Join(tempTargetRoot(root), layer.ID)
-		)
+		layerDir := filepath.Join(tempTargetRoot(root), layer.ID)
 
 		// create /:layer_id dir
 		err := os.MkdirAll(layerDir, os.ModeDir|0700)
