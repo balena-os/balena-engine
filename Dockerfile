@@ -290,6 +290,10 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             xz-utils \
             zip
 
+RUN go get github.com/go-delve/delve/cmd/dlv
+
+EXPOSE 40000
+
 
 # Switch to use iptables instead of nftables (to match the CI hosts)
 # TODO use some kind of runtime auto-detection instead if/when nftables is supported (https://github.com/moby/moby/issues/26824)
