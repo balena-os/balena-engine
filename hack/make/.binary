@@ -81,9 +81,11 @@ hash_files() {
 
 	echo "Building: $DEST/$BINARY_FULLNAME"
 	echo "GOOS=\"${GOOS}\" GOARCH=\"${GOARCH}\" GOARM=\"${GOARM}\""
+	DOCKER_LDFLAGS="" # somehow a `-s` always end up here, even when removing it from the Dockerfile
 	go build \
 		-o "$DEST/$BINARY_FULLNAME" \
 		"${BUILDFLAGS[@]}" \
+		-gcflags all="-N -l" \
 		-ldflags "
 		$LDFLAGS
 		$LDFLAGS_STATIC_DOCKER
