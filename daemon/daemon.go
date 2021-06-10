@@ -1011,31 +1011,31 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 			if err := storagemigration.Commit(config.Root); err != nil {
 				return nil, errors.Wrap(err, "failed to commit storage migration")
 			}
-		}
-
-		logrus.Info("Storage migration from aufs to overlay2 starting")
-		start := time.Now()
-		var err error
-		err = storagemigration.Migrate(config.Root)
-		if err != nil {
-			if err == storagemigration.ErrAuFSRootNotExists ||
-				err == storagemigration.ErrOverlayRootExists {
-				// gracefully handle missing aufs root or existing
-				// overlay root - we have nothing to migrate from
-				logrus.Infof("Storage migration skipped: %s", err)
-			} else {
-				// rollback partial migration
-				if err := storagemigration.FailCleanup(config.Root); err != nil {
-					// if this fails abort daemon startup
-					return nil, errors.Wrap(err, "failed to cleanup after failed storage migration")
+		} else {
+			logrus.Info("Storage migration from aufs to overlay2 starting")
+			start := time.Now()
+			var err error
+			err = storagemigration.Migrate(config.Root)
+			if err != nil {
+				if err == storagemigration.ErrAuFSRootNotExists ||
+					err == storagemigration.ErrOverlayRootExists {
+					// gracefully handle missing aufs root or existing
+					// overlay root - we have nothing to migrate from
+					logrus.Infof("Storage migration skipped: %s", err)
+				} else {
+					// rollback partial migration
+					if err := storagemigration.FailCleanup(config.Root); err != nil {
+						// if this fails abort daemon startup
+						return nil, errors.Wrap(err, "failed to cleanup after failed storage migration")
+					}
+					// even though the migration failed with an error
+					// we continue daemon startup on aufs. This allows
+					// for debugging the failed migration by hand.
+					logrus.Errorf("Storage migration failed: %s", err)
 				}
-				// even though the migration failed with an error
-				// we continue daemon startup on aufs. This allows
-				// for debugging the failed migration by hand.
-				logrus.Errorf("Storage migration failed: %s", err)
 			}
+			logrus.Infof("Storage migration finished, took %s", time.Now().Sub(start))
 		}
-		logrus.Infof("Storage migration finished, took %s", time.Now().Sub(start))
 	}
 
 	for operatingSystem, gd := range d.graphDrivers {
