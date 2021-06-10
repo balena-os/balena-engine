@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	apiclient "github.com/docker/docker/client"
+	"gotest.tools/assert"
 )
 
 // TestDeltaCreate creates a delta and checks if it exists
@@ -35,16 +36,16 @@ func TestDeltaCreate(t *testing.T) {
 		types.ImageDeltaOptions{
 			Tag: delta,
 		})
-	if err != nil {
-		t.Fatalf("Creating delta: %s", err)
-	}
+	assert.NilError(t, err)
 	io.Copy(ioutil.Discard, rc)
 	rc.Close()
 
-	_, _, err = client.ImageInspectWithRaw(ctx, delta)
-	if err != nil {
-		t.Fatalf("Inspecting delta: %s", err)
-	}
+	inspectDelta, _, err := client.ImageInspectWithRaw(ctx, delta)
+	assert.NilError(t, err)
+
+	inspectBase, _, err := client.ImageInspectWithRaw(ctx, base)
+	assert.NilError(t, err)
+	assert.Assert(t, inspectDelta.Config.Labels["io.resin.delta.base"] == inspectBase.ID)
 }
 
 // TestDeltaCreateDestinationLock triggers a delta generation job, waits for it
@@ -74,9 +75,7 @@ func TestDeltaCreateDestinationLock(t *testing.T) {
 		types.ImageDeltaOptions{
 			Tag: delta,
 		})
-	if err != nil {
-		t.Fatalf("Creating delta: %s", err)
-	}
+	assert.NilError(t, err)
 	defer rc.Close()
 
 	var (
@@ -103,17 +102,24 @@ func TestDeltaCreateDestinationLock(t *testing.T) {
 		}
 	}()
 
+	inspectTarget, _, err := client.ImageInspectWithRaw(ctx, target)
+
 	<-waitFingerprinting
-	_, err = client.ImageRemove(ctx, target, types.ImageRemoveOptions{})
-	if err != nil {
-		t.Fatalf("Removing target image failed: %s", err)
+	deleted, err := client.ImageRemove(ctx, target, types.ImageRemoveOptions{})
+	assert.NilError(t, err)
+	for _, item := range deleted {
+		for i := 0; i < len(inspectTarget.RootFS.Layers); i++ {
+			assert.Assert(t, item.Deleted != inspectTarget.RootFS.Layers[i], "deleted target image layer")
+		}
 	}
 
 	<-waitDelta
-	_, _, err = client.ImageInspectWithRaw(ctx, delta)
-	if err != nil {
-		t.Fatalf("Inspecting delta: %s", err)
-	}
+	inspectDelta, _, err := client.ImageInspectWithRaw(ctx, delta)
+	assert.NilError(t, err)
+
+	inspectBase, _, err := client.ImageInspectWithRaw(ctx, base)
+	assert.NilError(t, err)
+	assert.Assert(t, inspectDelta.Config.Labels["io.resin.delta.base"] == inspectBase.ID)
 }
 
 func pullBaseAndTargetImages(t *testing.T, client apiclient.APIClient, base, target string) {
@@ -126,18 +132,14 @@ func pullBaseAndTargetImages(t *testing.T, client apiclient.APIClient, base, tar
 	rc, err = client.ImagePull(ctx,
 		base,
 		types.ImagePullOptions{})
-	if err != nil {
-		t.Fatalf("Pulling delta base: %s", err)
-	}
+	assert.NilError(t, err)
 	io.Copy(ioutil.Discard, rc)
 	rc.Close()
 
 	rc, err = client.ImagePull(ctx,
 		target,
 		types.ImagePullOptions{})
-	if err != nil {
-		t.Fatalf("Pulling delta target: %s", err)
-	}
+	assert.NilError(t, err)
 	io.Copy(ioutil.Discard, rc)
 	rc.Close()
 }
