@@ -1,4 +1,33 @@
 - commits:
+    - subject: 'pkg/storagemigration: allow writing logs to separate file'
+      hash: 77536d3866ac706f049a02d2eed44a7df1cb779c
+      body: |
+        This can be used to keep a record of failed migrations.
+        Only runs if BALENA_MIGRATE_OVERLAY_LOGFILE is set to a path on disk.
+        The log file will be deleted if there are no errors.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+    - subject: 'storagemigration: defer commit to next start'
+      hash: bd1628e67136b78ca7e7c83c5569666207d28a84
+      body: |
+        With this change the aufs data is kept around until the next time we
+        start. If we find both an aufs AND an overlay2 storage root, we cleanup
+        the aufs data.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.19
+  date: 2021-06-10T15:42:25.482Z
+- commits:
     - subject: Add aufs to overlay2 migrator
       hash: b3a976b1294469e75222752bdc1fdc06bfcc97b8
       body: |
