@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/writer"
 	"golang.org/x/sys/unix"
 )
 
@@ -56,9 +58,7 @@ func replicate(sourceDir, targetDir string) error {
 			return err
 		}
 
-		var (
-			targetPath = strings.Replace(path, sourceDir, targetDir, 1)
-		)
+		targetPath := strings.Replace(path, sourceDir, targetDir, 1)
 		if fi.IsDir() {
 			err = os.MkdirAll(targetPath, os.ModeDir|0755)
 			if err != nil {
@@ -85,7 +85,7 @@ func switchContainerStorageDriver(root, containerID, newStorageDriver string) er
 	}
 	defer f.Close()
 
-	var containerConfig = make(map[string]interface{})
+	containerConfig := make(map[string]interface{})
 	err = json.NewDecoder(f).Decode(&containerConfig)
 	if err != nil {
 		return err
@@ -109,4 +109,35 @@ func switchContainerStorageDriver(root, containerID, newStorageDriver string) er
 		return err
 	}
 	return nil
+}
+
+func setupLogs(logpath string) (teardown func(), err error) {
+	logfile, err := os.OpenFile(logpath, os.O_WRONLY|os.O_CREATE, 0444)
+	if err != nil {
+		return nil, err
+	}
+
+	// copy the previous hooks
+	hooks := logrus.StandardLogger().Hooks
+	prev := make(logrus.LevelHooks, len(hooks))
+	for k, v := range hooks {
+		prev[k] = v
+	}
+
+	logrus.AddHook(&writer.Hook{
+		Writer: logfile,
+		LogLevels: []logrus.Level{
+			logrus.TraceLevel,
+			logrus.DebugLevel,
+			logrus.InfoLevel,
+			logrus.WarnLevel,
+			logrus.ErrorLevel,
+			logrus.FatalLevel,
+			logrus.PanicLevel,
+		},
+	})
+
+	return func() {
+		logrus.StandardLogger().ReplaceHooks(prev)
+	}, nil
 }
