@@ -50,6 +50,9 @@ func Migrate(root string) (err error) {
 	// We need to pay special attention to the whiteout metadata files used by aufs to
 	// mark deleted files and empty directories.
 	state, err := createState(aufsRoot(root))
+	if err != nil {
+		return err
+	}
 
 	logrus.Infof("transforming %d layers(s) to overlay2", len(state.Layers))
 
