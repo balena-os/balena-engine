@@ -1,6 +1,7 @@
 package storagemigration
 
 import (
+	"os"
 	"testing"
 
 	"github.com/docker/docker/pkg/archive"
@@ -52,4 +53,29 @@ func TestCreateState(t *testing.T) {
 	state, err := createState(root.Join("aufs"))
 	assert.NilError(t, err)
 	assert.DeepEqual(t, state, expect)
+}
+
+func TestMigrate(t *testing.T) {
+	root, _ := createStorageDir(t)
+	defer root.Remove()
+
+	err := Migrate(root.Path())
+	assert.NilError(t, err)
+}
+
+func TestMigrateFailure(t *testing.T) {
+	root, _ := createStorageDir(t)
+	defer root.Remove()
+
+	// delete diff directory to force createState to fail
+	os.RemoveAll(root.Join("aufs", "diff"))
+
+	logPath := root.Join("migrate.log")
+	os.Setenv("BALENA_MIGRATE_OVERLAY_LOGFILE", logPath)
+
+	err := Migrate(root.Path())
+	assert.Assert(t, err != nil)
+
+	_, err = os.Stat(logPath)
+	assert.NilError(t, err)
 }
