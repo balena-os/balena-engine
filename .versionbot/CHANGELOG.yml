@@ -1,4 +1,23 @@
 - commits:
+    - subject: Lock destination layers while delta is being processed
+      hash: 0ad4281e11e4d3ef263010787aecd244c0ce333d
+      body: |
+        During fingerpinting of the source image the destination layers are not
+        exepmt from being released (e.g. when `balena image rm <iid>`) is run
+        simultaneously.
+        Similarly when processing the destination layers to generate deltas we
+        only hold one reference at a time, leaving the subsequent layers
+        vulnerable to the same issues.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.21
+  date: 2021-06-25T12:17:21.340Z
+- commits:
     - subject: 'pkg/storagemigration: poperly handle errors during state creation'
       hash: b8170db554ac1d1abb3adcfe1f6265701e9147c5
       body: ''
