@@ -205,6 +205,12 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 		sleepDurationInSecs := int(math.Pow(2, float64(ld.downloadRetries-1)))
 		logrus.Infof("waiting %vs before retrying layer download", sleepDurationInSecs)
 		for sleepDurationInSecs > 0 {
+			if ld.ctx.Err() == context.Canceled {
+				// Stop the pull immediately on context cancellation (caused
+				// e.g. by Ctrl+C).
+				logrus.Info("context canceled during wait, interrupting layer download")
+				return 0, context.Canceled
+			}
 			plural := (map[bool]string{true: "s"})[sleepDurationInSecs != 1]
 			progress.Updatef(ld.progressOutput, ld.ID(), "Retrying in %v second%v", sleepDurationInSecs, plural)
 			time.Sleep(time.Second)
@@ -236,6 +242,10 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 		if !ld.verifier.Verified() {
 			return n, fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
 		}
+	case context.Canceled:
+		// Context cancelation is triggered e.g. when the user hits Ctrl+C on
+		// the CLI. We want to stop the pull in this case.
+		logrus.Info("context canceled, interrupting layer download")
 	default:
 		logrus.Warnf("failed to download layer: \"%v\", retrying to read again", err)
 		ld.downloadRetries += 1
