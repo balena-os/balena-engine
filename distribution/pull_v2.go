@@ -619,15 +619,14 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 	defer cancel()
 
 	var (
-		downloadedRootFS *image.RootFS  // rootFS from registered layers
-		release          func()         // release resources from rootFS download
+		downloadedRootFS *image.RootFS // rootFS from registered layers
+		release          func()        // release resources from rootFS download
 	)
 
 	layerStoreOS := runtime.GOOS
 	if platform != nil {
 		layerStoreOS = platform.OS
 	}
-
 
 	if len(descriptors) != len(configRootFS.DiffIDs) {
 		return "", errRootFSMismatch
