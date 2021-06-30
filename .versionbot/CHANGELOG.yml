@@ -1,4 +1,17 @@
 - commits:
+    - subject: Drop CODEOWNERS
+      hash: e70e1a9fe622563719993626e834c85efc17905c
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.22
+  date: 2021-06-30T16:13:18.248Z
+- commits:
     - subject: Lock destination layers while delta is being processed
       hash: 0ad4281e11e4d3ef263010787aecd244c0ce333d
       body: |
