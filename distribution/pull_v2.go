@@ -41,8 +41,6 @@ var (
 	errRootFSInvalid  = errors.New("invalid rootfs in image configuration")
 )
 
-const maxDownloadAttempts = 5
-
 // imageConfigPullError is an error pulling the image config blob
 // (only applies to schema2).
 type imageConfigPullError struct {
@@ -154,19 +152,20 @@ func (p *puller) writeStatus(requestedTag string, layersDownloaded bool) {
 }
 
 type layerDescriptor struct {
-	digest           digest.Digest
-	diffID           layer.DiffID
-	repoInfo         *registry.RepositoryInfo
-	repo             distribution.Repository
-	metadataService  metadata.V2MetadataService
-	tmpFile          *os.File
-	verifier         digest.Verifier
-	src              distribution.Descriptor
-	ctx              context.Context
-	layerDownload    io.ReadCloser
-	downloadAttempts uint8
-	downloadOffset   int64
-	deltaBase        io.ReadSeeker
+	digest          digest.Digest
+	diffID          layer.DiffID
+	repoInfo        *registry.RepositoryInfo
+	repo            distribution.Repository
+	metadataService metadata.V2MetadataService
+	tmpFile         *os.File
+	verifier        digest.Verifier
+	src             distribution.Descriptor
+	ctx             context.Context
+	layerDownload   io.ReadCloser
+	downloadRetries int // Number of retries since last successful download attempt
+	downloadOffset  int64
+	deltaBase       io.ReadSeeker
+	progressOutput  progress.Output
 }
 
 func (ld *layerDescriptor) Key() string {
@@ -205,26 +204,57 @@ func (ld *layerDescriptor) reset() error {
 }
 
 func (ld *layerDescriptor) Read(p []byte) (int, error) {
-	if ld.downloadAttempts <= 0 {
-		return 0, fmt.Errorf("no request retries left")
+	if ld.downloadRetries > 0 {
+		sleepDurationInSecs := 5 * 60 // max sleep duration
+		if ld.downloadRetries <= 8 {
+			sleepDurationInSecs = 1 << ld.downloadRetries
+		}
+
+		logDownloadRetry(ld.downloadRetries, "waiting %vs before retrying layer download", sleepDurationInSecs)
+
+		for sleepDurationInSecs > 0 {
+			if ld.ctx.Err() == context.Canceled {
+				// Stop the pull immediately on context cancelation, caused
+				// when the HTTP connection of the REST API is closed (e.g. by
+				// Ctrl+C in the CLI or killing curl in a direct API call).
+				logrus.Info("context canceled during wait, interrupting layer download")
+				return 0, context.Canceled
+			}
+			plural := (map[bool]string{true: "s"})[sleepDurationInSecs != 1]
+			progress.Updatef(ld.progressOutput, ld.ID(), "Retrying in %v second%v", sleepDurationInSecs, plural)
+			time.Sleep(time.Second)
+			sleepDurationInSecs--
+		}
 	}
 
 	if ld.layerDownload == nil {
 		if err := ld.reset(); err != nil {
-			ld.downloadAttempts -= 1
-			return 0, err
+			ld.downloadRetries += 1
+			logDownloadRetry(ld.downloadRetries, "failed to reset layer download: %v", err)
+			// Don't report this as an error, because we want to keep retrying.
+			return 0, nil
 		}
 	}
 
 	n, err := ld.layerDownload.Read(p)
 	ld.downloadOffset += int64(n)
-	if err == io.EOF {
+	switch err {
+	case nil:
+		if ld.downloadRetries > 0 {
+			logrus.Infof("download resumed after %v retries", ld.downloadRetries)
+			ld.downloadRetries = 0
+		}
+	case io.EOF:
 		if !ld.verifier.Verified() {
 			return n, fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
 		}
-	} else if err != nil {
+	case context.Canceled:
+		// Context cancelation is triggered e.g. when the user hits Ctrl+C on
+		// the CLI. We want to stop the pull in this case.
+		logrus.Info("context canceled, interrupting layer download")
+	default:
 		logrus.Warnf("failed to download layer: \"%v\", retrying to read again", err)
-		ld.downloadAttempts -= 1
+		ld.downloadRetries += 1
 		ld.layerDownload = nil
 		err = nil
 	}
@@ -247,8 +277,9 @@ func (ld *layerDescriptor) Download(ctx context.Context, progressOutput progress
 
 	ld.ctx = ctx
 	ld.layerDownload = nil
-	ld.downloadAttempts = maxDownloadAttempts
+	ld.downloadRetries = 0
 	ld.verifier = ld.digest.Verifier()
+	ld.progressOutput = progressOutput
 
 	progress.Update(progressOutput, ld.ID(), "Ready to download")
 
@@ -984,4 +1015,75 @@ func maximumSpec() specs.Platform {
 		p.Variant = archvariant.AMD64Variant()
 	}
 	return p
+}
+
+// DeltaBaseImageFromConfig returns the tar stream image data from the base
+// image associated with imgConfig. Passing an imgConfig that is not a delta
+// image is not considered an error: in this case the function returns a nil
+// ReadSeekCloser (and a nil error).
+func DeltaBaseImageFromConfig(imgConfig *container.Config, imgConfigStore ImageConfigStore) (ioutils.ReadSeekCloser, error) {
+	if base, ok := imgConfig.Labels["io.resin.delta.base"]; ok {
+		digest, err := digest.Parse(base)
+		if err != nil {
+			return nil, fmt.Errorf("parsing base image %q: %w", base, err)
+		}
+
+		stream, err := imgConfigStore.GetTarSeekStream(digest)
+		if err != nil {
+			return nil, fmt.Errorf("loading delta base image %q: %w", digest, err)
+		}
+		defer stream.Close()
+
+		return stream, nil
+	}
+
+	// imgConfig does not refer to delta image. So, no base image stream to
+	// return, but this is no error either
+	return nil, nil
+}
+
+// FindTargetImageLocally looks if the target image associated with imgConfig is
+// present locally in imgConfigStore. The first return value is the digest of
+// the image (if found locally). The second return value tells if the image was
+// found locally.
+func FindTargetImageLocally(ctx context.Context, imgConfig *container.Config, imgConfigStore ImageConfigStore) (digest.Digest, bool) {
+	if config, ok := imgConfig.Labels["io.resin.delta.config"]; ok {
+		digest := digest.FromString(config)
+		if _, err := imgConfigStore.Get(ctx, digest); err == nil {
+			return digest, true
+		}
+	}
+	return "", false
+}
+
+// TargetImageConfig returns the config of the target image associated with
+// imgConfig. The second return value tells if imgConfig was referring to a
+// delta image.
+func TargetImageConfig(imgConfig *container.Config) ([]byte, bool) {
+	if config, ok := imgConfig.Labels["io.resin.delta.config"]; ok {
+		return []byte(config), true
+	}
+	return []byte{}, false
+}
+
+// logDownloadRetry logs a message related with retrying a download. Initially,
+// it logs every time it is called, but after a certain number of retries it
+// enters a regime of reduced logging frequency to avoid flooding the log stream
+// and filling up the often-limited log buffer of IoT/edge devices.
+func logDownloadRetry(retries int, format string, args ...interface{}) {
+	// We'll log every retry attempt up to this many retries; after that we
+	// enter in the reduced logging regime.
+	const logEveryRetryLimit = 10
+
+	// When in the reduced log regime, we'll log only every this many retries.
+	const reducedLogInterval = 25
+
+	switch {
+	case retries < logEveryRetryLimit:
+		logrus.Infof(format, args...)
+	case retries == logEveryRetryLimit:
+		logrus.Infof(format+" (and reducing log frequency from now on)", args...)
+	case (retries-logEveryRetryLimit)%reducedLogInterval == 0:
+		logrus.Infof(format+" (logging with reduced frequency)", args...)
+	}
 }
