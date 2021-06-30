@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"runtime"
 	"strings"
@@ -41,7 +42,7 @@ var (
 	errRootFSInvalid  = errors.New("invalid rootfs in image configuration")
 )
 
-const maxDownloadAttempts = 5
+const maxDownloadAttempts = 10
 
 // imageConfigPullError is an error pulling the image config blob
 // (only applies to schema2).
@@ -145,29 +146,12 @@ func (p *puller) pullRepository(ctx context.Context, ref reference.Named) (err e
 // writeStatus writes a status message to out. If layersDownloaded is true, the
 // status message indicates that a newer image was downloaded. Otherwise, it
 // indicates that the image is up to date. requestedTag is the tag the message
-// will refer to.
 func (p *puller) writeStatus(requestedTag string, layersDownloaded bool) {
 	if layersDownloaded {
 		progress.Message(p.config.ProgressOutput, "", "Status: Downloaded newer image for "+requestedTag)
 	} else {
 		progress.Message(p.config.ProgressOutput, "", "Status: Image is up to date for "+requestedTag)
 	}
-}
-
-type layerDescriptor struct {
-	digest           digest.Digest
-	diffID           layer.DiffID
-	repoInfo         *registry.RepositoryInfo
-	repo             distribution.Repository
-	metadataService  metadata.V2MetadataService
-	tmpFile          *os.File
-	verifier         digest.Verifier
-	src              distribution.Descriptor
-	ctx              context.Context
-	layerDownload    io.Reader
-	downloadAttempts uint8
-	downloadOffset   int64
-	deltaBase        io.ReadSeeker
 }
 
 func (ld *layerDescriptor) Key() string {
@@ -206,26 +190,49 @@ func (ld *layerDescriptor) reset() error {
 }
 
 func (ld *layerDescriptor) Read(p []byte) (int, error) {
-	if ld.downloadAttempts <= 0 {
+	if ld.downloadRetries > maxDownloadAttempts {
+		logrus.Warnf("giving up layer download after %v retries", maxDownloadAttempts)
 		return 0, fmt.Errorf("no request retries left")
+	}
+
+	if ld.downloadRetries > 0 {
+		sleepDurationInSecs := int(math.Pow(2, float64(ld.downloadRetries-1)))
+		logrus.Infof("waiting %vs before retrying layer download", sleepDurationInSecs)
+		for sleepDurationInSecs > 0 {
+			plural := (map[bool]string{true: "s"})[sleepDurationInSecs != 1]
+			progress.Updatef(ld.progressOutput, ld.ID(), "Retrying in %v second%v", sleepDurationInSecs, plural)
+			time.Sleep(time.Second)
+			sleepDurationInSecs--
+		}
 	}
 
 	if ld.layerDownload == nil {
 		if err := ld.reset(); err != nil {
-			ld.downloadAttempts -= 1
-			return 0, err
+			logrus.Infof("failed to reset layer download: %v", err)
+			ld.downloadRetries += 1
+			// Don't report this as an error, as we might still want to retry
+			return 0, nil
 		}
 	}
 
 	n, err := ld.layerDownload.Read(p)
 	ld.downloadOffset += int64(n)
-	if err == io.EOF {
+	switch err {
+	case nil:
+		// We want to give up only after a long period failing to download
+		// anything at all. So, we reset the retries counter after every bit
+		// successfully downloaded.
+		if ld.downloadRetries > 0 {
+			logrus.Infof("download resumed after %v retries", ld.downloadRetries)
+			ld.downloadRetries = 0
+		}
+	case io.EOF:
 		if !ld.verifier.Verified() {
 			return n, fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
 		}
-	} else if err != nil {
+	default:
 		logrus.Warnf("failed to download layer: \"%v\", retrying to read again", err)
-		ld.downloadAttempts -= 1
+		ld.downloadRetries += 1
 		ld.layerDownload = nil
 		err = nil
 	}
@@ -248,8 +255,9 @@ func (ld *layerDescriptor) Download(ctx context.Context, progressOutput progress
 
 	ld.ctx = ctx
 	ld.layerDownload = nil
-	ld.downloadAttempts = maxDownloadAttempts
+	ld.downloadRetries = 0
 	ld.verifier = ld.digest.Verifier()
+	ld.progressOutput = progressOutput
 
 	progress.Update(progressOutput, ld.ID(), "Ready to download")
 
