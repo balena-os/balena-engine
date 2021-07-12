@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/distribution"
@@ -41,7 +43,7 @@ var (
 	errRootFSInvalid  = errors.New("invalid rootfs in image configuration")
 )
 
-const maxDownloadAttempts = 5
+const maxDownloadAttempts = 10
 
 // ImageConfigPullError is an error pulling the image config blob
 // (only applies to schema2).
@@ -145,9 +147,10 @@ type v2LayerDescriptor struct {
 	src               distribution.Descriptor
 	ctx               context.Context
 	layerDownload     io.ReadCloser
-	downloadAttempts  uint8
+	downloadRetries   uint8 // Number of retries since last successful download attempt
 	downloadOffset    int64
 	deltaBase         io.ReadSeeker
+	progressOutput    progress.Output
 }
 
 func (ld *v2LayerDescriptor) Key() string {
@@ -186,26 +189,59 @@ func (ld *v2LayerDescriptor) reset() error {
 }
 
 func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
-	if ld.downloadAttempts <= 0 {
+	if ld.downloadRetries > maxDownloadAttempts {
+		logrus.Warnf("giving up layer download after %v retries", maxDownloadAttempts)
 		return 0, fmt.Errorf("no request retries left")
+	}
+
+	if ld.downloadRetries > 0 {
+		sleepDurationInSecs := int(math.Pow(2, float64(ld.downloadRetries-1)))
+		logrus.Infof("waiting %vs before retrying layer download", sleepDurationInSecs)
+		for sleepDurationInSecs > 0 {
+			if ld.ctx.Err() == context.Canceled {
+				// Stop the pull immediately on context cancellation (caused
+				// e.g. by Ctrl+C).
+				logrus.Info("context canceled during wait, interrupting layer download")
+				return 0, context.Canceled
+			}
+			plural := (map[bool]string{true: "s"})[sleepDurationInSecs != 1]
+			progress.Updatef(ld.progressOutput, ld.ID(), "Retrying in %v second%v", sleepDurationInSecs, plural)
+			time.Sleep(time.Second)
+			sleepDurationInSecs--
+		}
 	}
 
 	if ld.layerDownload == nil {
 		if err := ld.reset(); err != nil {
-			ld.downloadAttempts -= 1
-			return 0, err
+			logrus.Infof("failed to reset layer download: %v", err)
+			ld.downloadRetries += 1
+			// Don't report this as an error, as we might still want to retry
+			return 0, nil
 		}
 	}
 
 	n, err := ld.layerDownload.Read(p)
 	ld.downloadOffset += int64(n)
-	if err == io.EOF {
+	switch err {
+	case nil:
+		// We want to give up only after a long period failing to download
+		// anything at all. So, we reset the retries counter after every bit
+		// successfully downloaded.
+		if ld.downloadRetries > 0 {
+			logrus.Infof("download resumed after %v retries", ld.downloadRetries)
+			ld.downloadRetries = 0
+		}
+	case io.EOF:
 		if !ld.verifier.Verified() {
 			return n, fmt.Errorf("filesystem layer verification failed for digest %s", ld.digest)
 		}
-	} else if err != nil {
+	case context.Canceled:
+		// Context cancelation is triggered e.g. when the user hits Ctrl+C on
+		// the CLI. We want to stop the pull in this case.
+		logrus.Info("context canceled, interrupting layer download")
+	default:
 		logrus.Warnf("failed to download layer: \"%v\", retrying to read again", err)
-		ld.downloadAttempts -= 1
+		ld.downloadRetries += 1
 		ld.layerDownload = nil
 		err = nil
 	}
@@ -228,8 +264,9 @@ func (ld *v2LayerDescriptor) Download(ctx context.Context, progressOutput progre
 
 	ld.ctx = ctx
 	ld.layerDownload = nil
-	ld.downloadAttempts = maxDownloadAttempts
+	ld.downloadRetries = 0
 	ld.verifier = ld.digest.Verifier()
+	ld.progressOutput = progressOutput
 
 	progress.Update(progressOutput, ld.ID(), "Ready to download")
 
@@ -561,15 +598,14 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 	defer cancel()
 
 	var (
-		downloadedRootFS *image.RootFS  // rootFS from registered layers
-		release          func()         // release resources from rootFS download
+		downloadedRootFS *image.RootFS // rootFS from registered layers
+		release          func()        // release resources from rootFS download
 	)
 
 	layerStoreOS := runtime.GOOS
 	if platform != nil {
 		layerStoreOS = platform.OS
 	}
-
 
 	if len(descriptors) != len(configRootFS.DiffIDs) {
 		return "", errRootFSMismatch
