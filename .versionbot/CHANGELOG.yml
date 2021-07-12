@@ -1,4 +1,19 @@
 - commits:
+    - subject: 'engine-check: remove layers with no container|image refs'
+      hash: 9e9684c6b3f18ff46ce4bd8511315d38429f6fa5
+      body: |
+        The current cleanup mechanisms only remove dangling images
+        and stopped containers, but do nothing with dangling layers.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Kyle Harding <kyle@balena.io>
+        signed-off-by: Kyle Harding <kyle@balena.io>
+      author: Kyle Harding
+      nested: []
+  version: 19.03.17
+  date: 2021-07-12T13:40:26.527Z
+- commits:
     - subject: Add a SECURITY.md
       hash: 477d70db260a8dda71e2dba12ccd9f169fe9b480
       body: ''
