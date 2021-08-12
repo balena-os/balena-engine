@@ -1003,38 +1003,8 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 	// the graphdrivers it should be safe to do here.
 	_, doStorageMigration := os.LookupEnv("BALENA_MIGRATE_OVERLAY")
 	if config.GraphDriver == "overlay2" && doStorageMigration {
-		if storagemigration.CheckAufsRootExists(config.Root) != nil &&
-			storagemigration.CheckOverlayRootExists(config.Root) != nil {
-			// if both roots exist, assume migration succeeded during a previous run
-			// and commit (dropping aufs data)
-			logrus.Infof("Storage migration commit")
-			if err := storagemigration.Commit(config.Root); err != nil {
-				return nil, errors.Wrap(err, "failed to commit storage migration")
-			}
-		} else {
-			logrus.Info("Storage migration from aufs to overlay2 starting")
-			start := time.Now()
-			var err error
-			err = storagemigration.Migrate(config.Root)
-			if err != nil {
-				if err == storagemigration.ErrAuFSRootNotExists ||
-					err == storagemigration.ErrOverlayRootExists {
-					// gracefully handle missing aufs root or existing
-					// overlay root - we have nothing to migrate from
-					logrus.Infof("Storage migration skipped: %s", err)
-				} else {
-					// rollback partial migration
-					if err := storagemigration.FailCleanup(config.Root); err != nil {
-						// if this fails abort daemon startup
-						return nil, errors.Wrap(err, "failed to cleanup after failed storage migration")
-					}
-					// even though the migration failed with an error
-					// we continue daemon startup on aufs. This allows
-					// for debugging the failed migration by hand.
-					logrus.Errorf("Storage migration failed: %s", err)
-				}
-			}
-			logrus.Infof("Storage migration finished, took %s", time.Now().Sub(start))
+		if err := storagemigration.Migrate(config.Root); err != nil {
+			return nil, err
 		}
 	}
 

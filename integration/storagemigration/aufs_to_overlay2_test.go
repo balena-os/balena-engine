@@ -37,12 +37,6 @@ func TestAufsToOverlay2Migration(t *testing.T) {
 		assert.NilError(t, tar.Run())
 	}
 
-	// if testing.Verbose() {
-	// 	logrus.SetLevel(logrus.DebugLevel)
-	// }
-	// err = storagemigration.Migrate(root.Path())
-	// assert.NilError(t, err)
-
 	err = os.Setenv("BALENA_MIGRATE_OVERLAY", "1")
 	assert.NilError(t, err)
 
