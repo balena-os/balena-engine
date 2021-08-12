@@ -6,11 +6,16 @@ import (
 
 	"github.com/docker/docker/pkg/archive"
 
+	"github.com/sirupsen/logrus"
 	"gotest.tools/assert"
 	"gotest.tools/fs"
 )
 
-func createStorageDir(t *testing.T) (*fs.Dir, *State) {
+func setup(t *testing.T) (*fs.Dir, *State) {
+	if testing.Verbose() {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
+
 	root := fs.NewDir(t, t.Name(),
 		fs.WithDir("aufs",
 			fs.WithDir("layers",
@@ -47,7 +52,7 @@ func createStorageDir(t *testing.T) (*fs.Dir, *State) {
 }
 
 func TestCreateState(t *testing.T) {
-	root, expect := createStorageDir(t)
+	root, expect := setup(t)
 	defer root.Remove()
 
 	state, err := createState(root.Join("aufs"))
@@ -56,15 +61,19 @@ func TestCreateState(t *testing.T) {
 }
 
 func TestMigrate(t *testing.T) {
-	root, _ := createStorageDir(t)
+	root, _ := setup(t)
 	defer root.Remove()
 
 	err := Migrate(root.Path())
 	assert.NilError(t, err)
+
+	// overlay2 directory should exists
+	_, err = os.Stat(root.Join("overlay2"))
+	assert.NilError(t, err)
 }
 
-func TestMigrateFailure(t *testing.T) {
-	root, _ := createStorageDir(t)
+func TestFailCleanup(t *testing.T) {
+	root, _ := setup(t)
 	defer root.Remove()
 
 	// delete diff directory to force createState to fail
@@ -72,10 +81,46 @@ func TestMigrateFailure(t *testing.T) {
 
 	logPath := root.Join("migrate.log")
 	os.Setenv("BALENA_MIGRATE_OVERLAY_LOGFILE", logPath)
+	defer func() {
+		os.Unsetenv("BALENA_MIGRATE_OVERLAY_LOGFILE")
+	}()
 
 	err := Migrate(root.Path())
-	assert.Assert(t, err != nil)
+	assert.ErrorContains(t, err, "Error loading layer ids")
 
+	// overlay2 directory should still exists
+	_, err = os.Stat(root.Join("overlay2"))
+	assert.ErrorType(t, err, os.IsNotExist)
+
+	// aufs directory should still exists
+	_, err = os.Stat(root.Join("aufs"))
+	assert.NilError(t, err)
+
+	// logfile should exists
 	_, err = os.Stat(logPath)
 	assert.NilError(t, err)
+}
+
+func TestCommit(t *testing.T) {
+	root, _ := setup(t)
+	defer root.Remove()
+
+	err := Migrate(root.Path())
+	assert.NilError(t, err)
+
+	// overlay2 directory should still exists
+	_, err = os.Stat(root.Join("overlay2"))
+	assert.NilError(t, err)
+
+	// aufs directory should still exists
+	_, err = os.Stat(root.Join("aufs"))
+	assert.NilError(t, err)
+
+	// call again to trigger commit
+	err = Migrate(root.Path())
+	assert.NilError(t, err)
+
+	// aufs directory should be cleaned up
+	_, err = os.Stat(root.Join("aufs"))
+	assert.ErrorType(t, err, os.IsNotExist)
 }
