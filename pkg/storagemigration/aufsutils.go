@@ -3,36 +3,13 @@ package storagemigration
 
 import (
 	"bufio"
-	"errors"
 	"io/ioutil"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 
 	"github.com/docker/docker/pkg/archive"
 )
-
-var (
-	// ErrAuFSRootNotExists indicates the aufs root directory wasn't found
-	ErrAuFSRootNotExists = errors.New("Aufs root doesn't exists")
-)
-
-// CheckRootExists checks for the aufs storage root directory
-func CheckAufsRootExists(engineDir string) error {
-	root := filepath.Join(engineDir, "aufs")
-	logrus.WithField("aufs_root", root).Debug("checking if aufs root exists")
-	ok, err := exists(root, true)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrAuFSRootNotExists
-	}
-	return nil
-}
 
 func IsWhiteout(filename string) bool {
 	return strings.HasPrefix(filename, archive.WhiteoutPrefix)
