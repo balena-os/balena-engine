@@ -1,4 +1,15 @@
 - commits:
+    - subject: prevent slice oob access in concatReadSeekCloser
+      hash: 1e7045ac957db17fe9838602c9339c0b5ae5c282
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+      author: Martin Rauscher
+      nested: []
+  version: 19.03.24
+  date: 2021-08-12T08:30:08.031Z
+- commits:
     - subject: Make layer download resuming more resilient
       hash: 582487f832c59c2f734a780ab0492833f29002c9
       body: |
