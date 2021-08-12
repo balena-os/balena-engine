@@ -1,38 +1,17 @@
 package storagemigration
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
 	"github.com/docker/docker/daemon/graphdriver/overlay2"
+	"github.com/docker/docker/daemon/graphdriver/overlayutils"
+	"github.com/sirupsen/logrus"
 )
-
-var (
-	// ErrOverlayRootNotExists indicates the overlay2 root directory wasn't found
-	ErrOverlayRootNotExists = errors.New("Overlay2 root doesn't exists")
-	// ErrOverlayRootExists indicates the migration was already run sucessfully
-	ErrOverlayRootExists = errors.New("Overlay2 root exists")
-)
-
-// CheckOverlayRootExists checks for the overlay storage root directory
-func CheckOverlayRootExists(engineDir string) error {
-	root := filepath.Join(engineDir, "overlay2")
-	logrus.WithField("overlay_root", root).Debug("checking if overlay2 root exists")
-	ok, err := exists(root, true)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrOverlayRootNotExists
-	}
-	return nil
-}
 
 // CreateLayerLink creates a link file in the layer root dir and a corresponding file in the l directory
 // The returned layerRef is the content of the created link file
@@ -65,9 +44,7 @@ func CreateLayerLink(root, layerID string) (layerRef string, err error) {
 			return "", fmt.Errorf("Error creating directory %s: %v", layerRefDir, err)
 		}
 	}
-	// idLength
-	// daemon/graphdriver/overlay2/overlay#L87
-	layerRef = overlay2.GenerateID(overlay2.IDLength)
+	layerRef = overlayutils.GenerateID(overlay2.IDLength, logrus.WithField("balena", "storagemigration"))
 	err = ioutil.WriteFile(layerLinkFile, []byte(layerRef), 0644)
 	if err != nil {
 		return "", fmt.Errorf("Error writing to %s: %v", layerLinkFile, err)
