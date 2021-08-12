@@ -1,38 +1,15 @@
 package storagemigration
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
-	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
 	"github.com/docker/docker/daemon/graphdriver/overlay2"
 )
-
-var (
-	// ErrOverlayRootNotExists indicates the overlay2 root directory wasn't found
-	ErrOverlayRootNotExists = errors.New("Overlay2 root doesn't exists")
-	// ErrOverlayRootExists indicates the migration was already run sucessfully
-	ErrOverlayRootExists = errors.New("Overlay2 root exists")
-)
-
-// CheckOverlayRootExists checks for the overlay storage root directory
-func CheckOverlayRootExists(engineDir string) error {
-	root := filepath.Join(engineDir, "overlay2")
-	logrus.WithField("overlay_root", root).Debug("checking if overlay2 root exists")
-	ok, err := exists(root, true)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrOverlayRootNotExists
-	}
-	return nil
-}
 
 // CreateLayerLink creates a link file in the layer root dir and a corresponding file in the l directory
 // The returned layerRef is the content of the created link file

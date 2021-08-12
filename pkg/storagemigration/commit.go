@@ -7,7 +7,7 @@ import (
 )
 
 // Commit finalises the migration by deleting aufs storage root and images.
-func Commit(root string) error {
+func commit(root string) error {
 	logrus.WithField("storage_root", root).Debug("committing changes")
 
 	// remove aufs layer data
