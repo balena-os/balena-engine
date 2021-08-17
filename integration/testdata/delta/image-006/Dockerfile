@@ -4,6 +4,6 @@
 # All files have random contents.
 #
 
-FROM image-004
+FROM 127.0.0.1:5000/image-004
 
 COPY 3.file /

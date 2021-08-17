@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/internal/test/environment"
+	"github.com/docker/docker/internal/test/registry"
 )
 
 var testEnv *environment.Execution
@@ -30,4 +31,10 @@ func TestMain(m *testing.M) {
 func setupTest(t *testing.T) func() {
 	environment.ProtectAll(t, testEnv)
 	return func() { testEnv.Clean(t) }
+}
+
+func setupTestRegistry(t *testing.T) func() {
+	reg := registry.NewV2(t)
+	reg.WaitReady(t)
+	return reg.Close
 }

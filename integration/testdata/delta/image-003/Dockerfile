@@ -5,6 +5,6 @@
 # original file, plus some more data appended to it.
 #
 
-FROM image-001
+FROM 127.0.0.1:5000/image-001
 
 COPY 1.file /

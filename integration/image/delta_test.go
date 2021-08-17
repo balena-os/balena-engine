@@ -3,13 +3,18 @@ package image
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"io"
 	"io/ioutil"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/docker/docker/api/types"
 	apiclient "github.com/docker/docker/client"
+	"github.com/docker/docker/daemon/graphdriver/copy"
+	"github.com/docker/docker/internal/test/fakecontext"
+	"github.com/docker/docker/internal/test/registry"
 	"gotest.tools/assert"
 )
 
@@ -172,25 +177,17 @@ func TestDeltaSize(t *testing.T) {
 
 	for _, tc := range testCases {
 		desc := tc.base + "-" + tc.target
+		base := fullImageName(tc.base)
+		target := fullImageName(tc.target)
+
 		t.Run(desc, func(t *testing.T) {
+			defer buildImage(ctx, t, client, base)()
+			defer buildImage(ctx, t, client, target)()
+
 			delta := "delta-" + desc
+			defer createDelta(ctx, t, client, base, target, delta)()
 
-			// Create delta
-			rc, err := client.ImageDelta(ctx,
-				tc.base,
-				tc.target,
-				types.ImageDeltaOptions{
-					Tag: delta,
-				})
-
-			if err != nil {
-				t.Fatalf("Error creating delta: %s", err)
-			}
-			io.Copy(ioutil.Discard, rc)
-			rc.Close()
-
-			// Check ratio
-			gotRatio := queryDeltaRatio(ctx, t, client, tc.target, delta)
+			gotRatio := queryDeltaRatio(ctx, t, client, target, delta)
 			if gotRatio < tc.wantRatio {
 				t.Errorf("Delta ratio too small: got %.2f, expected at least %.2f",
 					gotRatio, tc.wantRatio)
@@ -208,6 +205,184 @@ func TestDeltaSize(t *testing.T) {
 		t.Logf("%-24s%-14.2f%-14.2f", r.desc, r.want, r.got)
 	}
 	t.Log("-------------------------------------------------------------")
+}
+
+// TestDeltaCorrectness checks if applying a delta on a base image results in an
+// image with the same contents as the original target image.
+func TestDeltaCorrectness(t *testing.T) {
+	defer setupTestRegistry(t)()
+
+	testCases := []struct {
+		base   string
+		target string
+	}{
+		{
+			base:   "image-001",
+			target: "image-002",
+		},
+		{
+			base:   "image-001",
+			target: "image-003",
+		},
+		{
+			base:   "image-004",
+			target: "image-005",
+		},
+		{
+			base:   "image-004",
+			target: "image-006",
+		},
+	}
+
+	client := testEnv.APIClient()
+	ctx := context.Background()
+
+	for _, tc := range testCases {
+		desc := tc.base + "-" + tc.target
+		t.Run(desc, func(t *testing.T) {
+			base := fullImageName(tc.base)
+			target := fullImageName(tc.target)
+			delta := fullImageName("delta-" + tc.base + "-" + tc.target)
+
+			// Build two images, create delta of them and push this delta.
+			defer buildImage(ctx, t, client, base)()
+			removeTarget := buildImage(ctx, t, client, target)
+			removeDelta := createDelta(ctx, t, client, base, target, delta)
+			pushImageToTestRegistry(ctx, t, client, delta)
+
+			// The delta we have locally shall not be the same as the target image.
+			targetHash := imageContentHash(ctx, t, client, target)
+			deltaHash := imageContentHash(ctx, t, client, delta)
+			assert.Assert(t, !reflect.DeepEqual(targetHash, deltaHash))
+
+			// Remove the delta and the target image.
+			removeTarget()
+			removeDelta()
+
+			// Pull the delta. This will cause it to be applied.
+			pullImageFromTestRegistry(ctx, t, client, delta)
+
+			// The (now applied) delta shall be the same the target image was.
+			appliedDeltaHash := imageContentHash(ctx, t, client, delta)
+			assert.Assert(t, reflect.DeepEqual(targetHash, appliedDeltaHash))
+		})
+	}
+}
+
+// buildImage builds and tags a given image and returns a function that can be
+// used to remove this image.
+func buildImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) func() {
+	// Make sure we support both "my-image" and "registry/my-image".
+	imageSegs := strings.Split(image, "/")
+	assert.Assert(t, len(imageSegs) >= 1 && len(imageSegs) <= 2)
+	imageDir := imageSegs[len(imageSegs)-1]
+
+	source := fakecontext.New(t, "")
+	defer source.Close()
+
+	copy.DirCopy("../testdata/delta/"+imageDir, source.Dir, copy.Content, true)
+	resp, err := client.ImageBuild(ctx, source.AsTarReader(t),
+		types.ImageBuildOptions{Tags: []string{image}},
+	)
+	assert.Assert(t, err)
+
+	if resp.Body != nil {
+		body, err := readAllAndClose(resp.Body)
+		assert.Assert(t, err)
+		assert.Assert(t, strings.Contains(body, "Successfully built"))
+		assert.Assert(t, strings.Contains(body, "Successfully tagged"))
+	}
+
+	return func() {
+		removeImage(ctx, t, client, image)
+	}
+}
+
+// removeImage removes a given image.
+func removeImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+	resp, err := client.ImageRemove(ctx, image, types.ImageRemoveOptions{})
+	assert.Assert(t, err)
+	assert.Assert(t, len(resp) > 0)
+}
+
+// createDelta creates a delta between base and target, tagging is as delta. It
+// returns a function that can be used to remove this delta.
+func createDelta(ctx context.Context, t *testing.T, client apiclient.APIClient,
+	base, target, delta string) func() {
+
+	rc, err := client.ImageDelta(ctx, base, target, types.ImageDeltaOptions{Tag: delta})
+	assert.Assert(t, err)
+
+	if rc != nil {
+		body, err := readAllAndClose(rc)
+		assert.Assert(t, err)
+		assert.Assert(t, strings.Contains(body, "Created delta"))
+		assert.Assert(t, strings.Contains(body, "Successfully tagged"))
+	}
+
+	return func() {
+		removeImage(ctx, t, client, delta)
+	}
+}
+
+// pushImageToTestRegistry pushes a given image to the temporary test registry.
+func pushImageToTestRegistry(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+	rc, err := client.ImagePush(ctx, image, types.ImagePushOptions{RegistryAuth: "{}"})
+	assert.Assert(t, err)
+	if rc != nil {
+		body, err := readAllAndClose(rc)
+		assert.Assert(t, err)
+		assert.Assert(t, strings.Contains(body, "Pushed"))
+	}
+}
+
+// pullImageFromTestRegistry pushes a given image to the temporary test registry.
+func pullImageFromTestRegistry(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+	rc, err := client.ImagePull(ctx, image, types.ImagePullOptions{RegistryAuth: "{}"})
+	assert.Assert(t, err)
+	if rc != nil {
+		body, err := readAllAndClose(rc)
+		assert.Assert(t, err)
+		assert.Assert(t, strings.Contains(body, "Status: Downloaded newer image"))
+	}
+}
+
+// imageHash computes a hash based on the contents of a given image. This is
+// done indirectly, relying on the layer IDs which are already
+// "content-addressable".
+func imageContentHash(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) []byte {
+	ii, _, err := client.ImageInspectWithRaw(ctx, image)
+	assert.Assert(t, err)
+
+	hash := sha256.New()
+	for _, layerHash := range ii.RootFS.Layers {
+		_, err = hash.Write([]byte(layerHash))
+		assert.Assert(t, err)
+	}
+	return hash.Sum(nil)
+}
+
+// queryImageSize returns the size in bytes of image.
+func queryImageSize(ctx context.Context, t *testing.T, client apiclient.APIClient,
+	image string) int64 {
+
+	ii, _, err := client.ImageInspectWithRaw(ctx, image)
+	assert.Assert(t, err)
+	return ii.Size
+}
+
+// queryDeltaRatio queries image sizes and returns how many times target is
+// larger than delta.
+func queryDeltaRatio(ctx context.Context, t *testing.T, client apiclient.APIClient,
+	target, delta string) float64 {
+
+	targetSize := queryImageSize(ctx, t, client, target)
+	deltaSize := queryImageSize(ctx, t, client, delta)
+	deltaRatio := float64(targetSize) / float64(deltaSize)
+	if targetSize == 0 {
+		deltaRatio = 1.0
+	}
+	return deltaRatio
 }
 
 func pullBaseAndTargetImages(t *testing.T, client apiclient.APIClient, base, target string) {
@@ -232,26 +407,35 @@ func pullBaseAndTargetImages(t *testing.T, client apiclient.APIClient, base, tar
 	rc.Close()
 }
 
-// queryDeltaRatio queries image sizes and returns how many times target is
-// larger than delta.
-func queryDeltaRatio(ctx context.Context, t *testing.T, client apiclient.APIClient,
-	target, delta string) float64 {
-	targetSize := queryImageSize(ctx, t, client, target)
-	deltaSize := queryImageSize(ctx, t, client, delta)
-	deltaRatio := float64(targetSize) / float64(deltaSize)
-	if targetSize == 0 {
-		deltaRatio = 1.0
-	}
-	return deltaRatio
+// fullImageName returns the image name including the test registry.
+func fullImageName(image string) string {
+	return registry.DefaultURL + "/" + image
 }
 
-// queryImageSize returns the size in bytes of image.
-func queryImageSize(ctx context.Context, t *testing.T, client apiclient.APIClient,
-	image string) int64 {
-
-	ii, _, err := client.ImageInspectWithRaw(ctx, image)
-	if err != nil {
-		t.Fatalf("Error inspecting image %q: %s", image, err)
+// readAllAndClose reads everything from r, closes it, and returns whatever was
+// read as a string.
+func readAllAndClose(rc io.ReadCloser) (string, error) {
+	// TODO: Simplify this code once we adopt Go 1.16 or later. This version of
+	// Go brought io.ReadAll(), of which the code below is a simple variation.
+	b := make([]byte, 0, 512)
+	for {
+		if len(b) == cap(b) {
+			// Add more capacity (let append pick how much).
+			b = append(b, 0)[:len(b)]
+		}
+		n, err := rc.Read(b[len(b):cap(b)])
+		b = b[:len(b)+n]
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			// This call to Close() and the conversion to string are the only
+			// changes from io.ReadAll().
+			closeErr := rc.Close()
+			if err == nil {
+				err = closeErr
+			}
+			return string(b), err
+		}
 	}
-	return ii.Size
 }
