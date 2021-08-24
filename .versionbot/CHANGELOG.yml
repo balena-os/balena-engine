@@ -1,4 +1,21 @@
 - commits:
+    - subject: 'storagemigration: move logic to package'
+      hash: 001835bf61172fdcfdb0416e000852ff05683c71
+      body: |
+        This brings all migration logic into a single call into the
+        storagemigration package, which should make future maintenance easier
+        and fixes the cleanup logic bug, where the old aufs root would never be
+        cleaned up.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.25
+  date: 2021-08-20T15:55:35.623Z
+- commits:
     - subject: prevent slice oob access in concatReadSeekCloser
       hash: 1e7045ac957db17fe9838602c9339c0b5ae5c282
       body: ''
