@@ -5,7 +5,9 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -14,6 +16,15 @@ import (
 
 // Migrate migrates the state of the storage from aufs -> overlay2
 func Migrate(root string) (err error) {
+	// rollback partial migration
+	defer func() {
+		if err != nil {
+			if cleanupErr := failCleanup(root); cleanupErr != nil {
+				err = errors.Wrapf(err, "error cleaning up: %v", cleanupErr)
+			}
+		}
+	}()
+
 	if logpath, ok := os.LookupEnv("BALENA_MIGRATE_OVERLAY_LOGFILE"); ok {
 		// setup a logrus hook to duplicate logs at <logpath>
 		var teardownLogs func()
@@ -34,16 +45,36 @@ func Migrate(root string) (err error) {
 	logrus.WithField("storage_root", root).Debug("starting aufs to overlay2 migration")
 
 	// make sure we actually have an aufs tree to migrate from
-	err = CheckAufsRootExists(root)
+	aufsRootExists, err := exists(aufsRoot(root), true)
 	if err != nil {
 		return err
 	}
+	// if we don't there is nothing to do
+	if !aufsRootExists {
+		logrus.Infof("Storage migration skipped: %s", err)
+		return nil
+	}
 
 	// make sure there isn't an overlay2 tree already
-	err = CheckOverlayRootExists(root)
-	if err == nil {
-		return ErrOverlayRootExists
+	overlayRootExists, err := exists(overlayRoot(root), true)
+	if err != nil {
+		return err
 	}
+	if overlayRootExists {
+		// if both roots exist, assume migration succeeded during a previous run
+		// and commit (dropping aufs data)
+		logrus.Infof("Storage migration completed, cleaning up aufs storage")
+		if err := commit(root); err != nil {
+			return errors.Wrap(err, "failed to commit storage migration")
+		}
+		return nil
+	}
+
+	logrus.Info("Storage migration from aufs to overlay2 starting")
+	startT := time.Now()
+	defer func() {
+		logrus.Infof("Storage migration finished, took %s", time.Now().Sub(startT))
+	}()
 
 	// Scan aufs layer data and build structure holding all the relevant information
 	// needed to replicate on overlayfs.

@@ -11,7 +11,7 @@ import (
 // It will remove any files left over from the migration process
 // and migrate containers back to aufs.
 //
-func FailCleanup(root string) error {
+func failCleanup(root string) error {
 	logrus.WithField("storage_root", root).Warning("recovering from failed aufs to overlay migration")
 
 	var err error
