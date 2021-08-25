@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/testutil/environment"
+	"github.com/docker/docker/testutil/registry"
 )
 
 var testEnv *environment.Execution
@@ -30,4 +31,13 @@ func TestMain(m *testing.M) {
 func setupTest(t *testing.T) func() {
 	environment.ProtectAll(t, testEnv)
 	return func() { testEnv.Clean(t) }
+}
+
+// setupTemporaryTestRegistry creates a temporary image registry to be used
+// during testing. Returns a function that must be called to tear down this
+// registry.
+func setupTemporaryTestRegistry(t *testing.T) func() {
+	reg := registry.NewV2(t)
+	reg.WaitReady(t)
+	return reg.Close
 }
