@@ -7,6 +7,7 @@ import (
 
 	"github.com/docker/docker/testutil"
 	"github.com/docker/docker/testutil/environment"
+	"github.com/docker/docker/testutil/registry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -46,4 +47,13 @@ func setupTest(t *testing.T) context.Context {
 	environment.ProtectAll(ctx, t, testEnv)
 	t.Cleanup(func() { testEnv.Clean(ctx, t) })
 	return ctx
+}
+
+// setupTemporaryTestRegistry creates a temporary image registry to be used
+// during testing. Returns a function that must be called to tear down this
+// registry.
+func setupTemporaryTestRegistry(t *testing.T) func() {
+	reg := registry.NewV2(t)
+	reg.WaitReady(t)
+	return reg.Close
 }
