@@ -1,4 +1,20 @@
 - commits:
+    - subject: 'storagemigration: capture failcleanup logs in logfile'
+      hash: 4f7f543eff08766bc584024afdb57760dfb52130
+      body: |
+        reorder the defer statements in the migrate function to only teardown
+        the logger after the failcleanup function ran. otherwise errors logged
+        there won't show up in the logfile
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.26
+  date: 2021-08-31T11:26:15.276Z
+- commits:
     - subject: 'storagemigration: move logic to package'
       hash: 001835bf61172fdcfdb0416e000852ff05683c71
       body: |
