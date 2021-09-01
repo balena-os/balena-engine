@@ -2,7 +2,6 @@ package daemon // import "github.com/docker/docker/daemon"
 
 import (
 	"context"
-	"regexp"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -134,56 +133,6 @@ func (daemon *Daemon) localNetworksPrune(ctx context.Context, pruneFilters filte
 		return false
 	})
 	return rep
-}
-
-// clusterNetworksPrune removes unused cluster networks
-func (daemon *Daemon) clusterNetworksPrune(ctx context.Context, pruneFilters filters.Args) (*types.NetworksPruneReport, error) {
-	rep := &types.NetworksPruneReport{}
-
-	until, _ := getUntilFromPruneFilters(pruneFilters)
-
-	cluster := daemon.GetCluster()
-
-	if !cluster.IsManager() {
-		return rep, nil
-	}
-
-	networks, err := cluster.GetNetworks(pruneFilters)
-	if err != nil {
-		return rep, err
-	}
-	networkIsInUse := regexp.MustCompile(`network ([[:alnum:]]+) is in use`)
-	for _, nw := range networks {
-		select {
-		case <-ctx.Done():
-			return rep, nil
-		default:
-			if nw.Ingress {
-				// Routing-mesh network removal has to be explicitly invoked by user
-				continue
-			}
-			if !until.IsZero() && nw.Created.After(until) {
-				continue
-			}
-			if !matchLabels(pruneFilters, nw.Labels) {
-				continue
-			}
-			// https://github.com/docker/docker/issues/24186
-			// `docker network inspect` unfortunately displays ONLY those containers that are local to that node.
-			// So we try to remove it anyway and check the error
-			err = cluster.RemoveNetwork(nw.ID)
-			if err != nil {
-				// we can safely ignore the "network .. is in use" error
-				match := networkIsInUse.FindStringSubmatch(err.Error())
-				if len(match) != 2 || match[1] != nw.ID {
-					log.G(ctx).Warnf("could not remove cluster network %s: %v", nw.Name, err)
-				}
-				continue
-			}
-			rep.NetworksDeleted = append(rep.NetworksDeleted, nw.Name)
-		}
-	}
-	return rep, nil
 }
 
 // NetworksPrune removes unused networks

@@ -345,69 +345,17 @@ func (daemon *Daemon) findAndAttachNetwork(container *container.Container, idOrN
 		}
 	}
 
-	var addresses []string
-	if epConfig != nil && epConfig.IPAMConfig != nil {
-		if epConfig.IPAMConfig.IPv4Address != "" {
-			addresses = append(addresses, epConfig.IPAMConfig.IPv4Address)
-		}
-		if epConfig.IPAMConfig.IPv6Address != "" {
-			addresses = append(addresses, epConfig.IPAMConfig.IPv6Address)
-		}
-	}
-
 	if n == nil && daemon.attachableNetworkLock != nil {
 		daemon.attachableNetworkLock.Lock(id)
 		defer daemon.attachableNetworkLock.Unlock(id)
 	}
 
-	retryCount := 0
-	var nwCfg *networktypes.NetworkingConfig
-	for {
-		// In all other cases, attempt to attach to the network to
-		// trigger attachment in the swarm cluster manager.
-		if daemon.clusterProvider != nil {
-			var err error
-			nwCfg, err = daemon.clusterProvider.AttachNetwork(id, container.ID, addresses)
-			if err != nil {
-				return nil, nil, err
-			}
-		}
-
-		n, err = daemon.FindNetwork(id)
-		if err != nil {
-			if daemon.clusterProvider != nil {
-				if err := daemon.clusterProvider.DetachNetwork(id, container.ID); err != nil {
-					log.G(context.TODO()).Warnf("Could not rollback attachment for container %s to network %s: %v", container.ID, idOrName, err)
-				}
-			}
-
-			// Retry network attach again if we failed to
-			// find the network after successful
-			// attachment because the only reason that
-			// would happen is if some other container
-			// attached to the swarm scope network went down
-			// and removed the network while we were in
-			// the process of attaching.
-			if nwCfg != nil {
-				if _, ok := err.(libnetwork.ErrNoSuchNetwork); ok {
-					if retryCount >= 5 {
-						return nil, nil, fmt.Errorf("could not find network %s after successful attachment", idOrName)
-					}
-					retryCount++
-					continue
-				}
-			}
-
-			return nil, nil, err
-		}
-
-		break
+	n, err = daemon.FindNetwork(id)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	// This container has attachment to a swarm scope
-	// network. Update the container network settings accordingly.
-	container.NetworkSettings.HasSwarmEndpoint = true
-	return n, nwCfg, nil
+	return n, nil, nil
 }
 
 // updateContainerNetworkSettings updates the network settings
@@ -900,14 +848,6 @@ func (daemon *Daemon) disconnectFromNetwork(container *container.Container, n *l
 }
 
 func (daemon *Daemon) tryDetachContainerFromClusterNetwork(network *libnetwork.Network, container *container.Container) {
-	if !container.Managed && daemon.clusterProvider != nil && network.Dynamic() {
-		if err := daemon.clusterProvider.DetachNetwork(network.Name(), container.ID); err != nil {
-			log.G(context.TODO()).WithError(err).Warn("error detaching from network")
-			if err := daemon.clusterProvider.DetachNetwork(network.ID(), container.ID); err != nil {
-				log.G(context.TODO()).WithError(err).Warn("error detaching from network")
-			}
-		}
-	}
 	daemon.LogNetworkEventWithAttributes(network, events.ActionDisconnect, map[string]string{
 		"container": container.ID,
 	})

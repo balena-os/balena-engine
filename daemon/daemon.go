@@ -11,6 +11,7 @@ package daemon // import "github.com/docker/docker/daemon"
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path"
@@ -37,7 +38,6 @@ import (
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/container"
-	executorpkg "github.com/docker/docker/daemon/cluster/executor"
 	"github.com/docker/docker/daemon/config"
 	ctrd "github.com/docker/docker/daemon/containerd"
 	"github.com/docker/docker/daemon/events"
@@ -57,7 +57,6 @@ import (
 	"github.com/docker/docker/layer"
 	libcontainerdtypes "github.com/docker/docker/libcontainerd/types"
 	"github.com/docker/docker/libnetwork"
-	"github.com/docker/docker/libnetwork/cluster"
 	nwconfig "github.com/docker/docker/libnetwork/config"
 	"github.com/docker/docker/pkg/authorization"
 	"github.com/docker/docker/pkg/fileutils"
@@ -74,6 +73,7 @@ import (
 	"github.com/moby/buildkit/util/resolver"
 	resolverconfig "github.com/moby/buildkit/util/resolver/config"
 	"github.com/moby/locker"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"go.etcd.io/bbolt"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -125,8 +125,6 @@ type Daemon struct {
 	containerdClient      *containerd.Client
 	containerd            libcontainerdtypes.Client
 	defaultIsolation      containertypes.Isolation // Default isolation mode on Windows
-	clusterProvider       cluster.Provider
-	cluster               Cluster
 	genericResources      []swarm.GenericResource
 	metricsPluginListener net.Listener
 	ReferenceStore        refstore.Store
@@ -749,57 +747,6 @@ func (daemon *Daemon) registerLink(parent, child *container.Container, alias str
 	return nil
 }
 
-// DaemonJoinsCluster informs the daemon has joined the cluster and provides
-// the handler to query the cluster component
-func (daemon *Daemon) DaemonJoinsCluster(clusterProvider cluster.Provider) {
-	daemon.setClusterProvider(clusterProvider)
-}
-
-// DaemonLeavesCluster informs the daemon has left the cluster
-func (daemon *Daemon) DaemonLeavesCluster() {
-	// Daemon is in charge of removing the attachable networks with
-	// connected containers when the node leaves the swarm
-	daemon.clearAttachableNetworks()
-	// We no longer need the cluster provider, stop it now so that
-	// the network agent will stop listening to cluster events.
-	daemon.setClusterProvider(nil)
-	// Wait for the networking cluster agent to stop
-	daemon.netController.AgentStopWait()
-	// Daemon is in charge of removing the ingress network when the
-	// node leaves the swarm. Wait for job to be done or timeout.
-	// This is called also on graceful daemon shutdown. We need to
-	// wait, because the ingress release has to happen before the
-	// network controller is stopped.
-
-	if done, err := daemon.ReleaseIngress(); err == nil {
-		timeout := time.NewTimer(5 * time.Second)
-		defer timeout.Stop()
-
-		select {
-		case <-done:
-		case <-timeout.C:
-			log.G(context.TODO()).Warn("timeout while waiting for ingress network removal")
-		}
-	} else {
-		log.G(context.TODO()).Warnf("failed to initiate ingress network removal: %v", err)
-	}
-
-	daemon.attachmentStore.ClearAttachments()
-}
-
-// setClusterProvider sets a component for querying the current cluster state.
-func (daemon *Daemon) setClusterProvider(clusterProvider cluster.Provider) {
-	daemon.clusterProvider = clusterProvider
-	daemon.netController.SetClusterProvider(clusterProvider)
-	daemon.attachableNetworkLock = locker.New()
-}
-
-// IsSwarmCompatible verifies if the current daemon
-// configuration is compatible with the swarm mode
-func (daemon *Daemon) IsSwarmCompatible() error {
-	return daemon.config().IsSwarmCompatible()
-}
-
 // NewDaemon sets up everything for the daemon to be able to service
 // requests from the webserver.
 func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.Store, authzMiddleware *authorization.Middleware) (daemon *Daemon, err error) {
@@ -1398,12 +1345,6 @@ func (daemon *Daemon) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// If we are part of a cluster, clean up cluster's stuff
-	if daemon.clusterProvider != nil {
-		log.G(ctx).Debugf("start clean shutdown of cluster resources...")
-		daemon.DaemonLeavesCluster()
-	}
-
 	daemon.cleanupMetricsPlugins()
 
 	// Shutdown plugins after containers and layerstore. Don't change the order.
@@ -1527,16 +1468,6 @@ func (daemon *Daemon) networkOptions(conf *config.Config, pg plugingetter.Plugin
 	return options, nil
 }
 
-// GetCluster returns the cluster
-func (daemon *Daemon) GetCluster() Cluster {
-	return daemon.cluster
-}
-
-// SetCluster sets the cluster
-func (daemon *Daemon) SetCluster(cluster Cluster) {
-	daemon.cluster = cluster
-}
-
 func (daemon *Daemon) pluginShutdown() {
 	manager := daemon.pluginManager
 	// Check for a valid manager object. In error conditions, daemon init can fail
@@ -1609,8 +1540,8 @@ func (daemon *Daemon) ImageService() ImageService {
 	return daemon.imageService
 }
 
-// ImageBackend returns an image-backend for Swarm and the distribution router.
-func (daemon *Daemon) ImageBackend() executorpkg.ImageBackend {
+// ImageBackend returns an image-backend for the distribution router.
+func (daemon *Daemon) ImageBackend() ImageBackend {
 	return &imageBackend{
 		ImageService:    daemon.imageService,
 		registryService: daemon.registryService,
@@ -1643,7 +1574,14 @@ func (daemon *Daemon) RawSysInfo() *sysinfo.SysInfo {
 	return daemon.sysInfo
 }
 
-// imageBackend is used to satisfy the [executorpkg.ImageBackend] and
+// ImageBackend is used by the distribution router for image operations.
+type ImageBackend interface {
+	PullImage(ctx context.Context, ref reference.Named, platform *ocispec.Platform, metaHeaders map[string][]string, authConfig *registrytypes.AuthConfig, outStream io.Writer) error
+	GetRepositories(context.Context, reference.Named, *registrytypes.AuthConfig) ([]dist.Repository, error)
+	GetImage(ctx context.Context, refOrID string, options imagetypes.GetImageOpts) (*image.Image, error)
+}
+
+// imageBackend is used to satisfy the [ImageBackend] and
 // [github.com/docker/docker/api/server/router/distribution.Backend]
 // interfaces.
 type imageBackend struct {
