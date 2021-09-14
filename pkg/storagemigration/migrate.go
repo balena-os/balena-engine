@@ -36,7 +36,7 @@ func Migrate(root string) (err error) {
 	// rollback partial migration
 	defer func() {
 		if err != nil {
-      logrus.WithField("storage_root", root).WithError(err).Error("failed aufs to overlay2 migration")
+			logrus.WithField("storage_root", root).WithError(err).Error("failed aufs to overlay2 migration")
 			if cleanupErr := failCleanup(root); cleanupErr != nil {
 				err = errors.Wrapf(err, "error cleaning up: %v", cleanupErr)
 			}
