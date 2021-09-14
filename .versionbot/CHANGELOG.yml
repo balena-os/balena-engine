@@ -1,4 +1,18 @@
 - commits:
+    - subject: 'pkg/storagemigration: use graphdriver/copy.DirCopy'
+      hash: ffbb608492405488bff5e31ea62c0249fb416106
+      body: |
+        instead of our own implementation
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.29
+  date: 2021-09-14T15:38:47.823Z
+- commits:
     - subject: Prune Jenkinsfile
       hash: ea14e503181bbb248a4bed1b86a227d9c214cbfb
       body: |
