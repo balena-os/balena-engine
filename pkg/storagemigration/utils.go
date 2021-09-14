@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/docker/docker/daemon/graphdriver/copy"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/writer"
 	"golang.org/x/sys/unix"
@@ -53,26 +53,7 @@ func removeDirIfExists(path string) error {
 // replicate hardlinks all files from sourceDir to targetDir, reusing the same
 // file structure
 func replicate(sourceDir, targetDir string) error {
-	return filepath.Walk(sourceDir, func(path string, fi os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		targetPath := strings.Replace(path, sourceDir, targetDir, 1)
-		if fi.IsDir() {
-			err = os.MkdirAll(targetPath, os.ModeDir|0755)
-			if err != nil {
-				return err
-			}
-		} else {
-			err = os.Link(path, targetPath)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
+	return copy.DirCopy(sourceDir, targetDir, copy.Hardlink, false)
 }
 
 // switchContainerStorageDriver rewrites the container config to use a new storage driver,
