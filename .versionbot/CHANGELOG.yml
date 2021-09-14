@@ -1,4 +1,19 @@
 - commits:
+    - subject: Prune Jenkinsfile
+      hash: ea14e503181bbb248a4bed1b86a227d9c214cbfb
+      body: |
+        we are not using it for our CI, and it confuses jenkins set up on the
+        balena-os org
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.28
+  date: 2021-09-14T14:54:48.288Z
+- commits:
     - subject: Backport platform-detection fixes from containerd
       hash: 9f71253561b1cd2f262ec0d6e81c5fbd09a7a0a1
       body: >
