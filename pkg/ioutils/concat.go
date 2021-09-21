@@ -52,7 +52,7 @@ func (self *concatReadSeekCloser) Read(p []byte) (n int, err error) {
 			return 0, err
 		}
 
-		nA, err := io.ReadFull(self.a, p[:min(len(p), int(self.aSize - self.off))])
+		nA, err := io.ReadFull(self.a, p[:max(0, min(len(p), int(self.aSize - self.off)))])
 		if err != nil {
 			return 0, err
 		}
