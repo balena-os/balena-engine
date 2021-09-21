@@ -1,4 +1,15 @@
 - commits:
+    - subject: fix panic in concatReadSeekCloser
+      hash: afa63a7e5ee0a2dff2cf323cd2275ea13e795657
+      body: ''
+      footer:
+        Change-type: patch
+        change-type: patch
+      author: Martin Rauscher
+      nested: []
+  version: 19.03.30
+  date: 2021-09-21T14:06:28.290Z
+- commits:
     - subject: 'pkg/storagemigration: use graphdriver/copy.DirCopy'
       hash: ffbb608492405488bff5e31ea62c0249fb416106
       body: |
