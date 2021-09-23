@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/containerd/containerd/cmd/containerd"
 	containerdShim "github.com/containerd/containerd/cmd/containerd-shim"
 	"github.com/containerd/containerd/cmd/ctr"
@@ -26,8 +27,10 @@ func main() {
 	case "balena", "balena-engine":
 		docker.Main()
 	case "balenad", "balena-engine-daemon":
+		setScheduler(SCHED_RR, 35)
 		dockerd.Main()
 	case "balena-containerd", "balena-engine-containerd":
+		setScheduler(SCHED_RR|SCHED_RESET_ON_FORK, 35)
 		containerd.Main()
 	case "balena-containerd-shim", "balena-engine-containerd-shim":
 		containerdShim.Main()
@@ -38,7 +41,7 @@ func main() {
 	case "balena-proxy", "balena-engine-proxy":
 		proxy.Main()
 	default:
-		fmt.Fprintf(os.Stderr, "error: unkown command: %v\n", command)
+		fmt.Fprintf(os.Stderr, "error: unknown command: %v\n", command)
 		os.Exit(1)
 	}
 }
