@@ -90,7 +90,7 @@ func (r *RegURL) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON marshals the RegURL.
-func (r *RegURL) MarshalJSON() ([]byte, error) {
+func (r RegURL) MarshalJSON() ([]byte, error) {
 	return json.Marshal(r.String())
 }
 

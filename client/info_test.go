@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types"
+	registrytypes "github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/errdefs"
 )
 
@@ -49,9 +50,15 @@ func TestInfo(t *testing.T) {
 			if !strings.HasPrefix(req.URL.Path, expectedURL) {
 				return nil, fmt.Errorf("Expected URL '%s', got '%s'", expectedURL, req.URL)
 			}
+			reg, _ := registrytypes.NewRegistry("http://localhost:5000")
 			info := &types.Info{
 				ID:         "daemonID",
 				Containers: 3,
+				RegistryConfig: &registrytypes.ServiceConfig{
+					Registries: map[string]registrytypes.Registry{
+						"localhost:5000": reg,
+					},
+				},
 			}
 			b, err := json.Marshal(info)
 			if err != nil {
