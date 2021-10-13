@@ -156,7 +156,7 @@ func (r *RegURL) URL() url.URL {
 }
 
 // String return URL as a string.
-func (r *RegURL) String() string {
+func (r RegURL) String() string {
 	return r.rURL.String()
 }
 
