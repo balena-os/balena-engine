@@ -1,4 +1,22 @@
 - commits:
+    - subject: Fix json format of new registry config type
+      hash: c3070a739de8c93402013dd7dc9553bd5bae022b
+      body: |
+        Previously any RegURL would be encoded to json using the default Go
+        MarshalJSON implementation instead of the custom one provided for the
+        type, since the receiver was using the wrong type signature
+
+        This also adds a test case to the client package
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.30
+  date: 2021-10-13T17:16:30.910Z
+- commits:
     - subject: 'pkg/storagemigration: use graphdriver/copy.DirCopy'
       hash: ffbb608492405488bff5e31ea62c0249fb416106
       body: |
