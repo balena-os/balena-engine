@@ -285,6 +285,20 @@ func prettyPrintServerInfo(dockerCli command.Cli, info types.Info) []error {
 		}
 	}
 
+	if info.RegistryConfig != nil && len(info.RegistryConfig.Registries) > 0 {
+		fmt.Fprintln(dockerCli.Out(), " Registries:")
+		for _, reg := range info.RegistryConfig.Registries {
+			fmt.Fprintf(dockerCli.Out(), "   %s", reg.URL)
+			if len(reg.Mirrors) > 0 {
+				fmt.Fprintf(dockerCli.Out(), " [ ")
+				for _, mirror := range reg.Mirrors {
+					fmt.Fprintf(dockerCli.Out(), "%s ", mirror.URL)
+				}
+				fmt.Fprintf(dockerCli.Out(), "]\n")
+			}
+		}
+	}
+
 	fmt.Fprintln(dockerCli.Out(), " Live Restore Enabled:", info.LiveRestoreEnabled)
 	if info.ProductLicense != "" {
 		fmt.Fprintln(dockerCli.Out(), " Product License:", info.ProductLicense)
