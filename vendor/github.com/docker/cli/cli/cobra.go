@@ -54,7 +54,7 @@ func setupCommonRootCommand(rootCmd *cobra.Command) (*cliflags.ClientOptions, *p
 func SetupRootCommand(rootCmd *cobra.Command) (*cliflags.ClientOptions, *pflag.FlagSet, *cobra.Command) {
 	opts, flags, helpCmd := setupCommonRootCommand(rootCmd)
 
-	rootCmd.SetVersionTemplate("Docker version {{.Version}}\n")
+	rootCmd.SetVersionTemplate("balenaEngine version {{.Version}}\n")
 
 	return opts, flags, helpCmd
 }

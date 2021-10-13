@@ -333,7 +333,7 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform 
 	// the other side speaks the v2 protocol.
 	p.confirmedV2 = true
 
-	logrus.Debugf("Pulling ref from V2 registry: %s", reference.FamiliarString(ref))
+	logrus.Infof("Pulling ref %s from V2 registry %s", reference.FamiliarString(ref), p.endpoint.URL)
 	progress.Message(p.config.ProgressOutput, tagOrDigest, "Pulling from "+reference.FamiliarName(p.repo.Named()))
 
 	var (

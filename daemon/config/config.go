@@ -494,6 +494,10 @@ func findConfigurationConflicts(config map[string]interface{}, flags *pflag.Flag
 	// 1. Search keys from the file that we don't recognize as flags.
 	unknownKeys := make(map[string]interface{})
 	for key, value := range config {
+		// skip complex config-only options (daemon.json)
+		if key == "registries" {
+			continue
+		}
 		if flag := flags.Lookup(key); flag == nil && !skipValidateOptions[key] {
 			unknownKeys[key] = value
 		}

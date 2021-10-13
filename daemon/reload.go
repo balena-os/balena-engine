@@ -21,8 +21,14 @@ import (
 // - Daemon labels
 // - Insecure registries
 // - Registry mirrors
+// - Registries
 // - Daemon live restore
 func (daemon *Daemon) Reload(conf *config.Config) (err error) {
+	// check for incompatible options
+	if err := conf.ServiceOptions.CompatCheck(); err != nil {
+		return err
+	}
+
 	daemon.configStore.Lock()
 	attributes := map[string]string{}
 
@@ -64,6 +70,9 @@ func (daemon *Daemon) Reload(conf *config.Config) (err error) {
 		return err
 	}
 	if err := daemon.reloadLiveRestore(conf, attributes); err != nil {
+		return err
+	}
+	if err := daemon.reloadRegistries(conf, attributes); err != nil {
 		return err
 	}
 	return daemon.reloadNetworkDiagnosticPort(conf, attributes)
@@ -321,6 +330,30 @@ func (daemon *Daemon) reloadRegistryMirrors(conf *config.Config, attributes map[
 		attributes["registry-mirrors"] = string(mirrors)
 	} else {
 		attributes["registry-mirrors"] = "[]"
+	}
+
+	return nil
+}
+
+// reloadRegistries updates the registries configuration and the passed attributes
+func (daemon *Daemon) reloadRegistries(conf *config.Config, attributes map[string]string) error {
+	// update corresponding configuration
+	if conf.IsValueSet("registries") {
+		daemon.configStore.Registries = conf.Registries
+		if err := daemon.RegistryService.LoadRegistries(conf.Registries); err != nil {
+			return err
+		}
+	}
+
+	// prepare reload event attributes with updatable configurations
+	if daemon.configStore.Registries != nil {
+		registries, err := json.Marshal(daemon.configStore.Registries)
+		if err != nil {
+			return err
+		}
+		attributes["registries"] = string(registries)
+	} else {
+		attributes["registries"] = "[]"
 	}
 
 	return nil

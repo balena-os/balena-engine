@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/docker/distribution/reference"
+	dref "github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/client/auth"
 	"github.com/docker/docker/api/types"
 	registrytypes "github.com/docker/docker/api/types/registry"
@@ -25,14 +25,15 @@ const (
 // Service is the interface defining what a registry service should implement.
 type Service interface {
 	Auth(ctx context.Context, authConfig *types.AuthConfig, userAgent string) (status, token string, err error)
-	LookupPullEndpoints(hostname string) (endpoints []APIEndpoint, err error)
-	LookupPushEndpoints(hostname string) (endpoints []APIEndpoint, err error)
-	ResolveRepository(name reference.Named) (*RepositoryInfo, error)
+	LookupPullEndpoints(reference string) (endpoints []APIEndpoint, err error)
+	LookupPushEndpoints(reference string) (endpoints []APIEndpoint, err error)
+	ResolveRepository(name dref.Named) (*RepositoryInfo, error)
 	Search(ctx context.Context, term string, limit int, authConfig *types.AuthConfig, userAgent string, headers map[string][]string) (*registrytypes.SearchResults, error)
 	ServiceConfig() *registrytypes.ServiceConfig
 	TLSConfig(hostname string) (*tls.Config, error)
 	LoadAllowNondistributableArtifacts([]string) error
 	LoadMirrors([]string) error
+	LoadRegistries([]registrytypes.Registry) error
 	LoadInsecureRegistries([]string) error
 }
 
@@ -61,6 +62,7 @@ func (s *DefaultService) ServiceConfig() *registrytypes.ServiceConfig {
 		AllowNondistributableArtifactsHostnames: make([]string, 0),
 		InsecureRegistryCIDRs:                   make([]*(registrytypes.NetIPNet), 0),
 		IndexConfigs:                            make(map[string]*(registrytypes.IndexInfo)),
+		Registries:                              make(map[string]registrytypes.Registry),
 		Mirrors:                                 make([]string, 0),
 	}
 
@@ -75,6 +77,10 @@ func (s *DefaultService) ServiceConfig() *registrytypes.ServiceConfig {
 	}
 
 	servConfig.Mirrors = append(servConfig.Mirrors, s.config.ServiceConfig.Mirrors...)
+
+	for key, value := range s.config.ServiceConfig.Registries {
+		servConfig.Registries[key] = value
+	}
 
 	return &servConfig
 }
@@ -101,6 +107,14 @@ func (s *DefaultService) LoadInsecureRegistries(registries []string) error {
 	defer s.mu.Unlock()
 
 	return s.config.LoadInsecureRegistries(registries)
+}
+
+// LoadRegistries loads registries for Service
+func (s *DefaultService) LoadRegistries(registries []registrytypes.Registry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.config.LoadRegistries(registries)
 }
 
 // Auth contacts the public registry with the provided credentials,
@@ -241,7 +255,7 @@ func (s *DefaultService) Search(ctx context.Context, term string, limit int, aut
 
 // ResolveRepository splits a repository name into its components
 // and configuration of the associated registry.
-func (s *DefaultService) ResolveRepository(name reference.Named) (*RepositoryInfo, error) {
+func (s *DefaultService) ResolveRepository(name dref.Named) (*RepositoryInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return newRepositoryInfo(s.config, name)
@@ -280,24 +294,25 @@ func (s *DefaultService) tlsConfigForMirror(mirrorURL *url.URL) (*tls.Config, er
 	return s.tlsConfig(mirrorURL.Host)
 }
 
-// LookupPullEndpoints creates a list of endpoints to try to pull from, in order of preference.
-// It gives preference to v2 endpoints over v1, mirrors over the actual
-// registry, and HTTPS over plain HTTP.
-func (s *DefaultService) LookupPullEndpoints(hostname string) (endpoints []APIEndpoint, err error) {
+// LookupPullEndpoints creates a list of endpoints based on the provided
+// reference to try to pull from, in order of preference.  It gives preference
+// to v2 endpoints over v1, mirrors over the actual registry, and HTTPS over
+// plain HTTP.
+func (s *DefaultService) LookupPullEndpoints(reference string) (endpoints []APIEndpoint, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.lookupEndpoints(hostname)
+	return s.lookupV2Endpoints(reference)
 }
 
-// LookupPushEndpoints creates a list of endpoints to try to push to, in order of preference.
-// It gives preference to v2 endpoints over v1, and HTTPS over plain HTTP.
-// Mirrors are not included.
-func (s *DefaultService) LookupPushEndpoints(hostname string) (endpoints []APIEndpoint, err error) {
+// LookupPushEndpoints creates a list of endpoints based on the provided
+// reference to try to push to, in order of preference.  It gives preference to
+// v2 endpoints over v1, and HTTPS over plain HTTP.  Mirrors are not included.
+func (s *DefaultService) LookupPushEndpoints(reference string) (endpoints []APIEndpoint, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	allEndpoints, err := s.lookupEndpoints(hostname)
+	allEndpoints, err := s.lookupV2Endpoints(reference)
 	if err == nil {
 		for _, endpoint := range allEndpoints {
 			if !endpoint.Mirror {
@@ -306,8 +321,4 @@ func (s *DefaultService) LookupPushEndpoints(hostname string) (endpoints []APIEn
 		}
 	}
 	return endpoints, err
-}
-
-func (s *DefaultService) lookupEndpoints(hostname string) (endpoints []APIEndpoint, err error) {
-	return s.lookupV2Endpoints(hostname)
 }

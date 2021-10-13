@@ -14,11 +14,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ServiceOptions holds command line options.
+// ServiceOptions holds the user-specified configuration options.
 type ServiceOptions struct {
-	AllowNondistributableArtifacts []string `json:"allow-nondistributable-artifacts,omitempty"`
-	Mirrors                        []string `json:"registry-mirrors,omitempty"`
-	InsecureRegistries             []string `json:"insecure-registries,omitempty"`
+	AllowNondistributableArtifacts []string                 `json:"allow-nondistributable-artifacts,omitempty"`
+	Mirrors                        []string                 `json:"registry-mirrors,omitempty"`
+	InsecureRegistries             []string                 `json:"insecure-registries,omitempty"`
+	Registries                     []registrytypes.Registry `json:"registries,omitempty"`
 }
 
 // serviceConfig holds daemon configuration for the registry service.
@@ -55,15 +56,26 @@ var (
 	emptyServiceConfig, _ = newServiceConfig(ServiceOptions{})
 )
 
-var (
-	validHostPortRegex = regexp.MustCompile(`^` + reference.DomainRegexp.String() + `$`)
-)
+var validHostPortRegex = regexp.MustCompile(`^` + reference.DomainRegexp.String() + `$`)
 
 // for mocking in unit tests
 var lookupIP = net.LookupIP
 
+// CompatCheck performs some compatibility checks among the config options and
+// returns an error in case of conflicts.
+func (options *ServiceOptions) CompatCheck() error {
+	if len(options.InsecureRegistries) > 0 && len(options.Registries) > 0 {
+		return fmt.Errorf("usage of \"registries\" with deprecated option \"insecure-registries\" is not supported")
+	}
+	return nil
+}
+
 // newServiceConfig returns a new instance of ServiceConfig
 func newServiceConfig(options ServiceOptions) (*serviceConfig, error) {
+	if err := options.CompatCheck(); err != nil {
+		panic(fmt.Sprintf("error loading config: %v", err))
+	}
+
 	config := &serviceConfig{
 		ServiceConfig: registrytypes.ServiceConfig{
 			InsecureRegistryCIDRs: make([]*registrytypes.NetIPNet, 0),
@@ -81,8 +93,104 @@ func newServiceConfig(options ServiceOptions) (*serviceConfig, error) {
 	if err := config.LoadInsecureRegistries(options.InsecureRegistries); err != nil {
 		return nil, err
 	}
+	if err := config.LoadRegistries(options.Registries); err != nil {
+		return nil, fmt.Errorf("error loading registries: %v", err)
+	}
 
 	return config, nil
+}
+
+// checkRegistries makes sure that no mirror serves more than one registry and
+// that no host is used as a registry and as a mirror simultaneously.  Notice
+// that different registry prefixes can share a mirror as long as they point to
+// the same registry.  It also warns if the URI schemes of a given registry and
+// one of its mirrors differ.
+func (config *serviceConfig) checkRegistries() error {
+	inUse := make(map[string]string) // key: host, value: user
+
+	// make sure that each mirror serves only one registry
+	for _, reg := range config.Registries {
+		for _, mirror := range reg.Mirrors {
+			if used, conflict := inUse[mirror.URL.Host()]; conflict {
+				if used != reg.URL.Host() {
+					return fmt.Errorf("mirror '%s' can only serve one registry host", mirror.URL.Host())
+				}
+			}
+			// docker.io etc. is reserved
+			if mirror.URL.IsOfficial() {
+				return fmt.Errorf("mirror '%s' cannot be used (reserved host)", mirror.URL.Host())
+			}
+			inUse[mirror.URL.Host()] = reg.URL.Host()
+			// also warnf if seucurity levels differ
+			if reg.URL.IsSecure() != mirror.URL.IsSecure() {
+				regURL := reg.URL.URL()
+				mirrorURL := mirror.URL.URL()
+				logrus.Warnf("registry '%s' and mirror '%s' have different security levels", &regURL, &mirrorURL)
+			}
+		}
+		if reg.URL.IsSecure() && len(reg.Mirrors) == 0 {
+			logrus.Warnf("specifying secure registry '%s' without mirrors has no effect", reg.URL.Prefix())
+		}
+	}
+
+	// make sure that no registry host is used as a mirror
+	for _, reg := range config.Registries {
+		if _, conflict := inUse[reg.URL.Host()]; conflict {
+			return fmt.Errorf("registry '%s' cannot simultaneously serve as a mirror for '%s'", reg.URL.Host(), inUse[reg.URL.Host()])
+		}
+	}
+	return nil
+}
+
+// FindRegistry returns a Registry pointer based on the passed reference.  If
+// more than one index-prefix match the reference, the longest index is
+// returned.  In case of no match, nil is returned.
+func (config *serviceConfig) FindRegistry(reference string) *registrytypes.Registry {
+	prefixStr := ""
+	prefixLen := 0
+	for _, reg := range config.Registries {
+		if strings.HasPrefix(reference, reg.URL.Prefix()) {
+			length := len(reg.URL.Prefix())
+			if length > prefixLen {
+				prefixStr = reg.URL.Prefix()
+				prefixLen = length
+			}
+		}
+	}
+	if prefixLen > 0 {
+		reg := config.Registries[prefixStr]
+		return &reg
+	}
+	return nil
+}
+
+// LoadRegistries loads the user-specified configuration options for registries.
+func (config *serviceConfig) LoadRegistries(registries []registrytypes.Registry) error {
+	config.Registries = make(map[string]registrytypes.Registry)
+
+	for _, reg := range registries {
+		config.Registries[reg.URL.Prefix()] = reg
+	}
+
+	// backwards compatability to the "registry-mirrors" config
+	if len(config.Mirrors) > 0 {
+		reg := registrytypes.Registry{}
+		if officialReg, exists := config.Registries[IndexName]; exists {
+			reg = officialReg
+		} else {
+			var err error
+			reg, err = registrytypes.NewRegistry(IndexName)
+			if err != nil {
+				return err
+			}
+		}
+		for _, mirrorStr := range config.Mirrors {
+			reg.AddMirror(mirrorStr)
+		}
+		config.Registries[IndexName] = reg
+	}
+
+	return config.checkRegistries()
 }
 
 // LoadAllowNondistributableArtifacts loads allow-nondistributable-artifacts registries into config.
@@ -125,6 +233,10 @@ func (config *serviceConfig) LoadAllowNondistributableArtifacts(registries []str
 // LoadMirrors loads mirrors to config, after removing duplicates.
 // Returns an error if mirrors contains an invalid mirror.
 func (config *serviceConfig) LoadMirrors(mirrors []string) error {
+	if len(mirrors) > 0 {
+		logrus.Infof("usage of deprecated 'registry-mirrors' option: please use 'registries' instead")
+	}
+
 	mMap := map[string]struct{}{}
 	unique := []string{}
 
@@ -154,6 +266,10 @@ func (config *serviceConfig) LoadMirrors(mirrors []string) error {
 
 // LoadInsecureRegistries loads insecure registries to config
 func (config *serviceConfig) LoadInsecureRegistries(registries []string) error {
+	if len(registries) > 0 {
+		logrus.Info("usage of deprecated 'insecure-registries' option: please use 'registries' instead")
+	}
+
 	// Localhost is by default considered as an insecure registry
 	// This is a stop-gap for people who are running a private registry on localhost (especially on Boot2docker).
 	//
