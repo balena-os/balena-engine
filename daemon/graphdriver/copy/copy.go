@@ -178,10 +178,13 @@ func DirCopy(srcDir, dstDir string, copyMode Mode, copyXattrs bool) error {
 			}
 
 		case mode&os.ModeNamedPipe != 0:
-			fallthrough
-		case mode&os.ModeSocket != 0:
 			if err := unix.Mkfifo(dstPath, stat.Mode); err != nil {
-				return err
+				return fmt.Errorf("mkfifo %s (%v): %v", dstPath, stat.Mode, err)
+			}
+
+		case mode&os.ModeSocket != 0:
+			if err := unix.Mknod(dstPath, stat.Mode|unix.S_IFSOCK, 0); err != nil {
+				return fmt.Errorf("mknod %s (%v): %v", dstPath, stat.Mode, err)
 			}
 
 		case mode&os.ModeDevice != 0:
@@ -190,7 +193,7 @@ func DirCopy(srcDir, dstDir string, copyMode Mode, copyXattrs bool) error {
 				return nil
 			}
 			if err := unix.Mknod(dstPath, stat.Mode, int(stat.Rdev)); err != nil {
-				return err
+				return fmt.Errorf("mknod %s (%v %v): %v", dstPath, stat.Mode, int(stat.Rdev), err)
 			}
 
 		default:
