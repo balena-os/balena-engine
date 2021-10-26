@@ -13,7 +13,7 @@ import (
 	"gotest.tools/fs"
 )
 
-func setup(t *testing.T) (*fs.Dir, *State) {
+func setup(t *testing.T) (*fs.Dir, *State, func()) {
 	if testing.Verbose() {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
@@ -57,12 +57,20 @@ func setup(t *testing.T) (*fs.Dir, *State) {
 			},
 		},
 	}
-	return root, state
+
+	os.Setenv("BALENA_MIGRATE_OVERLAY_LOGFILE", root.Join("migrate.log"))
+
+	deferFn := func() {
+		root.Remove()
+		os.Unsetenv("BALENA_MIGRATE_OVERLAY_LOGFILE")
+	}
+
+	return root, state, deferFn
 }
 
 func TestCreateState(t *testing.T) {
-	root, expect := setup(t)
-	defer root.Remove()
+	root, expect, cleanup := setup(t)
+	defer cleanup()
 
 	state, err := createState(root.Join("aufs"))
 	assert.NilError(t, err)
@@ -70,8 +78,8 @@ func TestCreateState(t *testing.T) {
 }
 
 func TestMigrate(t *testing.T) {
-	root, _ := setup(t)
-	defer root.Remove()
+	root, _, cleanup := setup(t)
+	defer cleanup()
 
 	// create a socket
 	sockpath := root.Join("aufs/diff/b38c03118c1e41289cf0972f11453c9b/socket")
@@ -81,60 +89,46 @@ func TestMigrate(t *testing.T) {
 	err := Migrate(root.Path())
 	assert.NilError(t, err)
 
-	// overlay2 directory should exists
-	_, err = os.Stat(root.Join("overlay2"))
-	assert.NilError(t, err)
-}
-
-func TestFailCleanup(t *testing.T) {
-	root, _ := setup(t)
-	defer root.Remove()
-
-	// delete diff directory to force createState to fail
-	os.RemoveAll(root.Join("aufs", "diff"))
-
-	logPath := root.Join("migrate.log")
-	os.Setenv("BALENA_MIGRATE_OVERLAY_LOGFILE", logPath)
-	defer func() {
-		os.Unsetenv("BALENA_MIGRATE_OVERLAY_LOGFILE")
-	}()
-
-	err := Migrate(root.Path())
-	assert.ErrorContains(t, err, "Error loading layer ids")
-
-	// overlay2 directory should still exists
-	_, err = os.Stat(root.Join("overlay2"))
+	// migration logfile should not exists
+	_, err = os.Stat(root.Join("migrate.log"))
 	assert.ErrorType(t, err, os.IsNotExist)
 
-	// aufs directory should still exists
-	_, err = os.Stat(root.Join("aufs"))
-	assert.NilError(t, err)
-
-	// logfile should exists
-	_, err = os.Stat(logPath)
-	assert.NilError(t, err)
-}
-
-func TestCommit(t *testing.T) {
-	root, _ := setup(t)
-	defer root.Remove()
-
-	err := Migrate(root.Path())
-	assert.NilError(t, err)
-
-	// overlay2 directory should still exists
+	// overlay2 directory should exists
 	_, err = os.Stat(root.Join("overlay2"))
-	assert.NilError(t, err)
-
-	// aufs directory should still exists
-	_, err = os.Stat(root.Join("aufs"))
 	assert.NilError(t, err)
 
 	// call again to trigger commit
 	err = Migrate(root.Path())
 	assert.NilError(t, err)
 
+	// migration logfile should not exists
+	_, err = os.Stat(root.Join("migrate.log"))
+	assert.ErrorType(t, err, os.IsNotExist)
+
 	// aufs directory should be cleaned up
 	_, err = os.Stat(root.Join("aufs"))
 	assert.ErrorType(t, err, os.IsNotExist)
+}
+
+func TestFailCleanup(t *testing.T) {
+	root, _, cleanup := setup(t)
+	defer cleanup()
+
+	// delete diff directory to force createState to fail
+	os.RemoveAll(root.Join("aufs", "diff"))
+
+	err := Migrate(root.Path())
+	assert.NilError(t, err)
+
+	// migration logfile should exists
+	_, err = os.Stat(root.Join("migrate.log"))
+	assert.NilError(t, err)
+
+	// overlay2 directory should not exists
+	_, err = os.Stat(root.Join("overlay2"))
+	assert.ErrorType(t, err, os.IsNotExist)
+
+	// aufs directory should still exists
+	_, err = os.Stat(root.Join("aufs"))
+	assert.NilError(t, err)
 }
