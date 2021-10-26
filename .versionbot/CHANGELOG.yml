@@ -1,4 +1,36 @@
 - commits:
+    - subject: 'storagemigration: keep going if migration fails'
+      hash: 2bde63c800b1df72fba7161d62b5b6da84a8d390
+      body: |
+        the only hard error is if rollback (failcleanup) fails, in all other
+        scenarios we want the daemon to continue starting with the new
+        graphdriver
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+    - subject: 'graphdriver/copy: fix handling of sockets'
+      hash: 17a198cb53a53da456c848bf303dc3917ca538c5
+      body: |
+        previously switch would treat S_IFIFO and S_IFSOCK as the same, passing
+        both of the to mkfifo, which lead to EINVAL errors when trying to create
+        the socket, we instead handle socket separately.
+
+        Also adds cases for this to the unit and integration tests of the
+        migrator.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 19.03.30
+  date: 2021-10-26T13:43:43.638Z
+- commits:
     - subject: 'pkg/storagemigration: use graphdriver/copy.DirCopy'
       hash: ffbb608492405488bff5e31ea62c0249fb416106
       body: |
