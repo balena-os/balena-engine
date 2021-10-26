@@ -16,6 +16,20 @@ import (
 
 // Migrate migrates the state of the storage from aufs -> overlay2
 func Migrate(root string) (err error) {
+	// rollback partial migration
+	defer func() {
+		if err != nil {
+			logrus.WithField("storage_root", root).WithError(err).Error("failed aufs to overlay2 migration")
+			if cleanupErr := failCleanup(root); cleanupErr != nil {
+				err = errors.Wrapf(err, "error cleaning up: %v", cleanupErr)
+				return
+			}
+			// clear the error; we don't want to propagate it to the daemon,
+			// otherwise it won't be able to start at all
+			err = nil
+		}
+	}()
+
 	if logpath, ok := os.LookupEnv("BALENA_MIGRATE_OVERLAY_LOGFILE"); ok {
 		// setup a logrus hook to duplicate logs at <logpath>
 		var teardownLogs func()
@@ -32,16 +46,6 @@ func Migrate(root string) (err error) {
 			}
 		}()
 	}
-
-	// rollback partial migration
-	defer func() {
-		if err != nil {
-			logrus.WithField("storage_root", root).WithError(err).Error("failed aufs to overlay2 migration")
-			if cleanupErr := failCleanup(root); cleanupErr != nil {
-				err = errors.Wrapf(err, "error cleaning up: %v", cleanupErr)
-			}
-		}
-	}()
 
 	logrus.WithField("storage_root", root).Debug("starting aufs to overlay2 migration")
 

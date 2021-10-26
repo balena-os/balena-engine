@@ -12,6 +12,7 @@ import (
 
 	"github.com/docker/docker/internal/test/daemon"
 
+	"golang.org/x/sys/unix"
 	"gotest.tools/assert"
 	"gotest.tools/fs"
 	"gotest.tools/skip"
@@ -35,6 +36,12 @@ func TestAufsToOverlay2Migration(t *testing.T) {
 		tar.Stdout = os.Stdout
 		tar.Stderr = os.Stderr
 		assert.NilError(t, tar.Run())
+
+		// FIXME(robertgzr): come up with something better than hardcoding this here
+		sockpath := root.Join("aufs/diff/34999927091de7ae41baa85f0be576c4b70ff81bf30d6850bf84c16d5d8cb9f5/run/udev/control")
+		assert.NilError(t, os.MkdirAll(filepath.Dir(sockpath), 0666))
+		// create a socket
+		assert.NilError(t, unix.Mknod(sockpath, 0755|unix.S_IFSOCK, 0))
 	}
 
 	err = os.Setenv("BALENA_MIGRATE_OVERLAY", "1")
@@ -48,6 +55,18 @@ func TestAufsToOverlay2Migration(t *testing.T) {
 	ctx := context.Background()
 
 	cl := d.NewClientT(t)
+
+	info, err := cl.Info(ctx)
+	assert.NilError(t, err)
+	assert.Equal(t, info.Driver, "overlay2")
+
+	images, err := cl.ImageList(ctx, types.ImageListOptions{})
+	assert.NilError(t, err)
+	assert.Equal(t, len(images), 2)
+
+	containers, err := cl.ContainerList(ctx, types.ContainerListOptions{All: true})
+	assert.NilError(t, err)
+	assert.Equal(t, len(containers), 0)
 
 	ctr, err := cl.ContainerCreate(ctx,
 		&container.Config{
