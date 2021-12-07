@@ -1,4 +1,25 @@
 - commits:
+    - subject: Boost daemons' scheduling priority
+      hash: 694580f75ea68537c2ebac37bb630d62d51cd019
+      body: |
+        In order to keep balenaEngine responsive during situations of high
+        system load, this commit increases the scheduling priority of balenad
+        and balena-engine-containerd.
+
+        They are both assigned to real-time scheduling policies, and in the case
+        of balena-engine-containerd we make sure to also set the
+        SCHED_RESET_ON_FORK flag to make sure that user containers don't inherit
+        the increased priority.
+      footer:
+        Change-type: minor
+        change-type: minor
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+      author: Leandro Motta Barros
+      nested: []
+  version: 19.03.31
+  date: 2021-12-07T14:05:29.163Z
+- commits:
     - subject: 'storagemigration: keep going if migration fails'
       hash: 2bde63c800b1df72fba7161d62b5b6da84a8d390
       body: |
