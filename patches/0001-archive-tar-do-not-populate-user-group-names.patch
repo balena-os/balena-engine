@@ -11,10 +11,6 @@ on NULL pointer dereference).
 
 For much more details, see https://github.com/golang/go/issues/23265
 
-This is ultimately fixed in Go 1.11 (provided that "osusergo" build tag
-is set (see https://github.com/golang/go/commit/62f0127d81). In the
-meantime, let's use this fork.
-
 Signed-off-by: Kir Kolyshkin <kolyshkin@gmail.com>
 ---
  src/archive/tar/stat_unix.go | 26 +++-----------------------
@@ -25,31 +21,31 @@ index 868105f338..9640ed4bab 100644
 --- a/src/archive/tar/stat_unix.go
 +++ b/src/archive/tar/stat_unix.go
 @@ -8,10 +8,7 @@ package tar
- 
+
  import (
- 	"os"
+	"io/fs"
 -	"os/user"
  	"runtime"
 -	"strconv"
 -	"sync"
  	"syscall"
  )
- 
+
 @@ -19,10 +16,6 @@ func init() {
  	sysStat = statUnix
  }
- 
+
 -// userMap and groupMap caches UID and GID lookups for performance reasons.
 -// The downside is that renaming uname or gname by the OS never takes effect.
 -var userMap, groupMap sync.Map // map[int]string
 -
- func statUnix(fi os.FileInfo, h *Header) error {
+ func statUnix(fi fs.FileInfo, h *Header) error {
  	sys, ok := fi.Sys().(*syscall.Stat_t)
  	if !ok {
 @@ -31,22 +24,9 @@ func statUnix(fi os.FileInfo, h *Header) error {
  	h.Uid = int(sys.Uid)
  	h.Gid = int(sys.Gid)
- 
+
 -	// Best effort at populating Uname and Gname.
 -	// The os/user functions may fail for any number of reasons
 -	// (not implemented on that platform, cgo not enabled, etc).
@@ -71,9 +67,9 @@ index 868105f338..9640ed4bab 100644
 +	// lookup functions.
  	h.AccessTime = statAtime(sys)
  	h.ChangeTime = statCtime(sys)
- 
+
 
 base-commit: 4af1337d1e9eb9e7b766c9deb787c78413bb25c4
--- 
+--
 2.24.1
 

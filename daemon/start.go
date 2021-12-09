@@ -9,7 +9,6 @@ import (
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errdefs"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -20,24 +19,24 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 		return errdefs.InvalidParameter(errors.New("checkpoint is only supported in experimental mode"))
 	}
 
-	container, err := daemon.GetContainer(name)
+	ctr, err := daemon.GetContainer(name)
 	if err != nil {
 		return err
 	}
 
 	validateState := func() error {
-		container.Lock()
-		defer container.Unlock()
+		ctr.Lock()
+		defer ctr.Unlock()
 
-		if container.Paused {
+		if ctr.Paused {
 			return errdefs.Conflict(errors.New("cannot start a paused container, try unpause instead"))
 		}
 
-		if container.Running {
+		if ctr.Running {
 			return containerNotModifiedError{running: true}
 		}
 
-		if container.RemovalInProgress || container.Dead {
+		if ctr.RemovalInProgress || ctr.Dead {
 			return errdefs.Conflict(errors.New("container is marked for removal and cannot be started"))
 		}
 		return nil
@@ -53,29 +52,26 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 		// creating a container, not during start.
 		if hostConfig != nil {
 			logrus.Warn("DEPRECATED: Setting host configuration options when the container starts is deprecated and has been removed in Docker 1.12")
-			oldNetworkMode := container.HostConfig.NetworkMode
-			if err := daemon.setSecurityOptions(container, hostConfig); err != nil {
+			oldNetworkMode := ctr.HostConfig.NetworkMode
+			if err := daemon.setSecurityOptions(ctr, hostConfig); err != nil {
 				return errdefs.InvalidParameter(err)
 			}
 			if err := daemon.mergeAndVerifyLogConfig(&hostConfig.LogConfig); err != nil {
 				return errdefs.InvalidParameter(err)
 			}
-			if err := daemon.setHostConfig(container, hostConfig); err != nil {
+			if err := daemon.setHostConfig(ctr, hostConfig); err != nil {
 				return errdefs.InvalidParameter(err)
 			}
-			newNetworkMode := container.HostConfig.NetworkMode
+			newNetworkMode := ctr.HostConfig.NetworkMode
 			if string(oldNetworkMode) != string(newNetworkMode) {
 				// if user has change the network mode on starting, clean up the
 				// old networks. It is a deprecated feature and has been removed in Docker 1.12
-				container.NetworkSettings.Networks = nil
-				container.Lock()
-				if err := container.CheckpointTo(daemon.containersReplica); err != nil {
-					container.Unlock()
+				ctr.NetworkSettings.Networks = nil
+				if err := ctr.CheckpointTo(daemon.containersReplica); err != nil {
 					return errdefs.System(err)
 				}
-				container.Unlock()
 			}
-			container.InitDNSHostConfig()
+			ctr.InitDNSHostConfig()
 		}
 	} else {
 		if hostConfig != nil {
@@ -85,17 +81,17 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 
 	// check if hostConfig is in line with the current system settings.
 	// It may happen cgroups are umounted or the like.
-	if _, err = daemon.verifyContainerSettings(container.OS, container.HostConfig, nil, false); err != nil {
+	if _, err = daemon.verifyContainerSettings(ctr.OS, ctr.HostConfig, nil, false); err != nil {
 		return errdefs.InvalidParameter(err)
 	}
 	// Adapt for old containers in case we have updates in this function and
 	// old containers never have chance to call the new function in create stage.
 	if hostConfig != nil {
-		if err := daemon.adaptContainerSettings(container.HostConfig, false); err != nil {
+		if err := daemon.adaptContainerSettings(ctr.HostConfig, false); err != nil {
 			return errdefs.InvalidParameter(err)
 		}
 	}
-	return daemon.containerStart(container, checkpoint, checkpointDir, true)
+	return daemon.containerStart(ctr, checkpoint, checkpointDir, true)
 }
 
 // containerStart prepares the container to run by setting up everything the
@@ -164,7 +160,7 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 		container.HasBeenManuallyStopped = false
 	}
 
-	if err := daemon.saveApparmorConfig(container); err != nil {
+	if err := daemon.saveAppArmorConfig(container); err != nil {
 		return err
 	}
 
@@ -175,14 +171,14 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 		}
 	}
 
-	createOptions, err := daemon.getLibcontainerdCreateOptions(container)
+	shim, createOptions, err := daemon.getLibcontainerdCreateOptions(container)
 	if err != nil {
 		return err
 	}
 
 	ctx := context.TODO()
 
-	err = daemon.containerd.Create(ctx, container.ID, spec, createOptions)
+	err = daemon.containerd.Create(ctx, container.ID, spec, shim, createOptions)
 	if err != nil {
 		if errdefs.IsConflict(err) {
 			logrus.WithError(err).WithField("container", container.ID).Error("Container not cleaned up from containerd from previous run")
@@ -191,7 +187,7 @@ func (daemon *Daemon) containerStart(container *container.Container, checkpoint 
 			if err := daemon.containerd.Delete(ctx, container.ID); err != nil && !errdefs.IsNotFound(err) {
 				logrus.WithError(err).WithField("container", container.ID).Error("Error cleaning up stale containerd container object")
 			}
-			err = daemon.containerd.Create(ctx, container.ID, spec, createOptions)
+			err = daemon.containerd.Create(ctx, container.ID, spec, shim, createOptions)
 		}
 		if err != nil {
 			return translateContainerdStartErr(container.Path, container.SetExitCode, err)
@@ -248,7 +244,7 @@ func (daemon *Daemon) Cleanup(container *container.Container) {
 		logrus.Warnf("%s cleanup: failed to unmount secrets: %s", container.ID, err)
 	}
 
-	if err := mount.RecursiveUnmount(container.Root); err != nil {
+	if err := recursiveUnmount(container.Root); err != nil {
 		logrus.WithError(err).WithField("container", container.ID).Warn("Error while cleaning up container resource mounts.")
 	}
 

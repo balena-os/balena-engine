@@ -11,12 +11,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const maxUploadAttempts = 5
+
 // LayerUploadManager provides task management and progress reporting for
 // uploads.
 type LayerUploadManager struct {
-	tm           TransferManager
-	waitDuration time.Duration
-	retryLimit   int
+	tm                TransferManager
+	waitDuration      time.Duration
+	maxUploadAttempts int
 }
 
 // SetConcurrency sets the max concurrent uploads for each push
@@ -25,16 +27,24 @@ func (lum *LayerUploadManager) SetConcurrency(concurrency int) {
 }
 
 // NewLayerUploadManager returns a new LayerUploadManager.
-func NewLayerUploadManager(concurrencyLimit, retryLimit int, options ...func(*LayerUploadManager)) *LayerUploadManager {
+func NewLayerUploadManager(concurrencyLimit int, options ...func(*LayerUploadManager)) *LayerUploadManager {
 	manager := LayerUploadManager{
-		tm:           NewTransferManager(concurrencyLimit),
-		waitDuration: time.Second,
-		retryLimit:   retryLimit,
+		tm:                NewTransferManager(concurrencyLimit),
+		waitDuration:      time.Second,
+		maxUploadAttempts: maxUploadAttempts,
 	}
 	for _, option := range options {
 		option(&manager)
 	}
 	return &manager
+}
+
+// WithMaxUploadAttempts configures the maximum number of upload
+// attempts for a upload manager.
+func WithMaxUploadAttempts(max int) func(*LayerUploadManager) {
+	return func(dlm *LayerUploadManager) {
+		dlm.maxUploadAttempts = max
+	}
 }
 
 type uploadTransfer struct {
@@ -140,7 +150,7 @@ func (lum *LayerUploadManager) makeUploadFunc(descriptor UploadDescriptor) DoFun
 				}
 
 				retries++
-				if _, isDNR := err.(DoNotRetry); isDNR || retries >= lum.retryLimit {
+				if _, isDNR := err.(DoNotRetry); isDNR || retries >= lum.maxUploadAttempts {
 					logrus.Errorf("Upload failed: %v", err)
 					u.err = err
 					return

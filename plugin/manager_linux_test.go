@@ -9,13 +9,14 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
-	"github.com/docker/docker/plugin/v2"
-	"github.com/opencontainers/runtime-spec/specs-go"
+	v2 "github.com/docker/docker/plugin/v2"
+	"github.com/moby/sys/mount"
+	"github.com/moby/sys/mountinfo"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
-	"gotest.tools/skip"
+	"gotest.tools/v3/skip"
 )
 
 func TestManagerWithPluginMounts(t *testing.T) {
@@ -64,7 +65,7 @@ func TestManagerWithPluginMounts(t *testing.T) {
 	if err := m.Remove(p1.GetID(), &types.PluginRmConfig{ForceRemove: true}); err != nil {
 		t.Fatal(err)
 	}
-	if mounted, err := mount.Mounted(p2Mount); !mounted || err != nil {
+	if mounted, err := mountinfo.Mounted(p2Mount); !mounted || err != nil {
 		t.Fatalf("expected %s to be mounted, err: %v", p2Mount, err)
 	}
 }
@@ -174,6 +175,7 @@ func (e *executorWithRunning) Signal(id string, signal int) error {
 }
 
 func TestPluginAlreadyRunningOnStartup(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
 	t.Parallel()
 
 	root, err := ioutil.TempDir("", t.Name())

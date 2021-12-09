@@ -11,15 +11,12 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration/internal/network"
 	"github.com/docker/docker/integration/internal/swarm"
-	"github.com/docker/docker/internal/test/daemon"
-	"github.com/docker/libnetwork/drivers/bridge"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
-	"gotest.tools/poll"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/daemon"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
+	"gotest.tools/v3/poll"
+	"gotest.tools/v3/skip"
 )
-
-const defaultNetworkBridge = bridge.DefaultBridgeName
 
 // delInterface removes given network interface
 func delInterface(t *testing.T, ifName string) {
@@ -32,22 +29,29 @@ func TestDaemonRestartWithLiveRestore(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
+	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
 	d := daemon.New(t)
 	defer d.Stop(t)
 	d.Start(t)
+
+	c := d.NewClientT(t)
+	defer c.Close()
+
+	// Verify bridge network's subnet
+	out, err := c.NetworkInspect(context.Background(), "bridge", types.NetworkInspectOptions{})
+	assert.NilError(t, err)
+	subnet := out.IPAM.Config[0].Subnet
+
 	d.Restart(t,
 		"--live-restore=true",
 		"--default-address-pool", "base=175.30.0.0/16,size=16",
 		"--default-address-pool", "base=175.33.0.0/16,size=24",
 	)
 
-	// Verify bridge network's subnet
-	c := d.NewClientT(t)
-	defer c.Close()
-	out, err := c.NetworkInspect(context.Background(), "bridge", types.NetworkInspectOptions{})
+	out1, err := c.NetworkInspect(context.Background(), "bridge", types.NetworkInspectOptions{})
 	assert.NilError(t, err)
 	// Make sure docker0 doesn't get override with new IP in live restore case
-	assert.Equal(t, out.IPAM.Config[0].Subnet, "172.18.0.0/16")
+	assert.Equal(t, out1.IPAM.Config[0].Subnet, subnet)
 }
 
 func TestDaemonDefaultNetworkPools(t *testing.T) {
@@ -55,6 +59,8 @@ func TestDaemonDefaultNetworkPools(t *testing.T) {
 	// Remove docker0 bridge and the start daemon defining the predefined address pools
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
+	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
+	defaultNetworkBridge := "balena0"
 	delInterface(t, defaultNetworkBridge)
 	d := daemon.New(t)
 	defer d.Stop(t)
@@ -96,6 +102,8 @@ func TestDaemonRestartWithExistingNetwork(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
+	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
+	defaultNetworkBridge := "balena0"
 	d := daemon.New(t)
 	d.Start(t)
 	defer d.Stop(t)
@@ -128,6 +136,8 @@ func TestDaemonRestartWithExistingNetworkWithDefaultPoolRange(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
+	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
+	defaultNetworkBridge := "balena0"
 	d := daemon.New(t)
 	d.Start(t)
 	defer d.Stop(t)
@@ -177,6 +187,8 @@ func TestDaemonWithBipAndDefaultNetworkPool(t *testing.T) {
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.38"), "skip test from new feature")
+	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
+	defaultNetworkBridge := "balena0"
 	d := daemon.New(t)
 	defer d.Stop(t)
 	d.Start(t,
@@ -192,7 +204,7 @@ func TestDaemonWithBipAndDefaultNetworkPool(t *testing.T) {
 	out, err := c.NetworkInspect(context.Background(), "bridge", types.NetworkInspectOptions{})
 	assert.NilError(t, err)
 	// Make sure BIP IP doesn't get override with new default address pool .
-	assert.Equal(t, out.IPAM.Config[0].Subnet, "172.60.0.1/16")
+	assert.Equal(t, out.IPAM.Config[0].Subnet, "172.60.0.0/16")
 	delInterface(t, defaultNetworkBridge)
 }
 
@@ -200,7 +212,7 @@ func TestServiceWithPredefinedNetwork(t *testing.T) {
 	t.Skip("swarm isn't supported")
 
 	skip.If(t, testEnv.OSType == "windows")
-
+	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv)
 	defer d.Stop(t)
@@ -232,6 +244,7 @@ func TestServiceRemoveKeepsIngressNetwork(t *testing.T) {
 	t.Skip("swarm isn't supported")
 
 	t.Skip("FLAKY_TEST")
+	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 
 	skip.If(t, testEnv.OSType == "windows")
 	defer setupTest(t)()
@@ -324,6 +337,7 @@ func TestServiceWithDataPathPortInit(t *testing.T) {
 
 	skip.If(t, testEnv.OSType == "windows")
 	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.40"), "DataPathPort was added in API v1.40")
+	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 	defer setupTest(t)()
 	var datapathPort uint32 = 7777
 	d := swarm.NewSwarm(t, testEnv, daemon.WithSwarmDataPathPort(datapathPort))
@@ -392,6 +406,7 @@ func TestServiceWithDefaultAddressPoolInit(t *testing.T) {
 	t.Skip("swarm isn't supported")
 
 	skip.If(t, testEnv.OSType == "windows")
+	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support Swarm-mode")
 	defer setupTest(t)()
 	d := swarm.NewSwarm(t, testEnv,
 		daemon.WithSwarmDefaultAddrPool([]string{"20.20.0.0/16"}),
@@ -425,6 +440,10 @@ func TestServiceWithDefaultAddressPoolInit(t *testing.T) {
 	assert.NilError(t, err)
 	t.Logf("%s: NetworkInspect: %+v", t.Name(), out)
 	assert.Assert(t, len(out.IPAM.Config) > 0)
+	// As of docker/swarmkit#2890, the ingress network uses the default address
+	// pool (whereas before, the subnet for the ingress network was hard-coded.
+	// This means that the ingress network gets the subnet 20.20.0.0/24, and
+	// the network we just created gets subnet 20.20.1.0/24.
 	assert.Equal(t, out.IPAM.Config[0].Subnet, "20.20.1.0/24")
 
 	// Also inspect ingress network and make sure its in the same subnet

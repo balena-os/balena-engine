@@ -7,19 +7,15 @@ import (
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/oci/caps"
 	"github.com/opencontainers/runc/libcontainer/apparmor"
-	"github.com/opencontainers/runtime-spec/specs-go"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
 func (daemon *Daemon) execSetPlatformOpt(c *container.Container, ec *exec.Config, p *specs.Process) error {
 	if len(ec.User) > 0 {
-		uid, gid, additionalGids, err := getUser(c, ec.User)
+		var err error
+		p.User, err = getUser(c, ec.User)
 		if err != nil {
 			return err
-		}
-		p.User = specs.User{
-			UID:            uid,
-			GID:            gid,
-			AdditionalGids: additionalGids,
 		}
 	}
 	if ec.Privileged {
@@ -38,12 +34,12 @@ func (daemon *Daemon) execSetPlatformOpt(c *container.Container, ec *exec.Config
 		} else if c.HostConfig.Privileged {
 			// `docker exec --privileged` does not currently disable AppArmor
 			// profiles. Privileged configuration of the container is inherited
-			appArmorProfile = "unconfined"
+			appArmorProfile = unconfinedAppArmorProfile
 		} else {
-			appArmorProfile = "docker-default"
+			appArmorProfile = defaultAppArmorProfile
 		}
 
-		if appArmorProfile == "docker-default" {
+		if appArmorProfile == defaultAppArmorProfile {
 			// Unattended upgrades and other fun services can unload AppArmor
 			// profiles inadvertently. Since we cannot store our profile in
 			// /etc/apparmor.d, nor can we practically add other ways of

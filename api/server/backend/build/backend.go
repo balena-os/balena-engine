@@ -3,17 +3,18 @@ package build // import "github.com/docker/docker/api/server/backend/build"
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/builder"
 	buildkit "github.com/docker/docker/builder/builder-next"
-	"github.com/docker/docker/builder/fscache"
+	daemonevents "github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/pkg/errors"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 )
 
@@ -31,14 +32,14 @@ type Builder interface {
 // Backend provides build functionality to the API router
 type Backend struct {
 	builder        Builder
-	fsCache        *fscache.FSCache
 	imageComponent ImageComponent
 	buildkit       *buildkit.Builder
+	eventsService  *daemonevents.Events
 }
 
 // NewBackend creates a new build backend from components
-func NewBackend(components ImageComponent, builder Builder, fsCache *fscache.FSCache, buildkit *buildkit.Builder) (*Backend, error) {
-	return &Backend{imageComponent: components, builder: builder, fsCache: fsCache, buildkit: buildkit}, nil
+func NewBackend(components ImageComponent, builder Builder, buildkit *buildkit.Builder, es *daemonevents.Events) (*Backend, error) {
+	return &Backend{imageComponent: components, builder: builder, buildkit: buildkit, eventsService: es}, nil
 }
 
 // RegisterGRPC registers buildkit controller to the grpc server.
@@ -99,34 +100,16 @@ func (b *Backend) Build(ctx context.Context, config backend.BuildConfig) (string
 
 // PruneCache removes all cached build sources
 func (b *Backend) PruneCache(ctx context.Context, opts types.BuildCachePruneOptions) (*types.BuildCachePruneReport, error) {
-	eg, ctx := errgroup.WithContext(ctx)
-
-	var fsCacheSize uint64
-	eg.Go(func() error {
-		var err error
-		fsCacheSize, err = b.fsCache.Prune(ctx)
-		if err != nil {
-			return errors.Wrap(err, "failed to prune fscache")
-		}
-		return nil
-	})
-
-	var buildCacheSize int64
-	var cacheIDs []string
-	eg.Go(func() error {
-		var err error
-		buildCacheSize, cacheIDs, err = b.buildkit.Prune(ctx, opts)
-		if err != nil {
-			return errors.Wrap(err, "failed to prune build cache")
-		}
-		return nil
-	})
-
-	if err := eg.Wait(); err != nil {
-		return nil, err
+	buildCacheSize, cacheIDs, err := b.buildkit.Prune(ctx, opts)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to prune build cache")
 	}
-
-	return &types.BuildCachePruneReport{SpaceReclaimed: fsCacheSize + uint64(buildCacheSize), CachesDeleted: cacheIDs}, nil
+	b.eventsService.Log("prune", events.BuilderEventType, events.Actor{
+		Attributes: map[string]string{
+			"reclaimed": strconv.FormatInt(buildCacheSize, 10),
+		},
+	})
+	return &types.BuildCachePruneReport{SpaceReclaimed: uint64(buildCacheSize), CachesDeleted: cacheIDs}, nil
 }
 
 // Cancel cancels the build by ID

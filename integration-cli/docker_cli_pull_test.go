@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opencontainers/go-digest"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	digest "github.com/opencontainers/go-digest"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 // TestPullFromCentralRegistry pulls an image from the central registry and verifies that the client
@@ -108,7 +108,6 @@ func (s *DockerHubPullSuite) TestPullNonExistingImage(c *testing.T) {
 			assert.Assert(c, !strings.Contains(record.out, "unauthorized"), `message should not contain "unauthorized"`)
 		}
 	}
-
 }
 
 // TestPullFromCentralRegistryImplicitRefParts pulls an image from the central registry and verifies

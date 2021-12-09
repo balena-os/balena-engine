@@ -430,12 +430,12 @@ func getIpamConfig(data []network.IPAMConfig) ([]*libnetwork.IpamConf, []*libnet
 
 // UpdateContainerServiceConfig updates a service configuration.
 func (daemon *Daemon) UpdateContainerServiceConfig(containerName string, serviceConfig *clustertypes.ServiceConfig) error {
-	container, err := daemon.GetContainer(containerName)
+	ctr, err := daemon.GetContainer(containerName)
 	if err != nil {
 		return err
 	}
 
-	container.NetworkSettings.Service = serviceConfig
+	ctr.NetworkSettings.Service = serviceConfig
 	return nil
 }
 
@@ -443,24 +443,24 @@ func (daemon *Daemon) UpdateContainerServiceConfig(containerName string, service
 // network. If either cannot be found, an err is returned. If the
 // network cannot be set up, an err is returned.
 func (daemon *Daemon) ConnectContainerToNetwork(containerName, networkName string, endpointConfig *network.EndpointSettings) error {
-	container, err := daemon.GetContainer(containerName)
+	ctr, err := daemon.GetContainer(containerName)
 	if err != nil {
 		return err
 	}
-	return daemon.ConnectToNetwork(container, networkName, endpointConfig)
+	return daemon.ConnectToNetwork(ctr, networkName, endpointConfig)
 }
 
 // DisconnectContainerFromNetwork disconnects the given container from
 // the given network. If either cannot be found, an err is returned.
 func (daemon *Daemon) DisconnectContainerFromNetwork(containerName string, networkName string, force bool) error {
-	container, err := daemon.GetContainer(containerName)
+	ctr, err := daemon.GetContainer(containerName)
 	if err != nil {
 		if force {
 			return daemon.ForceEndpointDelete(containerName, networkName)
 		}
 		return err
 	}
-	return daemon.DisconnectFromNetwork(container, networkName, force)
+	return daemon.DisconnectFromNetwork(ctr, networkName, force)
 }
 
 // GetNetworkDriverList returns the list of plugins drivers
@@ -485,10 +485,10 @@ func (daemon *Daemon) GetNetworkDriverList() []string {
 
 	networks := daemon.netController.Networks()
 
-	for _, network := range networks {
-		if !pluginMap[network.Type()] {
-			pluginList = append(pluginList, network.Type())
-			pluginMap[network.Type()] = true
+	for _, nw := range networks {
+		if !pluginMap[nw.Type()] {
+			pluginList = append(pluginList, nw.Type())
+			pluginMap[nw.Type()] = true
 		}
 	}
 
@@ -958,12 +958,6 @@ func buildCreateEndpointOptions(c *container.Container, n libnetwork.Network, ep
 		libnetwork.CreateOptionExposedPorts(exposeList))
 
 	return createOptions, nil
-}
-
-// getEndpointInNetwork returns the container's endpoint to the provided network.
-func getEndpointInNetwork(name string, n libnetwork.Network) (libnetwork.Endpoint, error) {
-	endpointName := strings.TrimPrefix(name, "/")
-	return n.EndpointByName(endpointName)
 }
 
 // getSandboxPortMapInfo retrieves the current port-mapping programmed for the given sandbox

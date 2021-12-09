@@ -19,10 +19,10 @@ import (
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/fsutils"
 	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/locker"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/system"
+	"github.com/moby/locker"
+	"github.com/moby/sys/mount"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -136,6 +136,14 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 		return nil, graphdriver.ErrNotSupported
 	}
 
+	fsMagic, err := graphdriver.GetFSMagic(testdir)
+	if err != nil {
+		return nil, err
+	}
+	if fsName, ok := graphdriver.FsNames[fsMagic]; ok {
+		backingFs = fsName
+	}
+
 	supportsDType, err := fsutils.SupportsDType(testdir)
 	if err != nil {
 		return nil, err
@@ -148,15 +156,20 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 		logrus.WithField("storage-driver", "overlay").Warn(overlayutils.ErrDTypeNotSupported("overlay", backingFs))
 	}
 
-	rootUID, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
+	currentID := idtools.CurrentIdentity()
+	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
 	if err != nil {
 		return nil, err
 	}
-	// Create the driver home dir
-	if err := idtools.MkdirAllAndChown(home, 0700, idtools.Identity{UID: rootUID, GID: rootGID}); err != nil {
-		return nil, err
+	dirID := idtools.Identity{
+		UID: currentID.UID,
+		GID: rootGID,
 	}
 
+	// Create the driver home dir
+	if err := idtools.MkdirAllAndChown(home, 0710, dirID); err != nil {
+		return nil, err
+	}
 	d := &Driver{
 		home:          home,
 		uidMaps:       uidMaps,
@@ -257,10 +270,12 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) (retErr
 	}
 	root := idtools.Identity{UID: rootUID, GID: rootGID}
 
-	if err := idtools.MkdirAllAndChown(path.Dir(dir), 0700, root); err != nil {
-		return err
+	currentID := idtools.CurrentIdentity()
+	dirID := idtools.Identity{
+		UID: currentID.UID,
+		GID: rootGID,
 	}
-	if err := idtools.MkdirAndChown(dir, 0700, root); err != nil {
+	if err := idtools.MkdirAndChown(dir, 0710, dirID); err != nil {
 		return err
 	}
 
@@ -273,6 +288,7 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) (retErr
 
 	// Toplevel images are just a "root" dir
 	if parent == "" {
+		// This must be 0755 otherwise unprivileged users will in the container will not be able to read / in the container
 		return idtools.MkdirAndChown(path.Join(dir, "root"), 0755, root)
 	}
 
@@ -293,7 +309,7 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) (retErr
 		if err := idtools.MkdirAndChown(path.Join(dir, "work"), 0700, root); err != nil {
 			return err
 		}
-		return ioutil.WriteFile(path.Join(dir, "lower-id"), []byte(parent), 0666)
+		return ioutil.WriteFile(path.Join(dir, "lower-id"), []byte(parent), 0600)
 	}
 
 	// Otherwise, copy the upper and the lower-id from the parent
@@ -303,7 +319,7 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) (retErr
 		return err
 	}
 
-	if err := ioutil.WriteFile(path.Join(dir, "lower-id"), lowerID, 0666); err != nil {
+	if err := ioutil.WriteFile(path.Join(dir, "lower-id"), lowerID, 0600); err != nil {
 		return err
 	}
 

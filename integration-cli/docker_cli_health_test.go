@@ -9,7 +9,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 func waitForHealthStatus(c *testing.T, name string, prev string, expected string) {
@@ -140,7 +140,6 @@ func (s *DockerSuite) TestHealth(c *testing.T) {
 	out, _ = dockerCmd(c, "inspect",
 		"--format={{.Config.Healthcheck.Test}}", imageName)
 	assert.Equal(c, out, "[CMD cat /my status]\n")
-
 }
 
 // GitHub #33021
@@ -163,5 +162,4 @@ ENTRYPOINT /bin/sh -c "sleep 600"`))
 	// Start
 	dockerCmd(c, "start", name)
 	waitForHealthStatus(c, name, "starting", "healthy")
-
 }

@@ -5,18 +5,20 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/docker/distribution"
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/ioutils"
-	"github.com/docker/docker/pkg/locker"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/pkg/tarsplitutils"
-	"github.com/opencontainers/go-digest"
+	"github.com/moby/locker"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
 	"github.com/vbatts/tar-split/tar/asm"
 	"github.com/vbatts/tar-split/tar/storage"
@@ -447,11 +449,24 @@ func (ls *layerStore) Map() map[ChainID]Layer {
 }
 
 func (ls *layerStore) deleteLayer(layer *roLayer, metadata *Metadata) error {
+	// Rename layer digest folder first so we detect orphan layer(s)
+	// if ls.driver.Remove fails
+	var dir string
+	for {
+		dgst := digest.Digest(layer.chainID)
+		tmpID := fmt.Sprintf("%s-%s-removing", dgst.Hex(), stringid.GenerateRandomID())
+		dir = filepath.Join(ls.store.root, string(dgst.Algorithm()), tmpID)
+		err := os.Rename(ls.store.getLayerDirectory(layer.chainID), dir)
+		if os.IsExist(err) {
+			continue
+		}
+		break
+	}
 	err := ls.driver.Remove(layer.cacheID)
 	if err != nil {
 		return err
 	}
-	err = ls.store.Remove(layer.chainID)
+	err = os.RemoveAll(dir)
 	if err != nil {
 		return err
 	}
@@ -484,12 +499,14 @@ func (ls *layerStore) releaseLayer(l *roLayer) ([]Metadata, error) {
 		if l.hasReferences() {
 			panic("cannot delete referenced layer")
 		}
+		// Remove layer from layer map first so it is not considered to exist
+		// when if ls.deleteLayer fails.
+		delete(ls.layerMap, l.chainID)
+
 		var metadata Metadata
 		if err := ls.deleteLayer(l, &metadata); err != nil {
 			return nil, err
 		}
-
-		delete(ls.layerMap, l.chainID)
 		removed = append(removed, metadata)
 
 		if l.parent == nil {
@@ -809,6 +826,23 @@ func (ls *layerStore) assembleTarTo(graphID string, metadata io.ReadCloser, size
 }
 
 func (ls *layerStore) Cleanup() error {
+	orphanLayers, err := ls.store.getOrphan()
+	if err != nil {
+		logrus.Errorf("Cannot get orphan layers: %v", err)
+	}
+	logrus.Debugf("found %v orphan layers", len(orphanLayers))
+	for _, orphan := range orphanLayers {
+		logrus.Debugf("removing orphan layer, chain ID: %v , cache ID: %v", orphan.chainID, orphan.cacheID)
+		err = ls.driver.Remove(orphan.cacheID)
+		if err != nil && !os.IsNotExist(err) {
+			logrus.WithError(err).WithField("cache-id", orphan.cacheID).Error("cannot remove orphan layer")
+			continue
+		}
+		err = ls.store.Remove(orphan.chainID, orphan.cacheID)
+		if err != nil {
+			logrus.WithError(err).WithField("chain-id", orphan.chainID).Error("cannot remove orphan layer metadata")
+		}
+	}
 	return ls.driver.Cleanup()
 }
 

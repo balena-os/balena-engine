@@ -22,10 +22,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,6 +41,7 @@ import (
 
 	"github.com/containerd/containerd/events"
 	"github.com/containerd/containerd/log"
+	"github.com/containerd/containerd/pkg/dialer"
 	v1 "github.com/containerd/containerd/runtime/v1"
 	"github.com/containerd/containerd/runtime/v1/shim"
 	shimapi "github.com/containerd/containerd/runtime/v1/shim/v1"
@@ -65,22 +68,24 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
 		}
 		defer f.Close()
 
-		var stdoutLog io.ReadWriteCloser
-		var stderrLog io.ReadWriteCloser
-		if debug {
-			stdoutLog, err = v1.OpenShimStdoutLog(ctx, config.WorkDir)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "failed to create stdout log")
-			}
-
-			stderrLog, err = v1.OpenShimStderrLog(ctx, config.WorkDir)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "failed to create stderr log")
-			}
-
-			go io.Copy(os.Stdout, stdoutLog)
-			go io.Copy(os.Stderr, stderrLog)
+		stdoutCopy := ioutil.Discard
+		stderrCopy := ioutil.Discard
+		stdoutLog, err := v1.OpenShimStdoutLog(ctx, config.WorkDir)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "failed to create stdout log")
 		}
+
+		stderrLog, err := v1.OpenShimStderrLog(ctx, config.WorkDir)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "failed to create stderr log")
+		}
+		if debug {
+			stdoutCopy = os.Stdout
+			stderrCopy = os.Stderr
+		}
+
+		go io.Copy(stdoutCopy, stdoutLog)
+		go io.Copy(stderrCopy, stderrLog)
 
 		cmd, err := newCommand(binary, daemonAddress, debug, config, f, stdoutLog, stderrLog)
 		if err != nil {
@@ -98,9 +103,9 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
 			cmd.Wait()
 			exitHandler()
 			if stdoutLog != nil {
-				stderrLog.Close()
+				stdoutLog.Close()
 			}
-			if stdoutLog != nil {
+			if stderrLog != nil {
 				stderrLog.Close()
 			}
 		}()
@@ -110,7 +115,10 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
 			"debug":   debug,
 		}).Infof("shim %s started", binary)
 
-		if err := writeAddress(filepath.Join(config.Path, "address"), address); err != nil {
+		if err := writeFile(filepath.Join(config.Path, "address"), address); err != nil {
+			return nil, nil, err
+		}
+		if err := writeFile(filepath.Join(config.Path, "shim.pid"), strconv.Itoa(cmd.Process.Pid)); err != nil {
 			return nil, nil, err
 		}
 		// set shim in cgroup if it is provided
@@ -123,8 +131,8 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
 				"address": address,
 			}).Infof("shim placed in cgroup %s", cgroup)
 		}
-		if err = sys.SetOOMScore(cmd.Process.Pid, sys.OOMScoreMaxKillable); err != nil {
-			return nil, nil, errors.Wrap(err, "failed to set OOM Score on shim")
+		if err = setupOOMScore(cmd.Process.Pid); err != nil {
+			return nil, nil, err
 		}
 		c, clo, err := WithConnect(address, func() {})(ctx, config)
 		if err != nil {
@@ -132,6 +140,21 @@ func WithStart(binary, address, daemonAddress, cgroup string, debug bool, exitHa
 		}
 		return c, clo, nil
 	}
+}
+
+// setupOOMScore gets containerd's oom score and adds +1 to it
+// to ensure a shim has a lower* score than the daemons
+func setupOOMScore(shimPid int) error {
+	pid := os.Getpid()
+	score, err := sys.GetOOMScoreAdj(pid)
+	if err != nil {
+		return errors.Wrap(err, "get daemon OOM score")
+	}
+	shimScore := score + 1
+	if err := sys.SetOOMScore(shimPid, shimScore); err != nil {
+		return errors.Wrap(err, "set shim OOM score")
+	}
+	return nil
 }
 
 func newCommand(binary, daemonAddress string, debug bool, config shim.Config, socket *os.File, stdout, stderr io.Writer) (*exec.Cmd, error) {
@@ -173,8 +196,8 @@ func newCommand(binary, daemonAddress string, debug bool, config shim.Config, so
 	return cmd, nil
 }
 
-// writeAddress writes a address file atomically
-func writeAddress(path, address string) error {
+// writeFile writes a address file atomically
+func writeFile(path, address string) error {
 	path, err := filepath.Abs(path)
 	if err != nil {
 		return err
@@ -210,7 +233,7 @@ func connect(address string, d func(string, time.Duration) (net.Conn, error)) (n
 
 func annonDialer(address string, timeout time.Duration) (net.Conn, error) {
 	address = strings.TrimPrefix(address, "unix://")
-	return net.DialTimeout("unix", "\x00"+address, timeout)
+	return dialer.Dialer("\x00"+address, timeout)
 }
 
 // WithConnect connects to an existing shim
@@ -280,7 +303,7 @@ func (c *Client) KillShim(ctx context.Context) error {
 	return c.signalShim(ctx, unix.SIGKILL)
 }
 
-// Close the cient connection
+// Close the client connection
 func (c *Client) Close() error {
 	if c.c == nil {
 		return nil
@@ -305,21 +328,31 @@ func (c *Client) signalShim(ctx context.Context, sig syscall.Signal) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-c.waitForExit(pid):
+	case <-c.waitForExit(ctx, pid):
 		return nil
 	}
 }
 
-func (c *Client) waitForExit(pid int) <-chan struct{} {
-	c.exitOnce.Do(func() {
+func (c *Client) waitForExit(ctx context.Context, pid int) <-chan struct{} {
+	go c.exitOnce.Do(func() {
+		defer close(c.exitCh)
+
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+
 		for {
 			// use kill(pid, 0) here because the shim could have been reparented
 			// and we are no longer able to waitpid(pid, ...) on the shim
 			if err := unix.Kill(pid, 0); err == unix.ESRCH {
-				close(c.exitCh)
 				return
 			}
-			time.Sleep(10 * time.Millisecond)
+
+			select {
+			case <-ticker.C:
+			case <-ctx.Done():
+				log.G(ctx).WithField("pid", pid).Warn("timed out while waiting for shim to exit")
+				return
+			}
 		}
 	})
 	return c.exitCh

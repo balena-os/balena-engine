@@ -11,8 +11,8 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
 )
 
 func checkValidGraphDriver(c *testing.T, name string) {
@@ -42,8 +42,8 @@ func (s *DockerSuite) TestInspectInt64(c *testing.T) {
 }
 
 func (s *DockerSuite) TestInspectDefault(c *testing.T) {
-	//Both the container and image are named busybox. docker inspect will fetch the container JSON.
-	//If the container JSON is not available, it will go for the image JSON.
+	// Both the container and image are named busybox. docker inspect will fetch the container JSON.
+	// If the container JSON is not available, it will go for the image JSON.
 
 	out, _ := dockerCmd(c, "run", "--name=busybox", "-d", "busybox", "true")
 	containerID := strings.TrimSpace(out)
@@ -74,12 +74,11 @@ func (s *DockerSuite) TestInspectStatus(c *testing.T) {
 	dockerCmd(c, "stop", out)
 	inspectOut = inspectField(c, out, "State.Status")
 	assert.Equal(c, inspectOut, "exited")
-
 }
 
 func (s *DockerSuite) TestInspectTypeFlagContainer(c *testing.T) {
-	//Both the container and image are named busybox. docker inspect will fetch container
-	//JSON State.Running field. If the field is true, it's a container.
+	// Both the container and image are named busybox. docker inspect will fetch container
+	// JSON State.Running field. If the field is true, it's a container.
 	runSleepingContainer(c, "--name=busybox", "-d")
 
 	formatStr := "--format={{.State.Running}}"
@@ -88,9 +87,9 @@ func (s *DockerSuite) TestInspectTypeFlagContainer(c *testing.T) {
 }
 
 func (s *DockerSuite) TestInspectTypeFlagWithNoContainer(c *testing.T) {
-	//Run this test on an image named busybox. docker inspect will try to fetch container
-	//JSON. Since there is no container named busybox and --type=container, docker inspect will
-	//not try to get the image JSON. It will throw an error.
+	// Run this test on an image named busybox. docker inspect will try to fetch container
+	// JSON. Since there is no container named busybox and --type=container, docker inspect will
+	// not try to get the image JSON. It will throw an error.
 
 	dockerCmd(c, "run", "-d", "busybox", "true")
 
@@ -100,9 +99,9 @@ func (s *DockerSuite) TestInspectTypeFlagWithNoContainer(c *testing.T) {
 }
 
 func (s *DockerSuite) TestInspectTypeFlagWithImage(c *testing.T) {
-	//Both the container and image are named busybox. docker inspect will fetch image
-	//JSON as --type=image. if there is no image with name busybox, docker inspect
-	//will throw an error.
+	// Both the container and image are named busybox. docker inspect will fetch image
+	// JSON as --type=image. if there is no image with name busybox, docker inspect
+	// will throw an error.
 
 	dockerCmd(c, "run", "--name=busybox", "-d", "busybox", "true")
 
@@ -112,8 +111,8 @@ func (s *DockerSuite) TestInspectTypeFlagWithImage(c *testing.T) {
 }
 
 func (s *DockerSuite) TestInspectTypeFlagWithInvalidValue(c *testing.T) {
-	//Both the container and image are named busybox. docker inspect will fail
-	//as --type=foobar is not a valid value for the flag.
+	// Both the container and image are named busybox. docker inspect will fail
+	// as --type=foobar is not a valid value for the flag.
 
 	dockerCmd(c, "run", "--name=busybox", "-d", "busybox", "true")
 
@@ -131,7 +130,7 @@ func (s *DockerSuite) TestInspectImageFilterInt(c *testing.T) {
 	size, err := strconv.Atoi(out)
 	assert.Assert(c, err == nil, "failed to inspect size of the image: %s, %v", out, err)
 
-	//now see if the size turns out to be the same
+	// now see if the size turns out to be the same
 	formatStr := fmt.Sprintf("--format={{eq .Size %d}}", size)
 	out, _ = dockerCmd(c, "inspect", formatStr, imageTest)
 	result, err := strconv.ParseBool(strings.TrimSuffix(out, "\n"))
@@ -153,7 +152,7 @@ func (s *DockerSuite) TestInspectContainerFilterInt(c *testing.T) {
 	exitCode, err := strconv.Atoi(out)
 	assert.Assert(c, err == nil, "failed to inspect exitcode of the container: %s, %v", out, err)
 
-	//now get the exit code to verify
+	// now get the exit code to verify
 	formatStr := fmt.Sprintf("--format={{eq .State.ExitCode %d}}", exitCode)
 	out, _ = dockerCmd(c, "inspect", formatStr, id)
 	inspectResult, err := strconv.ParseBool(strings.TrimSuffix(out, "\n"))
@@ -295,9 +294,8 @@ func (s *DockerSuite) TestInspectLogConfigNoType(c *testing.T) {
 }
 
 func (s *DockerSuite) TestInspectNoSizeFlagContainer(c *testing.T) {
-
-	//Both the container and image are named busybox. docker inspect will fetch container
-	//JSON SizeRw and SizeRootFs field. If there is no flag --size/-s, there are no size fields.
+	// Both the container and image are named busybox. docker inspect will fetch container
+	// JSON SizeRw and SizeRootFs field. If there is no flag --size/-s, there are no size fields.
 
 	runSleepingContainer(c, "--name=busybox", "-d")
 

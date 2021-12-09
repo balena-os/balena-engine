@@ -10,18 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/internal/test/fixtures/load"
-	"gotest.tools/assert"
+	"github.com/docker/docker/testutil/fixtures/load"
+	"gotest.tools/v3/assert"
 )
-
-type testingT interface {
-	logT
-	Fatalf(string, ...interface{})
-}
-
-type logT interface {
-	Logf(string, ...interface{})
-}
 
 func ensureSyscallTest(c *testing.T) {
 	defer testEnv.ProtectImage(c, "syscall-test:latest")
@@ -58,10 +49,10 @@ func ensureSyscallTest(c *testing.T) {
 
 	dockerFile := filepath.Join(tmp, "Dockerfile")
 	content := []byte(`
-	FROM debian:jessie
+	FROM debian:bullseye
 	COPY . /usr/bin/
 	`)
-	err = ioutil.WriteFile(dockerFile, content, 600)
+	err = ioutil.WriteFile(dockerFile, content, 0600)
 	assert.NilError(c, err)
 
 	var buildArgs []string
@@ -74,7 +65,7 @@ func ensureSyscallTest(c *testing.T) {
 }
 
 func ensureSyscallTestBuild(c *testing.T) {
-	err := load.FrozenImagesLinux(testEnv.APIClient(), "buildpack-deps:jessie")
+	err := load.FrozenImagesLinux(testEnv.APIClient(), "buildpack-deps:buster")
 	assert.NilError(c, err)
 
 	var buildArgs []string
@@ -112,11 +103,11 @@ func ensureNNPTest(c *testing.T) {
 
 	dockerfile := filepath.Join(tmp, "Dockerfile")
 	content := `
-	FROM debian:jessie
+	FROM debian:bullseye
 	COPY . /usr/bin
 	RUN chmod +s /usr/bin/nnp-test
 	`
-	err = ioutil.WriteFile(dockerfile, []byte(content), 600)
+	err = ioutil.WriteFile(dockerfile, []byte(content), 0600)
 	assert.NilError(c, err, "could not write Dockerfile for nnp-test image")
 
 	var buildArgs []string
@@ -129,7 +120,7 @@ func ensureNNPTest(c *testing.T) {
 }
 
 func ensureNNPTestBuild(c *testing.T) {
-	err := load.FrozenImagesLinux(testEnv.APIClient(), "buildpack-deps:jessie")
+	err := load.FrozenImagesLinux(testEnv.APIClient(), "buildpack-deps:buster")
 	assert.NilError(c, err)
 
 	var buildArgs []string

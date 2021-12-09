@@ -7,15 +7,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"github.com/docker/docker/internal/test/fakecontext"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/testutil/fakecontext"
 	"github.com/docker/go-connections/nat"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 // Make sure we can create a simple container with some args
@@ -28,11 +27,8 @@ func (s *DockerSuite) TestCreateArgs(c *testing.T) {
 	out, _ = dockerCmd(c, "inspect", cleanedContainerID)
 
 	var containers []struct {
-		ID      string
-		Created time.Time
-		Path    string
-		Args    []string
-		Image   string
+		Path string
+		Args []string
 	}
 
 	err := json.Unmarshal([]byte(out), &containers)

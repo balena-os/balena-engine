@@ -24,10 +24,9 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
-	"time"
 
+	"github.com/containerd/containerd/sys/reaper"
 	"github.com/containerd/fifo"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -81,7 +80,7 @@ func handleSignals(ctx context.Context, logger *logrus.Entry, signals chan os.Si
 		case s := <-signals:
 			switch s {
 			case unix.SIGCHLD:
-				if err := Reap(); err != nil {
+				if err := reaper.Reap(); err != nil {
 					logger.WithError(err).Error("reap exit status")
 				}
 			case unix.SIGPIPE:
@@ -91,10 +90,5 @@ func handleSignals(ctx context.Context, logger *logrus.Entry, signals chan os.Si
 }
 
 func openLog(ctx context.Context, _ string) (io.Writer, error) {
-	return fifo.OpenFifo(ctx, "log", unix.O_WRONLY, 0700)
-}
-
-func dial(address string, timeout time.Duration) (net.Conn, error) {
-	address = strings.TrimPrefix(address, "unix://")
-	return net.DialTimeout("unix", address, timeout)
+	return fifo.OpenFifoDup2(ctx, "log", unix.O_WRONLY, 0700, int(os.Stderr.Fd()))
 }

@@ -13,8 +13,9 @@ import (
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/libnetwork"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/skip"
 )
 
 func setupFakeDaemon(t *testing.T, c *container.Container) *Daemon {
@@ -54,7 +55,7 @@ func setupFakeDaemon(t *testing.T, c *container.Container) *Daemon {
 }
 
 func cleanupFakeContainer(c *container.Container) {
-	os.RemoveAll(c.Root)
+	_ = os.RemoveAll(c.Root)
 }
 
 // TestTmpfsDevShmNoDupMount checks that a user-specified /dev/shm tmpfs
@@ -62,6 +63,7 @@ func cleanupFakeContainer(c *container.Container) {
 // in "Duplicate mount point" error from the engine.
 // https://github.com/moby/moby/issues/35455
 func TestTmpfsDevShmNoDupMount(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
 	c := &container.Container{
 		ShmPath: "foobar", // non-empty, for c.IpcMounts() to work
 		HostConfig: &containertypes.HostConfig{
@@ -84,6 +86,7 @@ func TestTmpfsDevShmNoDupMount(t *testing.T) {
 // the resulting /dev/shm mount is NOT made read-only.
 // https://github.com/moby/moby/issues/36503
 func TestIpcPrivateVsReadonly(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
 	c := &container.Container{
 		HostConfig: &containertypes.HostConfig{
 			IpcMode:        containertypes.IpcMode("private"),
@@ -108,13 +111,16 @@ func TestIpcPrivateVsReadonly(t *testing.T) {
 // TestSysctlOverride ensures that any implicit sysctls (such as
 // Config.Domainname) are overridden by an explicit sysctl in the HostConfig.
 func TestSysctlOverride(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
 	c := &container.Container{
 		Config: &containertypes.Config{
 			Hostname:   "foobar",
 			Domainname: "baz.cyphar.com",
 		},
 		HostConfig: &containertypes.HostConfig{
-			Sysctls: map[string]string{},
+			NetworkMode: "bridge",
+			Sysctls:     map[string]string{},
+			UsernsMode:  "host",
 		},
 	}
 	d := setupFakeDaemon(t, c)
@@ -125,15 +131,52 @@ func TestSysctlOverride(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, s.Hostname, "foobar")
 	assert.Equal(t, s.Linux.Sysctl["kernel.domainname"], c.Config.Domainname)
+	if sysctlExists("net.ipv4.ip_unprivileged_port_start") {
+		assert.Equal(t, s.Linux.Sysctl["net.ipv4.ip_unprivileged_port_start"], "0")
+	}
+	if sysctlExists("net.ipv4.ping_group_range") {
+		assert.Equal(t, s.Linux.Sysctl["net.ipv4.ping_group_range"], "0 2147483647")
+	}
 
 	// Set an explicit sysctl.
 	c.HostConfig.Sysctls["kernel.domainname"] = "foobar.net"
 	assert.Assert(t, c.HostConfig.Sysctls["kernel.domainname"] != c.Config.Domainname)
+	c.HostConfig.Sysctls["net.ipv4.ip_unprivileged_port_start"] = "1024"
 
 	s, err = d.createSpec(c)
 	assert.NilError(t, err)
 	assert.Equal(t, s.Hostname, "foobar")
 	assert.Equal(t, s.Linux.Sysctl["kernel.domainname"], c.HostConfig.Sysctls["kernel.domainname"])
+	assert.Equal(t, s.Linux.Sysctl["net.ipv4.ip_unprivileged_port_start"], c.HostConfig.Sysctls["net.ipv4.ip_unprivileged_port_start"])
+}
+
+// TestSysctlOverrideHost ensures that any implicit network sysctls are not set
+// with host networking
+func TestSysctlOverrideHost(t *testing.T) {
+	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
+	c := &container.Container{
+		Config: &containertypes.Config{},
+		HostConfig: &containertypes.HostConfig{
+			NetworkMode: "host",
+			Sysctls:     map[string]string{},
+			UsernsMode:  "host",
+		},
+	}
+	d := setupFakeDaemon(t, c)
+	defer cleanupFakeContainer(c)
+
+	// Ensure that the implicit sysctl is not set
+	s, err := d.createSpec(c)
+	assert.NilError(t, err)
+	assert.Equal(t, s.Linux.Sysctl["net.ipv4.ip_unprivileged_port_start"], "")
+	assert.Equal(t, s.Linux.Sysctl["net.ipv4.ping_group_range"], "")
+
+	// Set an explicit sysctl.
+	c.HostConfig.Sysctls["net.ipv4.ip_unprivileged_port_start"] = "1024"
+
+	s, err = d.createSpec(c)
+	assert.NilError(t, err)
+	assert.Equal(t, s.Linux.Sysctl["net.ipv4.ip_unprivileged_port_start"], c.HostConfig.Sysctls["net.ipv4.ip_unprivileged_port_start"])
 }
 
 func TestGetSourceMount(t *testing.T) {

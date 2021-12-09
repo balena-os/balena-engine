@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	containerConfigMountPath         = `C:\`
 	containerSecretMountPath         = `C:\ProgramData\Docker\secrets`
 	containerInternalSecretMountPath = `C:\ProgramData\Docker\internal\secrets`
 	containerInternalConfigsDirPath  = `C:\ProgramData\Docker\internal\configs`
@@ -41,7 +42,7 @@ func (container *Container) CreateSecretSymlinks() error {
 		if err != nil {
 			return err
 		}
-		if err := system.MkdirAll(filepath.Dir(resolvedPath), 0, ""); err != nil {
+		if err := system.MkdirAll(filepath.Dir(resolvedPath), 0); err != nil {
 			return err
 		}
 		if err := os.Symlink(filepath.Join(containerInternalSecretMountPath, r.SecretID), resolvedPath); err != nil {
@@ -87,11 +88,11 @@ func (container *Container) CreateConfigSymlinks() error {
 		if configRef.File == nil {
 			continue
 		}
-		resolvedPath, _, err := container.ResolvePath(configRef.File.Name)
+		resolvedPath, _, err := container.ResolvePath(getConfigTargetPath(configRef))
 		if err != nil {
 			return err
 		}
-		if err := system.MkdirAll(filepath.Dir(resolvedPath), 0, ""); err != nil {
+		if err := system.MkdirAll(filepath.Dir(resolvedPath), 0); err != nil {
 			return err
 		}
 		if err := os.Symlink(filepath.Join(containerInternalConfigsDirPath, configRef.ConfigID), resolvedPath); err != nil {
@@ -202,6 +203,6 @@ func (container *Container) ConfigsDirPath() string {
 }
 
 // ConfigFilePath returns the path to the on-disk location of a config.
-func (container *Container) ConfigFilePath(configRef swarmtypes.ConfigReference) string {
-	return filepath.Join(container.ConfigsDirPath(), configRef.ConfigID)
+func (container *Container) ConfigFilePath(configRef swarmtypes.ConfigReference) (string, error) {
+	return filepath.Join(container.ConfigsDirPath(), configRef.ConfigID), nil
 }

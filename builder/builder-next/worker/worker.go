@@ -14,6 +14,7 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/rootfs"
+	"github.com/docker/docker/builder/builder-next/adapters/containerimage"
 	"github.com/docker/docker/distribution"
 	distmetadata "github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
@@ -23,21 +24,24 @@ import (
 	"github.com/moby/buildkit/cache"
 	"github.com/moby/buildkit/cache/metadata"
 	"github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/client/llb"
 	"github.com/moby/buildkit/executor"
 	"github.com/moby/buildkit/exporter"
 	localexporter "github.com/moby/buildkit/exporter/local"
 	tarexporter "github.com/moby/buildkit/exporter/tar"
 	"github.com/moby/buildkit/frontend"
-	gw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/snapshot"
 	"github.com/moby/buildkit/solver"
+	"github.com/moby/buildkit/solver/llbsolver/mounts"
 	"github.com/moby/buildkit/solver/llbsolver/ops"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/source"
 	"github.com/moby/buildkit/source/git"
 	"github.com/moby/buildkit/source/http"
 	"github.com/moby/buildkit/source/local"
+	"github.com/moby/buildkit/util/archutil"
+	"github.com/moby/buildkit/util/compression"
 	"github.com/moby/buildkit/util/contentutil"
 	"github.com/moby/buildkit/util/progress"
 	digest "github.com/opencontainers/go-digest"
@@ -65,7 +69,7 @@ type Opt struct {
 	Snapshotter       snapshot.Snapshotter
 	ContentStore      content.Store
 	CacheManager      cache.Manager
-	ImageSource       source.Source
+	ImageSource       *containerimage.Source
 	DownloadManager   distribution.RootFSDownloadManager
 	V2MetadataService distmetadata.V2MetadataService
 	Transport         nethttp.RoundTripper
@@ -139,7 +143,19 @@ func (w *Worker) Labels() map[string]string {
 }
 
 // Platforms returns one or more platforms supported by the image.
-func (w *Worker) Platforms() []ocispec.Platform {
+func (w *Worker) Platforms(noCache bool) []ocispec.Platform {
+	if noCache {
+		pm := make(map[string]struct{}, len(w.Opt.Platforms))
+		for _, p := range w.Opt.Platforms {
+			pm[platforms.Format(p)] = struct{}{}
+		}
+		for _, p := range archutil.SupportedPlatforms(noCache) {
+			if _, ok := pm[p]; !ok {
+				pp, _ := platforms.Parse(p)
+				w.Opt.Platforms = append(w.Opt.Platforms, pp)
+			}
+		}
+	}
 	if len(w.Opt.Platforms) == 0 {
 		return []ocispec.Platform{platforms.DefaultSpec()}
 	}
@@ -151,13 +167,23 @@ func (w *Worker) GCPolicy() []client.PruneInfo {
 	return w.Opt.GCPolicy
 }
 
+// ContentStore returns content store
+func (w *Worker) ContentStore() content.Store {
+	return w.Opt.ContentStore
+}
+
+// MetadataStore returns the metadata store
+func (w *Worker) MetadataStore() *metadata.Store {
+	return w.Opt.MetadataStore
+}
+
 // LoadRef loads a reference by ID
-func (w *Worker) LoadRef(id string, hidden bool) (cache.ImmutableRef, error) {
+func (w *Worker) LoadRef(ctx context.Context, id string, hidden bool) (cache.ImmutableRef, error) {
 	var opts []cache.RefOption
 	if hidden {
 		opts = append(opts, cache.NoUpdateLastUsed)
 	}
-	return w.CacheManager.Get(context.TODO(), id, opts...)
+	return w.CacheManager().Get(ctx, id, opts...)
 }
 
 // ResolveOp converts a LLB vertex into a LLB operation
@@ -167,9 +193,9 @@ func (w *Worker) ResolveOp(v solver.Vertex, s frontend.FrontendLLBBridge, sm *se
 		case *pb.Op_Source:
 			return ops.NewSourceOp(v, op, baseOp.Platform, w.SourceManager, sm, w)
 		case *pb.Op_Exec:
-			return ops.NewExecOp(v, op, baseOp.Platform, w.CacheManager, sm, w.MetadataStore, w.Executor, w)
+			return ops.NewExecOp(v, op, baseOp.Platform, w.CacheManager(), sm, w.Opt.MetadataStore, w.Executor(), w)
 		case *pb.Op_File:
-			return ops.NewFileOp(v, op, w.CacheManager, w.MetadataStore, w)
+			return ops.NewFileOp(v, op, w.CacheManager(), w.Opt.MetadataStore, w)
 		case *pb.Op_Build:
 			return ops.NewBuildOp(v, op, s, w)
 		}
@@ -178,33 +204,18 @@ func (w *Worker) ResolveOp(v solver.Vertex, s frontend.FrontendLLBBridge, sm *se
 }
 
 // ResolveImageConfig returns image config for an image
-func (w *Worker) ResolveImageConfig(ctx context.Context, ref string, opt gw.ResolveImageConfigOpt, sm *session.Manager) (digest.Digest, []byte, error) {
-	// ImageSource is typically source/containerimage
-	resolveImageConfig, ok := w.ImageSource.(resolveImageConfig)
-	if !ok {
-		return "", nil, errors.Errorf("worker %q does not implement ResolveImageConfig", w.ID())
-	}
-	return resolveImageConfig.ResolveImageConfig(ctx, ref, opt, sm)
-}
-
-// Exec executes a process directly on a worker
-func (w *Worker) Exec(ctx context.Context, meta executor.Meta, rootFS cache.ImmutableRef, stdin io.ReadCloser, stdout, stderr io.WriteCloser) error {
-	active, err := w.CacheManager.New(ctx, rootFS)
-	if err != nil {
-		return err
-	}
-	defer active.Release(context.TODO())
-	return w.Executor.Exec(ctx, meta, active, nil, stdin, stdout, stderr)
+func (w *Worker) ResolveImageConfig(ctx context.Context, ref string, opt llb.ResolveImageConfigOpt, sm *session.Manager, g session.Group) (digest.Digest, []byte, error) {
+	return w.ImageSource.ResolveImageConfig(ctx, ref, opt, sm, g)
 }
 
 // DiskUsage returns disk usage report
 func (w *Worker) DiskUsage(ctx context.Context, opt client.DiskUsageInfo) ([]*client.UsageInfo, error) {
-	return w.CacheManager.DiskUsage(ctx, opt)
+	return w.CacheManager().DiskUsage(ctx, opt)
 }
 
 // Prune deletes reclaimable build cache
 func (w *Worker) Prune(ctx context.Context, ch chan client.UsageInfo, info ...client.PruneInfo) error {
-	return w.CacheManager.Prune(ctx, ch, info...)
+	return w.CacheManager().Prune(ctx, ch, info...)
 }
 
 // Exporter returns exporter by name
@@ -226,7 +237,7 @@ func (w *Worker) Exporter(name string, sm *session.Manager) (exporter.Exporter, 
 }
 
 // GetRemote returns a remote snapshot reference for a local one
-func (w *Worker) GetRemote(ctx context.Context, ref cache.ImmutableRef, createIfNeeded bool) (*solver.Remote, error) {
+func (w *Worker) GetRemote(ctx context.Context, ref cache.ImmutableRef, createIfNeeded bool, _ compression.Type, _ session.Group) (*solver.Remote, error) {
 	var diffIDs []layer.DiffID
 	var err error
 	if !createIfNeeded {
@@ -261,20 +272,20 @@ func (w *Worker) GetRemote(ctx context.Context, ref cache.ImmutableRef, createIf
 
 // PruneCacheMounts removes the current cache snapshots for specified IDs
 func (w *Worker) PruneCacheMounts(ctx context.Context, ids []string) error {
-	mu := ops.CacheMountsLocker()
+	mu := mounts.CacheMountsLocker()
 	mu.Lock()
 	defer mu.Unlock()
 
 	for _, id := range ids {
 		id = "cache-dir:" + id
-		sis, err := w.MetadataStore.Search(id)
+		sis, err := w.Opt.MetadataStore.Search(id)
 		if err != nil {
 			return err
 		}
 		for _, si := range sis {
 			for _, k := range si.Indexes() {
 				if k == id || strings.HasPrefix(k, id+":") {
-					if siCached := w.CacheManager.Metadata(si.ID()); siCached != nil {
+					if siCached := w.CacheManager().Metadata(si.ID()); siCached != nil {
 						si = siCached
 					}
 					if err := cache.CachePolicyDefault(si); err != nil {
@@ -287,7 +298,7 @@ func (w *Worker) PruneCacheMounts(ctx context.Context, ids []string) error {
 						return err
 					}
 					// if ref is unused try to clean it up right away by releasing it
-					if mref, err := w.CacheManager.GetMutable(ctx, si.ID()); err == nil {
+					if mref, err := w.CacheManager().GetMutable(ctx, si.ID()); err == nil {
 						go mref.Release(context.TODO())
 					}
 					break
@@ -296,8 +307,25 @@ func (w *Worker) PruneCacheMounts(ctx context.Context, ids []string) error {
 		}
 	}
 
-	ops.ClearActiveCacheMounts()
+	mounts.ClearActiveCacheMounts()
 	return nil
+}
+
+func (w *Worker) getRef(ctx context.Context, diffIDs []layer.DiffID, opts ...cache.RefOption) (cache.ImmutableRef, error) {
+	var parent cache.ImmutableRef
+	if len(diffIDs) > 1 {
+		var err error
+		parent, err = w.getRef(ctx, diffIDs[:len(diffIDs)-1], opts...)
+		if err != nil {
+			return nil, err
+		}
+		defer parent.Release(context.TODO())
+	}
+	return w.CacheManager().GetByBlob(context.TODO(), ocispec.Descriptor{
+		Annotations: map[string]string{
+			"containerd.io/uncompressed": diffIDs[len(diffIDs)-1].String(),
+		},
+	}, parent, opts...)
 }
 
 // FromRemote converts a remote snapshot reference to a local one
@@ -322,7 +350,7 @@ func (w *Worker) FromRemote(ctx context.Context, remote *solver.Remote) (cache.I
 
 	defer func() {
 		for _, l := range rootfs {
-			w.ContentStore.Delete(context.TODO(), l.Blob.Digest)
+			w.ContentStore().Delete(context.TODO(), l.Blob.Digest)
 		}
 	}()
 
@@ -348,7 +376,7 @@ func (w *Worker) FromRemote(ctx context.Context, remote *solver.Remote) (cache.I
 		if v, ok := remote.Descriptors[i].Annotations["buildkit/description"]; ok {
 			descr = v
 		}
-		ref, err := w.CacheManager.GetFromSnapshotter(ctx, string(layer.CreateChainID(rootFS.DiffIDs[:i+1])), cache.WithDescription(descr), cache.WithCreationTime(tm))
+		ref, err := w.getRef(ctx, rootFS.DiffIDs[:i+1], cache.WithDescription(descr), cache.WithCreationTime(tm))
 		if err != nil {
 			return nil, err
 		}
@@ -359,6 +387,16 @@ func (w *Worker) FromRemote(ctx context.Context, remote *solver.Remote) (cache.I
 	}
 
 	return nil, errors.Errorf("unreachable")
+}
+
+// Executor returns executor.Executor for running processes
+func (w *Worker) Executor() executor.Executor {
+	return w.Opt.Executor
+}
+
+// CacheManager returns cache.Manager for accessing local storage
+func (w *Worker) CacheManager() cache.Manager {
+	return w.Opt.CacheManager
 }
 
 type discardProgress struct{}
@@ -391,12 +429,15 @@ func (ld *layerDescriptor) DiffID() (layer.DiffID, error) {
 
 func (ld *layerDescriptor) Download(ctx context.Context, progressOutput pkgprogress.Output) (io.ReadCloser, int64, error) {
 	done := oneOffProgress(ld.pctx, fmt.Sprintf("pulling %s", ld.desc.Digest))
-	if err := contentutil.Copy(ctx, ld.w.ContentStore, ld.provider, ld.desc); err != nil {
+
+	// TODO should this write output to progressOutput? Or use something similar to loggerFromContext()? see https://github.com/moby/buildkit/commit/aa29e7729464f3c2a773e27795e584023c751cb8
+	discardLogs := func(_ []byte) {}
+	if err := contentutil.Copy(ctx, ld.w.ContentStore(), ld.provider, ld.desc, discardLogs); err != nil {
 		return nil, 0, done(err)
 	}
-	done(nil)
+	_ = done(nil)
 
-	ra, err := ld.w.ContentStore.ReaderAt(ctx, ld.desc)
+	ra, err := ld.w.ContentStore().ReaderAt(ctx, ld.desc)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -405,7 +446,7 @@ func (ld *layerDescriptor) Download(ctx context.Context, progressOutput pkgprogr
 }
 
 func (ld *layerDescriptor) Close() {
-	// ld.is.ContentStore.Delete(context.TODO(), ld.desc.Digest)
+	// ld.is.ContentStore().Delete(context.TODO(), ld.desc.Digest)
 }
 
 func (ld *layerDescriptor) Registered(diffID layer.DiffID) {
@@ -451,19 +492,15 @@ func oneOffProgress(ctx context.Context, id string) func(err error) error {
 	st := progress.Status{
 		Started: &now,
 	}
-	pw.Write(id, st)
+	_ = pw.Write(id, st)
 	return func(err error) error {
 		// TODO: set error on status
 		now := time.Now()
 		st.Completed = &now
-		pw.Write(id, st)
-		pw.Close()
+		_ = pw.Write(id, st)
+		_ = pw.Close()
 		return err
 	}
-}
-
-type resolveImageConfig interface {
-	ResolveImageConfig(ctx context.Context, ref string, opt gw.ResolveImageConfigOpt, sm *session.Manager) (digest.Digest, []byte, error)
 }
 
 type emptyProvider struct {

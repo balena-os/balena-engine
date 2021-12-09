@@ -43,9 +43,12 @@ var Command = cli.Command{
 		exportCommand,
 		importCommand,
 		listCommand,
+		mountCommand,
+		unmountCommand,
 		pullCommand,
 		pushCommand,
 		removeCommand,
+		tagCommand,
 		setLabelsCommand,
 	},
 }

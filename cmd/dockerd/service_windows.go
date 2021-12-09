@@ -12,7 +12,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/docker/docker/pkg/system"
+	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"golang.org/x/sys/windows"
@@ -52,7 +52,7 @@ func installServiceFlags(flags *pflag.FlagSet) {
 	flRegisterService = flags.Bool("register-service", false, "Register the service and exit")
 	flUnregisterService = flags.Bool("unregister-service", false, "Unregister the service and exit")
 	flRunService = flags.Bool("run-service", false, "")
-	flags.MarkHidden("run-service")
+	_ = flags.MarkHidden("run-service")
 }
 
 type handler struct {
@@ -171,7 +171,7 @@ func registerService() error {
 
 	// This dependency is required on build 14393 (RS1)
 	// it is added to the platform in newer builds
-	if system.GetOSVersion().Build == 14393 {
+	if osversion.Build() == osversion.RS1 {
 		depends = append(depends, "ConDrv")
 	}
 
@@ -372,7 +372,7 @@ Loop:
 
 func initPanicFile(path string) error {
 	var err error
-	panicFile, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0)
+	panicFile, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o200)
 	if err != nil {
 		return err
 	}

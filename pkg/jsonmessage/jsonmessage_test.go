@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/pkg/term"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"github.com/moby/term"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 func TestError(t *testing.T) {
@@ -228,8 +228,9 @@ func TestDisplayJSONMessagesStreamInvalidJSON(t *testing.T) {
 	reader := strings.NewReader("This is not a 'valid' JSON []")
 	inFd, _ = term.GetFdInfo(reader)
 
-	if err := DisplayJSONMessagesStream(reader, data, inFd, false, nil); err == nil && err.Error()[:17] != "invalid character" {
-		t.Fatalf("Should have thrown an error (invalid character in ..), got %q", err)
+	exp := "invalid character "
+	if err := DisplayJSONMessagesStream(reader, data, inFd, false, nil); err == nil || !strings.HasPrefix(err.Error(), exp) {
+		t.Fatalf("Expected error (%s...), got %q", exp, err)
 	}
 }
 

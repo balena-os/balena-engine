@@ -22,15 +22,19 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/remotes"
+	"github.com/containerd/containerd/snapshots"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+
 	"google.golang.org/grpc"
 )
 
 type clientOpts struct {
-	defaultns      string
-	defaultRuntime string
-	services       *services
-	dialOptions    []grpc.DialOption
-	timeout        time.Duration
+	defaultns       string
+	defaultRuntime  string
+	defaultPlatform platforms.MatchComparer
+	services        *services
+	dialOptions     []grpc.DialOption
+	timeout         time.Duration
 }
 
 // ClientOpt allows callers to set options on the containerd client
@@ -51,6 +55,14 @@ func WithDefaultNamespace(ns string) ClientOpt {
 func WithDefaultRuntime(rt string) ClientOpt {
 	return func(c *clientOpts) error {
 		c.defaultRuntime = rt
+		return nil
+	}
+}
+
+// WithDefaultPlatform sets the default platform matcher on the client
+func WithDefaultPlatform(platform platforms.MatchComparer) ClientOpt {
+	return func(c *clientOpts) error {
+		c.defaultPlatform = platform
 		return nil
 	}
 }
@@ -121,10 +133,19 @@ func WithPullUnpack(_ *Client, c *RemoteContext) error {
 	return nil
 }
 
-// WithPullSnapshotter specifies snapshotter name used for unpacking
-func WithPullSnapshotter(snapshotterName string) RemoteOpt {
+// WithUnpackOpts is used to add unpack options to the unpacker.
+func WithUnpackOpts(opts []UnpackOpt) RemoteOpt {
+	return func(_ *Client, c *RemoteContext) error {
+		c.UnpackOpts = append(c.UnpackOpts, opts...)
+		return nil
+	}
+}
+
+// WithPullSnapshotter specifies snapshotter name used for unpacking.
+func WithPullSnapshotter(snapshotterName string, opts ...snapshots.Opt) RemoteOpt {
 	return func(_ *Client, c *RemoteContext) error {
 		c.Snapshotter = snapshotterName
+		c.SnapshotterOpts = opts
 		return nil
 	}
 }
@@ -151,6 +172,18 @@ func WithPullLabels(labels map[string]string) RemoteOpt {
 		for k, v := range labels {
 			rc.Labels[k] = v
 		}
+		return nil
+	}
+}
+
+// WithChildLabelMap sets the map function used to define the labels set
+// on referenced child content in the content store. This can be used
+// to overwrite the default GC labels or filter which labels get set
+// for content.
+// The default is `images.ChildGCLabels`.
+func WithChildLabelMap(fn func(ocispec.Descriptor) []string) RemoteOpt {
+	return func(_ *Client, c *RemoteContext) error {
+		c.ChildLabelMap = fn
 		return nil
 	}
 }
@@ -195,11 +228,10 @@ func WithMaxConcurrentDownloads(max int) RemoteOpt {
 	}
 }
 
-// WithAppendDistributionSourceLabel allows fetcher to add distribute source
-// label for each blob content, which doesn't work for legacy schema1.
-func WithAppendDistributionSourceLabel() RemoteOpt {
+// WithAllMetadata downloads all manifests and known-configuration files
+func WithAllMetadata() RemoteOpt {
 	return func(_ *Client, c *RemoteContext) error {
-		c.AppendDistributionSourceLabel = true
+		c.AllMetadata = true
 		return nil
 	}
 }

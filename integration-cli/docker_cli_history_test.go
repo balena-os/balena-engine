@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/docker/docker/integration-cli/cli/build"
-	"gotest.tools/assert"
-	"gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 // This is a heisen-test.  Because the created timestamp of images and the behavior of
@@ -53,7 +53,6 @@ LABEL label.Z="Z"`))
 		actualValue := actualValues[i]
 		assert.Assert(c, strings.Contains(actualValue, echoValue))
 	}
-
 }
 
 func (s *DockerSuite) TestHistoryExistentImage(c *testing.T) {

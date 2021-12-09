@@ -10,9 +10,35 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/sysinfo"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
+
+func TestCgroupnsModeTest(t *testing.T) {
+	cgroupNsModes := map[container.CgroupnsMode][]bool{
+		// private, host, empty, valid
+		"":                {false, false, true, true},
+		"something:weird": {false, false, false, false},
+		"host":            {false, true, false, true},
+		"host:name":       {false, false, false, false},
+		"private":         {true, false, false, true},
+		"private:name":    {false, false, false, false},
+	}
+	for cgroupNsMode, state := range cgroupNsModes {
+		if cgroupNsMode.IsPrivate() != state[0] {
+			t.Fatalf("CgroupnsMode.IsPrivate for %v should have been %v but was %v", cgroupNsMode, state[0], cgroupNsMode.IsPrivate())
+		}
+		if cgroupNsMode.IsHost() != state[1] {
+			t.Fatalf("CgroupnsMode.IsHost for %v should have been %v but was %v", cgroupNsMode, state[1], cgroupNsMode.IsHost())
+		}
+		if cgroupNsMode.IsEmpty() != state[2] {
+			t.Fatalf("CgroupnsMode.Valid for %v should have been %v but was %v", cgroupNsMode, state[2], cgroupNsMode.Valid())
+		}
+		if cgroupNsMode.Valid() != state[3] {
+			t.Fatalf("CgroupnsMode.Valid for %v should have been %v but was %v", cgroupNsMode, state[2], cgroupNsMode.Valid())
+		}
+	}
+}
 
 // TODO Windows: This will need addressing for a Windows daemon.
 func TestNetworkModeTest(t *testing.T) {
@@ -214,46 +240,41 @@ func TestDecodeHostConfig(t *testing.T) {
 
 func TestValidateResources(t *testing.T) {
 	type resourceTest struct {
-		ConfigCPURealtimePeriod   int64
-		ConfigCPURealtimeRuntime  int64
-		SysInfoCPURealtimePeriod  bool
-		SysInfoCPURealtimeRuntime bool
-		ErrorExpected             bool
-		FailureMsg                string
+		ConfigCPURealtimePeriod  int64
+		ConfigCPURealtimeRuntime int64
+		SysInfoCPURealtime       bool
+		ErrorExpected            bool
+		FailureMsg               string
 	}
 
 	tests := []resourceTest{
 		{
-			ConfigCPURealtimePeriod:   1000,
-			ConfigCPURealtimeRuntime:  1000,
-			SysInfoCPURealtimePeriod:  true,
-			SysInfoCPURealtimeRuntime: true,
-			ErrorExpected:             false,
-			FailureMsg:                "Expected valid configuration",
+			ConfigCPURealtimePeriod:  1000,
+			ConfigCPURealtimeRuntime: 1000,
+			SysInfoCPURealtime:       true,
+			ErrorExpected:            false,
+			FailureMsg:               "Expected valid configuration",
 		},
 		{
-			ConfigCPURealtimePeriod:   5000,
-			ConfigCPURealtimeRuntime:  5000,
-			SysInfoCPURealtimePeriod:  false,
-			SysInfoCPURealtimeRuntime: true,
-			ErrorExpected:             true,
-			FailureMsg:                "Expected failure when cpu-rt-period is set but kernel doesn't support it",
+			ConfigCPURealtimePeriod:  5000,
+			ConfigCPURealtimeRuntime: 5000,
+			SysInfoCPURealtime:       false,
+			ErrorExpected:            true,
+			FailureMsg:               "Expected failure when cpu-rt-period is set but kernel doesn't support it",
 		},
 		{
-			ConfigCPURealtimePeriod:   5000,
-			ConfigCPURealtimeRuntime:  5000,
-			SysInfoCPURealtimePeriod:  true,
-			SysInfoCPURealtimeRuntime: false,
-			ErrorExpected:             true,
-			FailureMsg:                "Expected failure when cpu-rt-runtime is set but kernel doesn't support it",
+			ConfigCPURealtimePeriod:  5000,
+			ConfigCPURealtimeRuntime: 5000,
+			SysInfoCPURealtime:       false,
+			ErrorExpected:            true,
+			FailureMsg:               "Expected failure when cpu-rt-runtime is set but kernel doesn't support it",
 		},
 		{
-			ConfigCPURealtimePeriod:   5000,
-			ConfigCPURealtimeRuntime:  10000,
-			SysInfoCPURealtimePeriod:  true,
-			SysInfoCPURealtimeRuntime: false,
-			ErrorExpected:             true,
-			FailureMsg:                "Expected failure when cpu-rt-runtime is greater than cpu-rt-period",
+			ConfigCPURealtimePeriod:  5000,
+			ConfigCPURealtimeRuntime: 10000,
+			SysInfoCPURealtime:       true,
+			ErrorExpected:            true,
+			FailureMsg:               "Expected failure when cpu-rt-runtime is greater than cpu-rt-period",
 		},
 	}
 
@@ -263,8 +284,7 @@ func TestValidateResources(t *testing.T) {
 		hc.Resources.CPURealtimeRuntime = rt.ConfigCPURealtimeRuntime
 
 		var si sysinfo.SysInfo
-		si.CPURealtimePeriod = rt.SysInfoCPURealtimePeriod
-		si.CPURealtimeRuntime = rt.SysInfoCPURealtimeRuntime
+		si.CPURealtime = rt.SysInfoCPURealtime
 
 		if err := validateResources(&hc, &si); (err != nil) != rt.ErrorExpected {
 			t.Fatal(rt.FailureMsg, err)

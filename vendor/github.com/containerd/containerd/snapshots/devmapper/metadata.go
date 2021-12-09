@@ -38,6 +38,7 @@ type deviceIDState byte
 const (
 	deviceFree deviceIDState = iota
 	deviceTaken
+	deviceFaulty
 )
 
 // Bucket names
@@ -92,12 +93,15 @@ func (m *PoolMetadata) ensureDatabaseInitialized() error {
 
 // AddDevice saves device info to database.
 func (m *PoolMetadata) AddDevice(ctx context.Context, info *DeviceInfo) error {
-	return m.db.Update(func(tx *bolt.Tx) error {
+	err := m.db.Update(func(tx *bolt.Tx) error {
 		devicesBucket := tx.Bucket(devicesBucketName)
 
-		// Make sure device name is unique
-		if err := getObject(devicesBucket, info.Name, nil); err == nil {
-			return ErrAlreadyExists
+		// Make sure device name is unique. If there is already a device with the same name,
+		// but in Faulty state, give it a try with another devmapper device ID.
+		// See https://github.com/containerd/containerd/pull/3436 for more context.
+		var existing DeviceInfo
+		if err := getObject(devicesBucket, info.Name, &existing); err == nil && existing.State != Faulty {
+			return errors.Wrapf(ErrAlreadyExists, "device %q is already there %+v", info.Name, existing)
 		}
 
 		// Find next available device ID
@@ -108,7 +112,46 @@ func (m *PoolMetadata) AddDevice(ctx context.Context, info *DeviceInfo) error {
 
 		info.DeviceID = deviceID
 
-		return putObject(devicesBucket, info.Name, info, false)
+		return putObject(devicesBucket, info.Name, info, true)
+	})
+
+	if err != nil {
+		return errors.Wrapf(err, "failed to save metadata for device %q (parent: %q)", info.Name, info.ParentName)
+	}
+
+	return nil
+}
+
+// ChangeDeviceState changes the device state given the device name in devices bucket.
+func (m *PoolMetadata) ChangeDeviceState(ctx context.Context, name string, state DeviceState) error {
+	return m.UpdateDevice(ctx, name, func(deviceInfo *DeviceInfo) error {
+		deviceInfo.State = state
+		return nil
+	})
+}
+
+// MarkFaulty marks the given device and corresponding devmapper device ID as faulty.
+// The snapshotter might attempt to recreate a device in 'Faulty' state with another devmapper ID in
+// subsequent calls, and in case of success it's status will be changed to 'Created' or 'Activated'.
+// The devmapper dev ID will remain in 'deviceFaulty' state until manually handled by a user.
+func (m *PoolMetadata) MarkFaulty(ctx context.Context, name string) error {
+	return m.db.Update(func(tx *bolt.Tx) error {
+		var (
+			device    = DeviceInfo{}
+			devBucket = tx.Bucket(devicesBucketName)
+		)
+
+		if err := getObject(devBucket, name, &device); err != nil {
+			return err
+		}
+
+		device.State = Faulty
+
+		if err := putObject(devBucket, name, &device, true); err != nil {
+			return err
+		}
+
+		return markDeviceID(tx, device.DeviceID, deviceFaulty)
 	})
 }
 
@@ -242,6 +285,22 @@ func (m *PoolMetadata) RemoveDevice(ctx context.Context, name string) error {
 		}
 
 		return markDeviceID(tx, device.DeviceID, deviceFree)
+	})
+}
+
+// WalkDevices walks all devmapper devices in metadata store and invokes the callback with device info.
+// The provided callback function must not modify the bucket.
+func (m *PoolMetadata) WalkDevices(ctx context.Context, cb func(info *DeviceInfo) error) error {
+	return m.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(devicesBucketName)
+		return bucket.ForEach(func(key, value []byte) error {
+			device := &DeviceInfo{}
+			if err := json.Unmarshal(value, device); err != nil {
+				return errors.Wrapf(err, "failed to unmarshal %s", key)
+			}
+
+			return cb(device)
+		})
 	})
 }
 

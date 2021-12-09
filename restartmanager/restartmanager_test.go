@@ -11,7 +11,7 @@ import (
 func TestRestartManagerTimeout(t *testing.T) {
 	health := types.Health{}
 	rm := New(container.RestartPolicy{Name: "always"}, 0).(*restartManager)
-	var duration = time.Duration(1 * time.Second)
+	var duration = 1 * time.Second
 	should, _, err := rm.ShouldRestart(0, false, duration, health)
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestRestartManagerTimeoutReset(t *testing.T) {
 	health := types.Health{}
 	rm := New(container.RestartPolicy{Name: "always"}, 0).(*restartManager)
 	rm.timeout = 5 * time.Second
-	var duration = time.Duration(10 * time.Second)
+	var duration = 10 * time.Second
 	_, _, err := rm.ShouldRestart(0, false, duration, health)
 	if err != nil {
 		t.Fatal(err)

@@ -6,7 +6,7 @@ import (
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/plugins"
-	"github.com/docker/go-metrics"
+	metrics "github.com/docker/go-metrics"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -17,6 +17,7 @@ const metricsPluginType = "MetricsCollector"
 var (
 	containerActions          metrics.LabeledTimer
 	networkActions            metrics.LabeledTimer
+	hostInfoFunctions         metrics.LabeledTimer
 	engineInfo                metrics.LabeledGauge
 	engineCpus                metrics.Gauge
 	engineMemory              metrics.Gauge
@@ -38,6 +39,7 @@ func init() {
 	} {
 		containerActions.WithValues(a).Update(0)
 	}
+	hostInfoFunctions = ns.NewLabeledTimer("host_info_functions", "The number of seconds it takes to call functions gathering info about the host", "function")
 
 	networkActions = ns.NewLabeledTimer("network_actions", "The number of seconds it takes to process each network action", "action")
 	engineInfo = ns.NewLabeledGauge("engine", "The information related to the engine and the OS it is running on", metrics.Unit("info"),
@@ -45,8 +47,10 @@ func init() {
 		"commit",
 		"architecture",
 		"graphdriver",
-		"kernel", "os",
+		"kernel",
+		"os",
 		"os_type",
+		"os_version",
 		"daemon_id", // ID is a randomly generated unique identifier (e.g. UUID4)
 	)
 	engineCpus = ns.NewGauge("engine_cpus", "The number of cpus that the host system of the engine has", metrics.Unit("cpus"))
@@ -111,8 +115,8 @@ func (ctr *stateCounter) Collect(ch chan<- prometheus.Metric) {
 	ch <- prometheus.MustNewConstMetric(ctr.desc, prometheus.GaugeValue, float64(stopped), "stopped")
 }
 
-func (d *Daemon) cleanupMetricsPlugins() {
-	ls := d.PluginStore.GetAllManagedPluginsByCap(metricsPluginType)
+func (daemon *Daemon) cleanupMetricsPlugins() {
+	ls := daemon.PluginStore.GetAllManagedPluginsByCap(metricsPluginType)
 	var wg sync.WaitGroup
 	wg.Add(len(ls))
 
@@ -133,8 +137,8 @@ func (d *Daemon) cleanupMetricsPlugins() {
 	}
 	wg.Wait()
 
-	if d.metricsPluginListener != nil {
-		d.metricsPluginListener.Close()
+	if daemon.metricsPluginListener != nil {
+		daemon.metricsPluginListener.Close()
 	}
 }
 

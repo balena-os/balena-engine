@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-set -e
-
-(
-	source "${MAKEDIR}/.binary-setup"
-	. hack/make/dynbinary-daemon
-	. hack/make/.binary-symlinks
-)

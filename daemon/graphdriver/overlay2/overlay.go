@@ -18,19 +18,18 @@ import (
 
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/daemon/graphdriver/overlayutils"
-	"github.com/docker/docker/daemon/graphdriver/quota"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/directory"
 	"github.com/docker/docker/pkg/fsutils"
 	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/locker"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/system"
-	"github.com/docker/go-units"
-	rsystem "github.com/opencontainers/runc/libcontainer/system"
+	"github.com/docker/docker/quota"
+	units "github.com/docker/go-units"
+	"github.com/moby/locker"
+	"github.com/moby/sys/mount"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -115,7 +114,8 @@ var (
 	useNaiveDiffLock sync.Once
 	useNaiveDiffOnly bool
 
-	indexOff string
+	indexOff  string
+	userxattr string
 )
 
 func init() {
@@ -147,6 +147,14 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 		return nil, graphdriver.ErrNotSupported
 	}
 
+	fsMagic, err := graphdriver.GetFSMagic(testdir)
+	if err != nil {
+		return nil, err
+	}
+	if fsName, ok := graphdriver.FsNames[fsMagic]; ok {
+		backingFs = fsName
+	}
+
 	supportsDType, err := fsutils.SupportsDType(testdir)
 	if err != nil {
 		return nil, err
@@ -159,12 +167,20 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 		logger.Warn(overlayutils.ErrDTypeNotSupported("overlay2", backingFs))
 	}
 
-	rootUID, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
+	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
 	if err != nil {
 		return nil, err
 	}
-	// Create the driver home dir
-	if err := idtools.MkdirAllAndChown(path.Join(home, linkDir), 0700, idtools.Identity{UID: rootUID, GID: rootGID}); err != nil {
+
+	cur := idtools.CurrentIdentity()
+	dirID := idtools.Identity{
+		UID: cur.UID,
+		GID: rootGID,
+	}
+	if err := idtools.MkdirAllAndChown(home, 0710, dirID); err != nil {
+		return nil, err
+	}
+	if err := idtools.MkdirAllAndChown(path.Join(home, linkDir), 0700, cur); err != nil {
 		return nil, err
 	}
 
@@ -203,7 +219,16 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 		logger.Warnf("Unable to detect whether overlay kernel module supports index parameter: %s", err)
 	}
 
-	logger.Debugf("backingFs=%s, projectQuotaSupported=%v, indexOff=%q, syncDiffs=%v", backingFs, projectQuotaSupported, indexOff, opts.syncDiffs)
+	needsUserXattr, err := overlayutils.NeedsUserXAttr(home)
+	if err != nil {
+		logger.Warnf("Unable to detect whether overlay kernel module needs \"userxattr\" parameter: %s", err)
+	}
+	if needsUserXattr {
+		userxattr = "userxattr,"
+	}
+
+	logger.Debugf("backingFs=%s, projectQuotaSupported=%v, indexOff=%q, syncDiffs=%v, userxattr=%q",
+		backingFs, projectQuotaSupported, indexOff, opts.syncDiffs, userxattr)
 
 	return d, nil
 }
@@ -261,6 +286,7 @@ func (d *Driver) Status() [][2]string {
 		{"Backing Filesystem", backingFs},
 		{"Supports d_type", strconv.FormatBool(d.supportsDType)},
 		{"Native Overlay Diff", strconv.FormatBool(!useNaiveDiff(d.home))},
+		{"userxattr", strconv.FormatBool(userxattr != "")},
 	}
 }
 
@@ -299,21 +325,21 @@ func (d *Driver) Cleanup() error {
 // CreateReadWrite creates a layer that is writable for use as a container
 // file system.
 func (d *Driver) CreateReadWrite(id, parent string, opts *graphdriver.CreateOpts) error {
-	if opts != nil && len(opts.StorageOpt) != 0 && !projectQuotaSupported {
-		return fmt.Errorf("--storage-opt is supported only for overlay over xfs with 'pquota' mount option")
-	}
-
 	if opts == nil {
 		opts = &graphdriver.CreateOpts{
-			StorageOpt: map[string]string{},
+			StorageOpt: make(map[string]string),
 		}
+	} else if opts.StorageOpt == nil {
+		opts.StorageOpt = make(map[string]string)
 	}
 
-	if _, ok := opts.StorageOpt["size"]; !ok {
-		if opts.StorageOpt == nil {
-			opts.StorageOpt = map[string]string{}
-		}
+	// Merge daemon default config.
+	if _, ok := opts.StorageOpt["size"]; !ok && d.options.quota.Size != 0 {
 		opts.StorageOpt["size"] = strconv.FormatUint(d.options.quota.Size, 10)
+	}
+
+	if _, ok := opts.StorageOpt["size"]; ok && !projectQuotaSupported {
+		return fmt.Errorf("--storage-opt is supported only for overlay over xfs with 'pquota' mount option")
 	}
 
 	return d.create(id, parent, opts)
@@ -338,11 +364,15 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
 		return err
 	}
 	root := idtools.Identity{UID: rootUID, GID: rootGID}
+	dirID := idtools.Identity{
+		UID: idtools.CurrentIdentity().UID,
+		GID: rootGID,
+	}
 
-	if err := idtools.MkdirAllAndChown(path.Dir(dir), 0700, root); err != nil {
+	if err := idtools.MkdirAllAndChown(path.Dir(dir), 0710, dirID); err != nil {
 		return err
 	}
-	if err := idtools.MkdirAndChown(dir, 0700, root); err != nil {
+	if err := idtools.MkdirAndChown(dir, 0710, dirID); err != nil {
 		return err
 	}
 
@@ -371,7 +401,7 @@ func (d *Driver) create(id, parent string, opts *graphdriver.CreateOpts) (retErr
 		return err
 	}
 
-	lid := GenerateID(IDLength)
+	lid := overlayutils.GenerateID(IDLength, logger)
 	if err := os.Symlink(path.Join("..", id, diffDirName), path.Join(d.home, linkDir, lid)); err != nil {
 		return err
 	}
@@ -549,9 +579,9 @@ func (d *Driver) Get(id, mountLabel string) (_ containerfs.ContainerFS, retErr e
 
 	var opts string
 	if readonly {
-		opts = indexOff + "lowerdir=" + diffDir + ":" + strings.Join(absLowers, ":")
+		opts = indexOff + userxattr + "lowerdir=" + diffDir + ":" + strings.Join(absLowers, ":")
 	} else {
-		opts = indexOff + "lowerdir=" + strings.Join(absLowers, ":") + ",upperdir=" + diffDir + ",workdir=" + workDir
+		opts = indexOff + userxattr + "lowerdir=" + strings.Join(absLowers, ":") + ",upperdir=" + diffDir + ",workdir=" + workDir
 	}
 
 	mountData := label.FormatMountLabel(opts, mountLabel)
@@ -572,14 +602,14 @@ func (d *Driver) Get(id, mountLabel string) (_ containerfs.ContainerFS, retErr e
 	// the page size. The mount syscall fails if the mount data cannot
 	// fit within a page and relative links make the mount data much
 	// smaller at the expense of requiring a fork exec to chroot.
-	if len(mountData) > pageSize {
+	if len(mountData) > pageSize-1 {
 		if readonly {
-			opts = indexOff + "lowerdir=" + path.Join(id, diffDirName) + ":" + string(lowers)
+			opts = indexOff + userxattr + "lowerdir=" + path.Join(id, diffDirName) + ":" + string(lowers)
 		} else {
-			opts = indexOff + "lowerdir=" + string(lowers) + ",upperdir=" + path.Join(id, diffDirName) + ",workdir=" + path.Join(id, workDirName)
+			opts = indexOff + userxattr + "lowerdir=" + string(lowers) + ",upperdir=" + path.Join(id, diffDirName) + ",workdir=" + path.Join(id, workDirName)
 		}
 		mountData = label.FormatMountLabel(opts, mountLabel)
-		if len(mountData) > pageSize {
+		if len(mountData) > pageSize-1 {
 			return nil, fmt.Errorf("cannot mount layer, mount label too large %d", len(mountData))
 		}
 
@@ -670,10 +700,11 @@ func (d *Driver) isParent(id, parent string) bool {
 
 // ApplyDiff applies the new layer into a root
 func (d *Driver) ApplyDiff(id string, parent string, diff io.Reader) (size int64, err error) {
-	if !d.isParent(id, parent) {
+	if useNaiveDiff(d.home) || !d.isParent(id, parent) {
 		return d.naiveDiff.ApplyDiff(id, parent, diff)
 	}
 
+	// never reach here if we are running in UserNS
 	applyDir := d.getDiffPath(id)
 
 	logger.Debugf("Applying tar in %s", applyDir)
@@ -682,7 +713,6 @@ func (d *Driver) ApplyDiff(id string, parent string, diff io.Reader) (size int64
 		UIDMaps:        d.uidMaps,
 		GIDMaps:        d.gidMaps,
 		WhiteoutFormat: archive.OverlayWhiteoutFormat,
-		InUserNS:       rsystem.RunningInUserNS(),
 	}); err != nil {
 		return 0, err
 	}
@@ -719,6 +749,7 @@ func (d *Driver) Diff(id, parent string) (io.ReadCloser, error) {
 		return d.naiveDiff.Diff(id, parent)
 	}
 
+	// never reach here if we are running in UserNS
 	diffPath := d.getDiffPath(id)
 	logger.Debugf("Tar with options on %s", diffPath)
 	return archive.TarWithOptions(diffPath, &archive.TarOptions{

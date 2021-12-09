@@ -6,10 +6,11 @@ package journald // import "github.com/docker/docker/daemon/logger/journald"
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"unicode"
 
-	"github.com/coreos/go-systemd/journal"
+	"github.com/coreos/go-systemd/v22/journal"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/logger/loggerutils"
 	"github.com/sirupsen/logrus"
@@ -18,7 +19,7 @@ import (
 const name = "journald"
 
 type journald struct {
-	mu      sync.Mutex
+	mu      sync.Mutex        //nolint:structcheck,unused
 	vars    map[string]string // additional variables and values to send to the journal along with the log message
 	readers map[*logger.LogWatcher]struct{}
 }
@@ -89,6 +90,7 @@ func validateLogOpt(cfg map[string]string) error {
 	for key := range cfg {
 		switch key {
 		case "labels":
+		case "labels-regex":
 		case "env":
 		case "env-regex":
 		case "tag":
@@ -104,8 +106,13 @@ func (s *journald) Log(msg *logger.Message) error {
 	for k, v := range s.vars {
 		vars[k] = v
 	}
-	if msg.PLogMetaData != nil && !msg.PLogMetaData.Last {
-		vars["CONTAINER_PARTIAL_MESSAGE"] = "true"
+	if msg.PLogMetaData != nil {
+		vars["CONTAINER_PARTIAL_ID"] = msg.PLogMetaData.ID
+		vars["CONTAINER_PARTIAL_ORDINAL"] = strconv.Itoa(msg.PLogMetaData.Ordinal)
+		vars["CONTAINER_PARTIAL_LAST"] = strconv.FormatBool(msg.PLogMetaData.Last)
+		if !msg.PLogMetaData.Last {
+			vars["CONTAINER_PARTIAL_MESSAGE"] = "true"
+		}
 	}
 
 	line := string(msg.Line)

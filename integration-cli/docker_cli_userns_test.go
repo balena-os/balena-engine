@@ -15,7 +15,7 @@ import (
 
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 // user namespaces test: run daemon with remapped root setting
@@ -48,7 +48,7 @@ func (s *DockerDaemonSuite) TestDaemonUserNamespaceRootSetting(c *testing.T) {
 	// writable by the remapped root UID/GID pair
 	assert.NilError(c, os.Chown(tmpDir, uid, gid))
 
-	out, err := s.d.Cmd("run", "-d", "--name", "userns", "-v", tmpDir+":/goofy", "-v", tmpDirNotExists+":/donald", "busybox", "sh", "-c", "touch /goofy/testfile; top")
+	out, err := s.d.Cmd("run", "-d", "--name", "userns", "-v", tmpDir+":/goofy", "-v", tmpDirNotExists+":/donald", "busybox", "sh", "-c", "touch /goofy/testfile; exec top")
 	assert.NilError(c, err, "Output: %s", out)
 
 	user := s.findUser(c, "userns")
@@ -81,7 +81,7 @@ func (s *DockerDaemonSuite) TestDaemonUserNamespaceRootSetting(c *testing.T) {
 	assert.Equal(c, stat.GID(), uint32(gid), "Touched file not owned by remapped root GID")
 
 	// use host usernamespace
-	out, err = s.d.Cmd("run", "-d", "--name", "userns_skip", "--userns", "host", "busybox", "sh", "-c", "touch /goofy/testfile; top")
+	out, err = s.d.Cmd("run", "-d", "--name", "userns_skip", "--userns", "host", "busybox", "sh", "-c", "touch /goofy/testfile; exec top")
 	assert.Assert(c, err == nil, "Output: %s", out)
 	user = s.findUser(c, "userns_skip")
 	// userns are skipped, user is root

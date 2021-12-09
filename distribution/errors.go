@@ -9,7 +9,7 @@ import (
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/api/errcode"
-	"github.com/docker/distribution/registry/api/v2"
+	v2 "github.com/docker/distribution/registry/api/v2"
 	"github.com/docker/distribution/registry/client"
 	"github.com/docker/distribution/registry/client/auth"
 	"github.com/docker/docker/distribution/xfer"
@@ -110,6 +110,23 @@ func TranslatePullError(err error, ref reference.Named) error {
 	}
 
 	return errdefs.Unknown(err)
+}
+
+func isNotFound(err error) bool {
+	switch v := err.(type) {
+	case errcode.Errors:
+		for _, e := range v {
+			if isNotFound(e) {
+				return true
+			}
+		}
+	case errcode.Error:
+		switch v.Code {
+		case errcode.ErrorCodeDenied, v2.ErrorCodeManifestUnknown, v2.ErrorCodeNameUnknown:
+			return true
+		}
+	}
+	return false
 }
 
 // continueOnError returns true if we should fallback to the next endpoint

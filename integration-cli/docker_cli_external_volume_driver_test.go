@@ -16,10 +16,10 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/integration-cli/daemon"
-	testdaemon "github.com/docker/docker/internal/test/daemon"
 	"github.com/docker/docker/pkg/stringid"
+	testdaemon "github.com/docker/docker/testutil/daemon"
 	"github.com/docker/docker/volume"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 const volumePluginName = "test-external-volume-driver"
@@ -162,7 +162,6 @@ func newVolumePlugin(c *testing.T, name string) *volumePlugin {
 
 		v.Mountpoint = hostVolumePath(pr.Name)
 		send(w, map[string]vol{"Volume": v})
-		return
 	})
 
 	mux.HandleFunc("/VolumeDriver.Remove", func(w http.ResponseWriter, r *http.Request) {
@@ -374,7 +373,7 @@ func (s *DockerExternalVolumeSuite) TestExternalVolumeDriverLookupNotBlocked(c *
 	defer os.RemoveAll(specPath)
 
 	chCmd1 := make(chan struct{})
-	chCmd2 := make(chan error)
+	chCmd2 := make(chan error, 1)
 	cmd1 := exec.Command(dockerBinary, "volume", "create", "-d", "down-driver")
 	cmd2 := exec.Command(dockerBinary, "volume", "create")
 
@@ -409,7 +408,7 @@ func (s *DockerExternalVolumeSuite) TestExternalVolumeDriverRetryNotImmediatelyE
 	s.d.StartWithBusybox(c)
 	driverName := "test-external-volume-driver-retry"
 
-	errchan := make(chan error)
+	errchan := make(chan error, 1)
 	started := make(chan struct{})
 	go func() {
 		close(started)
@@ -454,7 +453,9 @@ func (s *DockerExternalVolumeSuite) TestExternalVolumeDriverBindExternalVolume(c
 	}
 	out := inspectFieldJSON(c, "testing", "Mounts")
 	assert.Assert(c, json.NewDecoder(strings.NewReader(out)).Decode(&mounts) == nil)
-	assert.Equal(c, len(mounts), 1, fmt.Sprintf("%s", out))
+	assert.Equal(c, len(mounts), 1, out)
+	assert.Equal(c, mounts[0].Name, "foo")
+	assert.Equal(c, mounts[0].Driver, volumePluginName)
 	assert.Equal(c, mounts[0].Name, "foo")
 	assert.Equal(c, mounts[0].Driver, volumePluginName)
 }
@@ -624,9 +625,9 @@ func (s *DockerExternalVolumeSuite) TestExternalVolumeDriverUnmountOnMountFail(c
 	s.d.Cmd("volume", "create", "-d", "test-external-volume-driver", "--opt=invalidOption=1", "--name=testumount")
 
 	out, _ := s.d.Cmd("run", "-v", "testumount:/foo", "busybox", "true")
-	assert.Equal(c, s.ec.unmounts, 0, fmt.Sprintf("%s", out))
+	assert.Equal(c, s.ec.unmounts, 0, out)
 	out, _ = s.d.Cmd("run", "-w", "/foo", "-v", "testumount:/foo", "busybox", "true")
-	assert.Equal(c, s.ec.unmounts, 0, fmt.Sprintf("%s", out))
+	assert.Equal(c, s.ec.unmounts, 0, out)
 }
 
 func (s *DockerExternalVolumeSuite) TestExternalVolumeDriverUnmountOnCp(c *testing.T) {
@@ -636,12 +637,12 @@ func (s *DockerExternalVolumeSuite) TestExternalVolumeDriverUnmountOnCp(c *testi
 	s.d.Cmd("volume", "create", "-d", "test-external-volume-driver", "--name=test")
 
 	out, _ := s.d.Cmd("run", "-d", "--name=test", "-v", "test:/foo", "busybox", "/bin/sh", "-c", "touch /test && top")
-	assert.Equal(c, s.ec.mounts, 1, fmt.Sprintf("%s", out))
+	assert.Equal(c, s.ec.mounts, 1, out)
 
 	out, _ = s.d.Cmd("cp", "test:/test", "/tmp/test")
-	assert.Equal(c, s.ec.mounts, 2, fmt.Sprintf("%s", out))
-	assert.Equal(c, s.ec.unmounts, 1, fmt.Sprintf("%s", out))
+	assert.Equal(c, s.ec.mounts, 2, out)
+	assert.Equal(c, s.ec.unmounts, 1, out)
 
 	out, _ = s.d.Cmd("kill", "test")
-	assert.Equal(c, s.ec.unmounts, 2, fmt.Sprintf("%s", out))
+	assert.Equal(c, s.ec.unmounts, 2, out)
 }

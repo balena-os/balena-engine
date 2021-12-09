@@ -216,12 +216,12 @@ func (c *Converter) Convert(ctx context.Context, opts ...ConvertOpt) (ocispec.De
 
 	ref := remotes.MakeRefKey(ctx, desc)
 	if err := content.WriteBlob(ctx, c.contentStore, ref, bytes.NewReader(mb), desc, content.WithLabels(labels)); err != nil {
-		return ocispec.Descriptor{}, errors.Wrap(err, "failed to write config")
+		return ocispec.Descriptor{}, errors.Wrap(err, "failed to write image manifest")
 	}
 
 	ref = remotes.MakeRefKey(ctx, config)
 	if err := content.WriteBlob(ctx, c.contentStore, ref, bytes.NewReader(b), config); err != nil {
-		return ocispec.Descriptor{}, errors.Wrap(err, "failed to write config")
+		return ocispec.Descriptor{}, errors.Wrap(err, "failed to write image config")
 	}
 
 	return desc, nil
@@ -255,6 +255,9 @@ func (c *Converter) fetchManifest(ctx context.Context, desc ocispec.Descriptor) 
 	var m manifest
 	if err := json.Unmarshal(b, &m); err != nil {
 		return err
+	}
+	if len(m.Manifests) != 0 || len(m.Layers) != 0 {
+		return errors.New("converter: expected schema1 document but found extra keys")
 	}
 	c.pulledManifest = &m
 
@@ -472,8 +475,10 @@ type history struct {
 }
 
 type manifest struct {
-	FSLayers []fsLayer `json:"fsLayers"`
-	History  []history `json:"history"`
+	FSLayers  []fsLayer       `json:"fsLayers"`
+	History   []history       `json:"history"`
+	Layers    json.RawMessage `json:"layers,omitempty"`    // OCI manifest
+	Manifests json.RawMessage `json:"manifests,omitempty"` // OCI index
 }
 
 type v1History struct {

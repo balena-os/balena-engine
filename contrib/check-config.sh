@@ -16,7 +16,7 @@ possibleConfigs=(
 if [ $# -gt 0 ]; then
 	CONFIG="$1"
 else
-	: ${CONFIG:="${possibleConfigs[0]}"}
+	: "${CONFIG:="${possibleConfigs[0]}"}"
 fi
 
 if ! command -v zgrep &> /dev/null; then
@@ -43,7 +43,7 @@ is_set_as_module() {
 color() {
 	local codes=()
 	if [ "$1" = 'bold' ]; then
-		codes=( "${codes[@]}" '1' )
+		codes=("${codes[@]}" '1')
 		shift
 	fi
 	if [ "$#" -gt 0 ]; then
@@ -60,7 +60,7 @@ color() {
 			white) code=37 ;;
 		esac
 		if [ "$code" ]; then
-			codes=( "${codes[@]}" "$code" )
+			codes=("${codes[@]}" "$code")
 		fi
 	fi
 	local IFS=';'
@@ -98,12 +98,13 @@ check_flag() {
 
 check_flags() {
 	for flag in "$@"; do
-		echo -n "- "; check_flag "$flag"
+		echo -n "- "
+		check_flag "$flag"
 	done
 }
 
 check_command() {
-	if command -v "$1" >/dev/null 2>&1; then
+	if command -v "$1" > /dev/null 2>&1; then
 		wrap_good "$1 command" 'available'
 	else
 		wrap_bad "$1 command" 'missing'
@@ -121,7 +122,7 @@ check_device() {
 }
 
 check_distro_userns() {
-	source /etc/os-release 2>/dev/null || /bin/true
+	source /etc/os-release 2> /dev/null || /bin/true
 	if [[ "${ID}" =~ ^(centos|rhel)$ && "${VERSION_ID}" =~ ^7 ]]; then
 		# this is a CentOS7 or RHEL7 system
 		grep -q "user_namespace.enable=1" /proc/cmdline || {
@@ -154,33 +155,37 @@ echo
 echo 'Generally Necessary:'
 
 echo -n '- '
-cgroupSubsystemDir="$(awk '/[, ](cpu|cpuacct|cpuset|devices|freezer|memory)[, ]/ && $3 == "cgroup" { print $2 }' /proc/mounts | head -n1)"
-cgroupDir="$(dirname "$cgroupSubsystemDir")"
-if [ -d "$cgroupDir/cpu" -o -d "$cgroupDir/cpuacct" -o -d "$cgroupDir/cpuset" -o -d "$cgroupDir/devices" -o -d "$cgroupDir/freezer" -o -d "$cgroupDir/memory" ]; then
-	echo "$(wrap_good 'cgroup hierarchy' 'properly mounted') [$cgroupDir]"
+if [ "$(stat -f -c %t /sys/fs/cgroup 2> /dev/null)" = '63677270' ]; then
+	echo "$(wrap_good 'cgroup hierarchy' 'cgroupv2')"
 else
-	if [ "$cgroupSubsystemDir" ]; then
-		echo "$(wrap_bad 'cgroup hierarchy' 'single mountpoint!') [$cgroupSubsystemDir]"
+	cgroupSubsystemDir="$(awk '/[, ](cpu|cpuacct|cpuset|devices|freezer|memory)[, ]/ && $3 == "cgroup" { print $2 }' /proc/mounts | head -n1)"
+	cgroupDir="$(dirname "$cgroupSubsystemDir")"
+	if [ -d "$cgroupDir/cpu" ] || [ -d "$cgroupDir/cpuacct" ] || [ -d "$cgroupDir/cpuset" ] || [ -d "$cgroupDir/devices" ] || [ -d "$cgroupDir/freezer" ] || [ -d "$cgroupDir/memory" ]; then
+		echo "$(wrap_good 'cgroup hierarchy' 'properly mounted') [$cgroupDir]"
 	else
-		echo "$(wrap_bad 'cgroup hierarchy' 'nonexistent??')"
+		if [ "$cgroupSubsystemDir" ]; then
+			echo "$(wrap_bad 'cgroup hierarchy' 'single mountpoint!') [$cgroupSubsystemDir]"
+		else
+			wrap_bad 'cgroup hierarchy' 'nonexistent??'
+		fi
+		EXITCODE=1
+		echo "    $(wrap_color '(see https://github.com/tianon/cgroupfs-mount)' yellow)"
 	fi
-	EXITCODE=1
-	echo "    $(wrap_color '(see https://github.com/tianon/cgroupfs-mount)' yellow)"
 fi
 
-if [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)" = 'Y' ]; then
+if [ "$(cat /sys/module/apparmor/parameters/enabled 2> /dev/null)" = 'Y' ]; then
 	echo -n '- '
 	if command -v apparmor_parser &> /dev/null; then
-		echo "$(wrap_good 'apparmor' 'enabled and tools installed')"
+		wrap_good 'apparmor' 'enabled and tools installed'
 	else
-		echo "$(wrap_bad 'apparmor' 'enabled, but apparmor_parser missing')"
+		wrap_bad 'apparmor' 'enabled, but apparmor_parser missing'
 		echo -n '    '
 		if command -v apt-get &> /dev/null; then
-			echo "$(wrap_color '(use "apt-get install apparmor" to fix this)')"
+			wrap_color '(use "apt-get install apparmor" to fix this)'
 		elif command -v yum &> /dev/null; then
-			echo "$(wrap_color '(your best bet is "yum install apparmor-parser")')"
+			wrap_color '(your best bet is "yum install apparmor-parser")'
 		else
-			echo "$(wrap_color '(look for an "apparmor" package for your distribution)')"
+			wrap_color '(look for an "apparmor" package for your distribution)'
 		fi
 		EXITCODE=1
 	fi
@@ -191,16 +196,25 @@ flags=(
 	CGROUPS CGROUP_CPUACCT CGROUP_DEVICE CGROUP_FREEZER CGROUP_SCHED CPUSETS MEMCG
 	KEYS
 	VETH BRIDGE BRIDGE_NETFILTER
-	NF_NAT_IPV4 IP_NF_FILTER IP_NF_TARGET_MASQUERADE
+	IP_NF_FILTER IP_NF_TARGET_MASQUERADE
 	NETFILTER_XT_MATCH_{ADDRTYPE,CONNTRACK,IPVS}
-	IP_NF_NAT NF_NAT NF_NAT_NEEDED
+	NETFILTER_XT_MARK
+	IP_NF_NAT NF_NAT
 
 	# required for bind-mounting /dev/mqueue into containers
 	POSIX_MQUEUE
 )
 check_flags "${flags[@]}"
-if [ "$kernelMajor" -lt 4 ] || [ "$kernelMajor" -eq 4 -a "$kernelMinor" -lt 8 ]; then
-        check_flags DEVPTS_MULTIPLE_INSTANCES
+if [ "$kernelMajor" -lt 4 ] || ([ "$kernelMajor" -eq 4 ] && [ "$kernelMinor" -lt 8 ]); then
+	check_flags DEVPTS_MULTIPLE_INSTANCES
+fi
+
+if [ "$kernelMajor" -lt 5 ] || [ "$kernelMajor" -eq 5 -a "$kernelMinor" -le 1 ]; then
+	check_flags NF_NAT_IPV4
+fi
+
+if [ "$kernelMajor" -lt 5 ] || [ "$kernelMajor" -eq 5 -a "$kernelMinor" -le 2 ]; then
+	check_flags NF_NAT_NEEDED
 fi
 
 echo
@@ -217,23 +231,34 @@ echo 'Optional Features:'
 	check_flags CGROUP_PIDS
 }
 {
-	CODE=${EXITCODE}
-	check_flags MEMCG_SWAP MEMCG_SWAP_ENABLED
-	if [ -e /sys/fs/cgroup/memory/memory.memsw.limit_in_bytes ]; then
+	check_flags MEMCG_SWAP
+	# Kernel v5.8+ removes MEMCG_SWAP_ENABLED.
+	if [ "$kernelMajor" -lt 5 ] || [ "$kernelMajor" -eq 5 -a "$kernelMinor" -le 8 ]; then
+		CODE=${EXITCODE}
+		check_flags MEMCG_SWAP_ENABLED
+		# FIXME this check is cgroupv1-specific
+		if [ -e /sys/fs/cgroup/memory/memory.memsw.limit_in_bytes ]; then
+			echo "    $(wrap_color '(cgroup swap accounting is currently enabled)' bold black)"
+			EXITCODE=${CODE}
+		elif is_set MEMCG_SWAP && ! is_set MEMCG_SWAP_ENABLED; then
+			echo "    $(wrap_color '(cgroup swap accounting is currently not enabled, you can enable it by setting boot option "swapaccount=1")' bold black)"
+		fi
+	else
+		# Kernel v5.8+ enables swap accounting by default.
 		echo "    $(wrap_color '(cgroup swap accounting is currently enabled)' bold black)"
-		EXITCODE=${CODE}
-	elif is_set MEMCG_SWAP && ! is_set MEMCG_SWAP_ENABLED; then
-		echo "    $(wrap_color '(cgroup swap accounting is currently not enabled, you can enable it by setting boot option "swapaccount=1")' bold black)"
 	fi
 }
 {
 	if is_set LEGACY_VSYSCALL_NATIVE; then
-		echo -n "- "; wrap_bad "CONFIG_LEGACY_VSYSCALL_NATIVE" 'enabled'
+		echo -n "- "
+		wrap_bad "CONFIG_LEGACY_VSYSCALL_NATIVE" 'enabled'
 		echo "    $(wrap_color '(dangerous, provides an ASLR-bypassing target with usable ROP gadgets.)' bold black)"
 	elif is_set LEGACY_VSYSCALL_EMULATE; then
-		echo -n "- "; wrap_good "CONFIG_LEGACY_VSYSCALL_EMULATE" 'enabled'
+		echo -n "- "
+		wrap_good "CONFIG_LEGACY_VSYSCALL_EMULATE" 'enabled'
 	elif is_set LEGACY_VSYSCALL_NONE; then
-		echo -n "- "; wrap_bad "CONFIG_LEGACY_VSYSCALL_NONE" 'enabled'
+		echo -n "- "
+		wrap_bad "CONFIG_LEGACY_VSYSCALL_NONE" 'enabled'
 		echo "    $(wrap_color '(containers using eglibc <= 2.13 will not work. Switch to' bold black)"
 		echo "    $(wrap_color ' "CONFIG_VSYSCALL_[NATIVE|EMULATE]" or use "vsyscall=[native|emulate]"' bold black)"
 		echo "    $(wrap_color ' on kernel command line. Note that this will disable ASLR for the,' bold black)"
@@ -245,22 +270,26 @@ echo 'Optional Features:'
 	fi
 }
 
-if [ "$kernelMajor" -lt 4 ] || [ "$kernelMajor" -eq 4 -a "$kernelMinor" -le 5 ]; then
+if [ "$kernelMajor" -lt 4 ] || ([ "$kernelMajor" -eq 4 ] && [ "$kernelMinor" -le 5 ]); then
 	check_flags MEMCG_KMEM
 fi
 
-if [ "$kernelMajor" -lt 3 ] || [ "$kernelMajor" -eq 3 -a "$kernelMinor" -le 18 ]; then
+if [ "$kernelMajor" -lt 3 ] || ([ "$kernelMajor" -eq 3 ] && [ "$kernelMinor" -le 18 ]); then
 	check_flags RESOURCE_COUNTERS
 fi
 
-if [ "$kernelMajor" -lt 3 ] || [ "$kernelMajor" -eq 3 -a "$kernelMinor" -le 13 ]; then
+if [ "$kernelMajor" -lt 3 ] || ([ "$kernelMajor" -eq 3 ] && [ "$kernelMinor" -le 13 ]); then
 	netprio=NETPRIO_CGROUP
 else
 	netprio=CGROUP_NET_PRIO
 fi
 
+if [ "$kernelMajor" -lt 5 ]; then
+	check_flags IOSCHED_CFQ CFQ_GROUP_IOSCHED
+fi
+
 flags=(
-	BLK_CGROUP BLK_DEV_THROTTLING IOSCHED_CFQ CFQ_GROUP_IOSCHED
+	BLK_CGROUP BLK_DEV_THROTTLING
 	CGROUP_PERF
 	CGROUP_HUGETLB
 	NET_CLS_CGROUP $netprio
@@ -270,7 +299,7 @@ flags=(
 	IP_VS_NFCT
 	IP_VS_PROTO_TCP
 	IP_VS_PROTO_UDP
- 	IP_VS_RR
+	IP_VS_RR
 )
 check_flags "${flags[@]}"
 
@@ -291,16 +320,19 @@ if ! is_set EXT4_FS || ! is_set EXT4_FS_POSIX_ACL || ! is_set EXT4_FS_SECURITY; 
 fi
 
 echo '- Network Drivers:'
-echo '  - "'$(wrap_color 'overlay' blue)'":'
-check_flags VXLAN | sed 's/^/    /'
+echo "  - \"$(wrap_color 'overlay' blue)\":"
+check_flags VXLAN BRIDGE_VLAN_FILTERING | sed 's/^/    /'
 echo '      Optional (for encrypted networks):'
 check_flags CRYPTO CRYPTO_AEAD CRYPTO_GCM CRYPTO_SEQIV CRYPTO_GHASH \
-            XFRM XFRM_USER XFRM_ALGO INET_ESP INET_XFRM_MODE_TRANSPORT | sed 's/^/      /'
-echo '  - "'$(wrap_color 'ipvlan' blue)'":'
+	XFRM XFRM_USER XFRM_ALGO INET_ESP | sed 's/^/      /'
+if [ "$kernelMajor" -lt 5 ] || [ "$kernelMajor" -eq 5 -a "$kernelMinor" -le 3 ]; then
+	check_flags INET_XFRM_MODE_TRANSPORT | sed 's/^/      /'
+fi
+echo "  - \"$(wrap_color 'ipvlan' blue)\":"
 check_flags IPVLAN | sed 's/^/    /'
-echo '  - "'$(wrap_color 'macvlan' blue)'":'
+echo "  - \"$(wrap_color 'macvlan' blue)\":"
 check_flags MACVLAN DUMMY | sed 's/^/    /'
-echo '  - "'$(wrap_color 'ftp,tftp client in container' blue)'":'
+echo "  - \"$(wrap_color 'ftp,tftp client in container' blue)\":"
 check_flags NF_NAT_FTP NF_CONNTRACK_FTP NF_NAT_TFTP NF_CONNTRACK_TFTP | sed 's/^/    /'
 
 # only fail if no storage drivers available
@@ -309,7 +341,7 @@ EXITCODE=0
 STORAGE=1
 
 echo '- Storage Drivers:'
-echo '  - "'$(wrap_color 'aufs' blue)'":'
+echo "  - \"$(wrap_color 'aufs' blue)\":"
 check_flags AUFS_FS | sed 's/^/    /'
 if ! is_set AUFS_FS && grep -q aufs /proc/filesystems; then
 	echo "      $(wrap_color '(note that some kernels include AUFS patches but not the AUFS_FS flag)' bold black)"
@@ -317,26 +349,29 @@ fi
 [ "$EXITCODE" = 0 ] && STORAGE=0
 EXITCODE=0
 
-echo '  - "'$(wrap_color 'btrfs' blue)'":'
+echo "  - \"$(wrap_color 'btrfs' blue)\":"
 check_flags BTRFS_FS | sed 's/^/    /'
 check_flags BTRFS_FS_POSIX_ACL | sed 's/^/    /'
 [ "$EXITCODE" = 0 ] && STORAGE=0
 EXITCODE=0
 
-echo '  - "'$(wrap_color 'devicemapper' blue)'":'
+echo "  - \"$(wrap_color 'devicemapper' blue)\":"
 check_flags BLK_DEV_DM DM_THIN_PROVISIONING | sed 's/^/    /'
 [ "$EXITCODE" = 0 ] && STORAGE=0
 EXITCODE=0
 
-echo '  - "'$(wrap_color 'overlay' blue)'":'
+echo "  - \"$(wrap_color 'overlay' blue)\":"
 check_flags OVERLAY_FS | sed 's/^/    /'
 [ "$EXITCODE" = 0 ] && STORAGE=0
 EXITCODE=0
 
-echo '  - "'$(wrap_color 'zfs' blue)'":'
-echo -n "    - "; check_device /dev/zfs
-echo -n "    - "; check_command zfs
-echo -n "    - "; check_command zpool
+echo "  - \"$(wrap_color 'zfs' blue)\":"
+echo -n "    - "
+check_device /dev/zfs
+echo -n "    - "
+check_command zfs
+echo -n "    - "
+check_command zpool
 [ "$EXITCODE" = 0 ] && STORAGE=0
 EXITCODE=0
 
@@ -345,14 +380,13 @@ EXITCODE=$CODE
 
 echo
 
-check_limit_over()
-{
-	if [ $(cat "$1") -le "$2" ]; then
-		wrap_bad "- $1" "$(cat $1)"
+check_limit_over() {
+	if [ "$(cat "$1")" -le "$2" ]; then
+		wrap_bad "- $1" "$(cat "$1")"
 		wrap_color "    This should be set to at least $2, for example set: sysctl -w kernel/keys/root_maxkeys=1000000" bold black
 		EXITCODE=1
 	else
-		wrap_good "- $1" "$(cat $1)"
+		wrap_good "- $1" "$(cat "$1")"
 	fi
 }
 

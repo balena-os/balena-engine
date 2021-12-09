@@ -2,16 +2,16 @@ package llb
 
 import (
 	"context"
-	_ "crypto/sha256"
+	_ "crypto/sha256" // for opencontainers/go-digest
 	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/docker/distribution/reference"
-	gw "github.com/moby/buildkit/frontend/gateway/client"
 	"github.com/moby/buildkit/solver/pb"
 	"github.com/moby/buildkit/util/apicaps"
+	"github.com/moby/buildkit/util/sshutil"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
 )
@@ -35,7 +35,7 @@ func NewSource(id string, attrs map[string]string, c Constraints) *SourceOp {
 	return s
 }
 
-func (s *SourceOp) Validate() error {
+func (s *SourceOp) Validate(ctx context.Context) error {
 	if s.err != nil {
 		return s.err
 	}
@@ -45,12 +45,12 @@ func (s *SourceOp) Validate() error {
 	return nil
 }
 
-func (s *SourceOp) Marshal(constraints *Constraints) (digest.Digest, []byte, *pb.OpMetadata, error) {
+func (s *SourceOp) Marshal(ctx context.Context, constraints *Constraints) (digest.Digest, []byte, *pb.OpMetadata, []*SourceLocation, error) {
 	if s.Cached(constraints) {
 		return s.Load()
 	}
-	if err := s.Validate(); err != nil {
-		return "", nil, nil, err
+	if err := s.Validate(ctx); err != nil {
+		return "", nil, nil, nil, err
 	}
 
 	if strings.HasPrefix(s.id, "local://") {
@@ -75,10 +75,10 @@ func (s *SourceOp) Marshal(constraints *Constraints) (digest.Digest, []byte, *pb
 
 	dt, err := proto.Marshal()
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, nil, nil, err
 	}
 
-	s.Store(dt, md, constraints)
+	s.Store(dt, md, s.constraints.SourceLocations, constraints)
 	return s.Load()
 }
 
@@ -93,7 +93,8 @@ func (s *SourceOp) Inputs() []Output {
 func Image(ref string, opts ...ImageOption) State {
 	r, err := reference.ParseNormalizedNamed(ref)
 	if err == nil {
-		ref = reference.TagNameOnly(r).String()
+		r = reference.TagNameOnly(r)
+		ref = r.String()
 	}
 	var info ImageInfo
 	for _, opt := range opts {
@@ -117,21 +118,35 @@ func Image(ref string, opts ...ImageOption) State {
 	src := NewSource("docker-image://"+ref, attrs, info.Constraints) // controversial
 	if err != nil {
 		src.err = err
-	}
-	if info.metaResolver != nil {
-		_, dt, err := info.metaResolver.ResolveImageConfig(context.TODO(), ref, gw.ResolveImageConfigOpt{
-			Platform:    info.Constraints.Platform,
-			ResolveMode: info.resolveMode.String(),
-		})
-		if err != nil {
-			src.err = err
-		} else {
-			st, err := NewState(src.Output()).WithImageConfig(dt)
-			if err == nil {
-				return st
-			}
-			src.err = err
+	} else if info.metaResolver != nil {
+		if _, ok := r.(reference.Digested); ok || !info.resolveDigest {
+			return NewState(src.Output()).Async(func(ctx context.Context, st State) (State, error) {
+				_, dt, err := info.metaResolver.ResolveImageConfig(ctx, ref, ResolveImageConfigOpt{
+					Platform:    info.Constraints.Platform,
+					ResolveMode: info.resolveMode.String(),
+				})
+				if err != nil {
+					return State{}, err
+				}
+				return st.WithImageConfig(dt)
+			})
 		}
+		return Scratch().Async(func(ctx context.Context, _ State) (State, error) {
+			dgst, dt, err := info.metaResolver.ResolveImageConfig(context.TODO(), ref, ResolveImageConfigOpt{
+				Platform:    info.Constraints.Platform,
+				ResolveMode: info.resolveMode.String(),
+			})
+			if err != nil {
+				return State{}, err
+			}
+			if dgst != "" {
+				r, err = reference.WithDigest(r, dgst)
+				if err != nil {
+					return State{}, err
+				}
+			}
+			return NewState(NewSource("docker-image://"+r.String(), attrs, info.Constraints).Output()).WithImageConfig(dt)
+		})
 	}
 	return NewState(src.Output())
 }
@@ -177,21 +192,67 @@ func (r ResolveMode) String() string {
 
 type ImageInfo struct {
 	constraintsWrapper
-	metaResolver ImageMetaResolver
-	resolveMode  ResolveMode
-	RecordType   string
+	metaResolver  ImageMetaResolver
+	resolveDigest bool
+	resolveMode   ResolveMode
+	RecordType    string
+}
+
+const (
+	gitProtocolHTTP = iota + 1
+	gitProtocolHTTPS
+	gitProtocolSSH
+	gitProtocolGit
+	gitProtocolUnknown
+)
+
+func getGitProtocol(remote string) (string, int) {
+	prefixes := map[string]int{
+		"http://":  gitProtocolHTTP,
+		"https://": gitProtocolHTTPS,
+		"git://":   gitProtocolGit,
+		"ssh://":   gitProtocolSSH,
+	}
+	protocolType := gitProtocolUnknown
+	for prefix, potentialType := range prefixes {
+		if strings.HasPrefix(remote, prefix) {
+			remote = strings.TrimPrefix(remote, prefix)
+			protocolType = potentialType
+		}
+	}
+
+	if protocolType == gitProtocolUnknown && sshutil.IsSSHTransport(remote) {
+		protocolType = gitProtocolSSH
+	}
+
+	// remove name from ssh
+	if protocolType == gitProtocolSSH {
+		parts := strings.SplitN(remote, "@", 2)
+		if len(parts) == 2 {
+			remote = parts[1]
+		}
+	}
+
+	return remote, protocolType
 }
 
 func Git(remote, ref string, opts ...GitOption) State {
-	url := ""
+	url := strings.Split(remote, "#")[0]
 
-	for _, prefix := range []string{
-		"http://", "https://", "git://", "git@",
-	} {
-		if strings.HasPrefix(remote, prefix) {
-			url = strings.Split(remote, "#")[0]
-			remote = strings.TrimPrefix(remote, prefix)
+	var protocolType int
+	remote, protocolType = getGitProtocol(remote)
+
+	var sshHost string
+	if protocolType == gitProtocolSSH {
+		parts := strings.SplitN(remote, ":", 2)
+		if len(parts) == 2 {
+			sshHost = parts[0]
+			// keep remote consistent with http(s) version
+			remote = parts[0] + "/" + parts[1]
 		}
+	}
+	if protocolType == gitProtocolUnknown {
+		url = "https://" + url
 	}
 
 	id := remote
@@ -200,7 +261,10 @@ func Git(remote, ref string, opts ...GitOption) State {
 		id += "#" + ref
 	}
 
-	gi := &GitInfo{}
+	gi := &GitInfo{
+		AuthHeaderSecret: "GIT_AUTH_HEADER",
+		AuthTokenSecret:  "GIT_AUTH_TOKEN",
+	}
 	for _, o := range opts {
 		o.SetGitOption(gi)
 	}
@@ -212,6 +276,37 @@ func Git(remote, ref string, opts ...GitOption) State {
 	if url != "" {
 		attrs[pb.AttrFullRemoteURL] = url
 		addCap(&gi.Constraints, pb.CapSourceGitFullURL)
+	}
+	if gi.AuthTokenSecret != "" {
+		attrs[pb.AttrAuthTokenSecret] = gi.AuthTokenSecret
+		if gi.addAuthCap {
+			addCap(&gi.Constraints, pb.CapSourceGitHTTPAuth)
+		}
+	}
+	if gi.AuthHeaderSecret != "" {
+		attrs[pb.AttrAuthHeaderSecret] = gi.AuthHeaderSecret
+		if gi.addAuthCap {
+			addCap(&gi.Constraints, pb.CapSourceGitHTTPAuth)
+		}
+	}
+	if protocolType == gitProtocolSSH {
+		if gi.KnownSSHHosts != "" {
+			attrs[pb.AttrKnownSSHHosts] = gi.KnownSSHHosts
+		} else if sshHost != "" {
+			keyscan, err := sshutil.SSHKeyScan(sshHost)
+			if err == nil {
+				// best effort
+				attrs[pb.AttrKnownSSHHosts] = keyscan
+			}
+		}
+		addCap(&gi.Constraints, pb.CapSourceGitKnownSSHHosts)
+
+		if gi.MountSSHSock == "" {
+			attrs[pb.AttrMountSSHSock] = "default"
+		} else {
+			attrs[pb.AttrMountSSHSock] = gi.MountSSHSock
+		}
+		addCap(&gi.Constraints, pb.CapSourceGitMountSSHSock)
 	}
 
 	addCap(&gi.Constraints, pb.CapSourceGit)
@@ -231,12 +326,44 @@ func (fn gitOptionFunc) SetGitOption(gi *GitInfo) {
 
 type GitInfo struct {
 	constraintsWrapper
-	KeepGitDir bool
+	KeepGitDir       bool
+	AuthTokenSecret  string
+	AuthHeaderSecret string
+	addAuthCap       bool
+	KnownSSHHosts    string
+	MountSSHSock     string
 }
 
 func KeepGitDir() GitOption {
 	return gitOptionFunc(func(gi *GitInfo) {
 		gi.KeepGitDir = true
+	})
+}
+
+func AuthTokenSecret(v string) GitOption {
+	return gitOptionFunc(func(gi *GitInfo) {
+		gi.AuthTokenSecret = v
+		gi.addAuthCap = true
+	})
+}
+
+func AuthHeaderSecret(v string) GitOption {
+	return gitOptionFunc(func(gi *GitInfo) {
+		gi.AuthHeaderSecret = v
+		gi.addAuthCap = true
+	})
+}
+
+func KnownSSHHosts(key string) GitOption {
+	key = strings.TrimSuffix(key, "\n")
+	return gitOptionFunc(func(gi *GitInfo) {
+		gi.KnownSSHHosts = gi.KnownSSHHosts + key + "\n"
+	})
+}
+
+func MountSSHSock(sshID string) GitOption {
+	return gitOptionFunc(func(gi *GitInfo) {
+		gi.MountSSHSock = sshID
 	})
 }
 

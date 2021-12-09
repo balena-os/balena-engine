@@ -18,8 +18,12 @@ package tasks
 
 import (
 	"errors"
+	"io"
+	"net/url"
+	"os"
 
 	"github.com/containerd/console"
+	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/sirupsen/logrus"
@@ -52,6 +56,10 @@ var execCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "fifo-dir",
 			Usage: "directory used for storing IO FIFOs",
+		},
+		cli.StringFlag{
+			Name:  "log-uri",
+			Usage: "log uri for custom shim logging",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -86,14 +94,42 @@ var execCommand = cli.Command{
 		pspec.Terminal = tty
 		pspec.Args = args
 
-		cioOpts := []cio.Opt{cio.WithStdio, cio.WithFIFODir(context.String("fifo-dir"))}
-		if tty {
-			cioOpts = append(cioOpts, cio.WithTerminal)
+		var (
+			ioCreator cio.Creator
+			stdinC    = &stdinCloser{
+				stdin: os.Stdin,
+			}
+		)
+
+		if logURI := context.String("log-uri"); logURI != "" {
+			uri, err := url.Parse(logURI)
+			if err != nil {
+				return err
+			}
+
+			if dir := context.String("fifo-dir"); dir != "" {
+				return errors.New("can't use log-uri with fifo-dir")
+			}
+
+			if tty {
+				return errors.New("can't use log-uri with tty")
+			}
+
+			ioCreator = cio.LogURI(uri)
+		} else {
+			cioOpts := []cio.Opt{cio.WithStreams(stdinC, os.Stdout, os.Stderr), cio.WithFIFODir(context.String("fifo-dir"))}
+			if tty {
+				cioOpts = append(cioOpts, cio.WithTerminal)
+			}
+			ioCreator = cio.NewCreator(cioOpts...)
 		}
-		ioCreator := cio.NewCreator(cioOpts...)
+
 		process, err := task.Exec(ctx, context.String("exec-id"), pspec, ioCreator)
 		if err != nil {
 			return err
+		}
+		stdinC.closer = func() {
+			process.CloseIO(ctx, containerd.WithStdinCloser)
 		}
 		// if detach, we should not call this defer
 		if !detach {
@@ -140,4 +176,19 @@ var execCommand = cli.Command{
 		}
 		return nil
 	},
+}
+
+type stdinCloser struct {
+	stdin  *os.File
+	closer func()
+}
+
+func (s *stdinCloser) Read(p []byte) (int, error) {
+	n, err := s.stdin.Read(p)
+	if err == io.EOF {
+		if s.closer != nil {
+			s.closer()
+		}
+	}
+	return n, err
 }

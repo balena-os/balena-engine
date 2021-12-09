@@ -16,6 +16,18 @@ func init() {
 	if last == capability.Cap(63) {
 		last = capability.CAP_BLOCK_SUSPEND
 	}
+	if last > capability.CAP_AUDIT_READ {
+		// Prevents docker from setting CAP_PERFMON, CAP_BPF, and CAP_CHECKPOINT_RESTORE
+		// capabilities on privileged (or CAP_ALL) containers on Kernel 5.8 and up.
+		// While these kernels support these capabilities, the current release of
+		// runc ships with an older version of /gocapability/capability, and does
+		// not know about them, causing an error to be produced.
+		//
+		// FIXME remove once https://github.com/opencontainers/runc/commit/6dfbe9b80707b1ca188255e8def15263348e0f9a
+		//       is included in a runc release and once we stop supporting containerd 1.3.x
+		//       (which ships with runc v1.0.0-rc92)
+		last = capability.CAP_AUDIT_READ
+	}
 	for _, cap := range capability.List() {
 		if cap > last {
 			continue
@@ -117,17 +129,11 @@ func ValidateCapabilities(caps []string) error {
 
 // TweakCapabilities tweaks capabilities by adding, dropping, or overriding
 // capabilities in the basics capabilities list.
-func TweakCapabilities(basics, adds, drops, capabilities []string, privileged bool) ([]string, error) {
+func TweakCapabilities(basics, adds, drops []string, privileged bool) ([]string, error) {
 	switch {
 	case privileged:
 		// Privileged containers get all capabilities
 		return GetAllCapabilities(), nil
-	case capabilities != nil:
-		// Use custom set of capabilities
-		if err := ValidateCapabilities(capabilities); err != nil {
-			return nil, err
-		}
-		return capabilities, nil
 	case len(adds) == 0 && len(drops) == 0:
 		// Nothing to tweak; we're done
 		return basics, nil

@@ -29,10 +29,10 @@ import (
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/system"
-	"github.com/docker/go-units"
+	units "github.com/docker/go-units"
+	"github.com/moby/sys/mount"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -70,11 +70,14 @@ func Init(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 		return nil, graphdriver.ErrPrerequisites
 	}
 
-	rootUID, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
-	if err != nil {
-		return nil, err
+	remappedRoot := idtools.NewIDMappingsFromMaps(uidMaps, gidMaps)
+	currentID := idtools.CurrentIdentity()
+	dirID := idtools.Identity{
+		UID: currentID.UID,
+		GID: remappedRoot.RootPair().GID,
 	}
-	if err := idtools.MkdirAllAndChown(home, 0700, idtools.Identity{UID: rootUID, GID: rootGID}); err != nil {
+
+	if err := idtools.MkdirAllAndChown(home, 0710, dirID); err != nil {
 		return nil, err
 	}
 
@@ -134,7 +137,7 @@ func parseOptions(opt []string) (btrfsOptions, bool, error) {
 
 // Driver contains information about the filesystem mounted.
 type Driver struct {
-	//root of the file system
+	// root of the file system
 	home         string
 	uidMaps      []idtools.IDMap
 	gidMaps      []idtools.IDMap
@@ -525,7 +528,14 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) error {
 	if err != nil {
 		return err
 	}
-	if err := idtools.MkdirAllAndChown(subvolumes, 0700, idtools.Identity{UID: rootUID, GID: rootGID}); err != nil {
+
+	currentID := idtools.CurrentIdentity()
+	dirID := idtools.Identity{
+		UID: currentID.UID,
+		GID: rootGID,
+	}
+
+	if err := idtools.MkdirAllAndChown(subvolumes, 0710, dirID); err != nil {
 		return err
 	}
 	if parent == "" {
@@ -560,7 +570,7 @@ func (d *Driver) Create(id, parent string, opts *graphdriver.CreateOpts) error {
 		if err := d.setStorageSize(path.Join(subvolumes, id), driver); err != nil {
 			return err
 		}
-		if err := idtools.MkdirAllAndChown(quotas, 0700, idtools.Identity{UID: rootUID, GID: rootGID}); err != nil {
+		if err := idtools.MkdirAllAndChown(quotas, 0700, idtools.CurrentIdentity()); err != nil {
 			return err
 		}
 		if err := ioutil.WriteFile(path.Join(quotas, id), []byte(fmt.Sprint(driver.options.size)), 0644); err != nil {
@@ -606,7 +616,7 @@ func (d *Driver) parseStorageOpt(storageOpt map[string]string, driver *Driver) e
 
 // Set btrfs storage size
 func (d *Driver) setStorageSize(dir string, driver *Driver) error {
-	if driver.options.size <= 0 {
+	if driver.options.size == 0 {
 		return fmt.Errorf("btrfs: invalid storage size: %s", units.HumanSize(float64(driver.options.size)))
 	}
 	if d.options.minSpace > 0 && driver.options.size < d.options.minSpace {
@@ -637,7 +647,14 @@ func (d *Driver) Remove(id string) error {
 	d.updateQuotaStatus()
 
 	if err := subvolDelete(d.subvolumesDir(), id, d.quotaEnabled); err != nil {
-		return err
+		if d.quotaEnabled {
+			return err
+		}
+		// If quota is not enabled, fallback to rmdir syscall to delete subvolumes.
+		// This would allow unprivileged user to delete their owned subvolumes
+		// in kernel >= 4.18 without user_subvol_rm_allowed mount option.
+		//
+		// From https://github.com/containers/storage/pull/508/commits/831e32b6bdcb530acc4c1cb9059d3c6dba14208c
 	}
 	if err := system.EnsureRemoveAll(dir); err != nil {
 		return err

@@ -9,14 +9,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"github.com/docker/docker/internal/test/request"
 	"github.com/docker/docker/pkg/parsers/kernel"
-	"gotest.tools/assert"
+	"github.com/docker/docker/testutil/request"
+	"gotest.tools/v3/assert"
 )
 
 func (s *DockerSuite) TestAPIImagesFilter(c *testing.T) {
@@ -43,7 +44,7 @@ func (s *DockerSuite) TestAPIImagesFilter(c *testing.T) {
 		return images
 	}
 
-	//incorrect number of matches returned
+	// incorrect number of matches returned
 	images := getImages("utest*/*")
 	assert.Equal(c, len(images[0].RepoTags), 2)
 
@@ -59,10 +60,12 @@ func (s *DockerSuite) TestAPIImagesFilter(c *testing.T) {
 
 func (s *DockerSuite) TestAPIImagesSaveAndLoad(c *testing.T) {
 	if runtime.GOOS == "windows" {
+		// Note we parse kernel.GetKernelVersion rather than osversion.Build()
+		// as test binaries aren't manifested, so would otherwise report build 9200.
 		v, err := kernel.GetKernelVersion()
 		assert.NilError(c, err)
-		build, _ := strconv.Atoi(strings.Split(strings.SplitN(v.String(), " ", 3)[2][1:], ".")[0])
-		if build <= 16299 {
+		buildNumber, _ := strconv.Atoi(strings.Split(strings.SplitN(v.String(), " ", 3)[2][1:], ".")[0])
+		if buildNumber <= osversion.RS3 {
 			c.Skip("Temporarily disabled on RS3 and older because they are too slow. See #39909")
 		}
 	}
@@ -139,10 +142,12 @@ func (s *DockerSuite) TestAPIImagesHistory(c *testing.T) {
 
 func (s *DockerSuite) TestAPIImagesImportBadSrc(c *testing.T) {
 	if runtime.GOOS == "windows" {
+		// Note we parse kernel.GetKernelVersion rather than osversion.Build()
+		// as test binaries aren't manifested, so would otherwise report build 9200.
 		v, err := kernel.GetKernelVersion()
 		assert.NilError(c, err)
-		build, _ := strconv.Atoi(strings.Split(strings.SplitN(v.String(), " ", 3)[2][1:], ".")[0])
-		if build == 16299 {
+		buildNumber, _ := strconv.Atoi(strings.Split(strings.SplitN(v.String(), " ", 3)[2][1:], ".")[0])
+		if buildNumber == osversion.RS3 {
 			c.Skip("Temporarily disabled on RS3 builds")
 		}
 	}

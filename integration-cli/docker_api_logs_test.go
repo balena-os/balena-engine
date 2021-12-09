@@ -15,9 +15,9 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/internal/test/request"
 	"github.com/docker/docker/pkg/stdcopy"
-	"gotest.tools/assert"
+	"github.com/docker/docker/testutil/request"
+	"gotest.tools/v3/assert"
 )
 
 func (s *DockerSuite) TestLogsAPIWithStdout(c *testing.T) {

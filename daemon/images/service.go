@@ -5,6 +5,8 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/leases"
 	"github.com/docker/docker/container"
 	daemonevents "github.com/docker/docker/daemon/events"
 	"github.com/docker/docker/distribution"
@@ -15,7 +17,7 @@ import (
 	dockerreference "github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/docker/libtrust"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -44,6 +46,9 @@ type ImageServiceConfig struct {
 	ReferenceStore            dockerreference.Store
 	RegistryService           registry.Service
 	TrustKey                  libtrust.PrivateKey
+	ContentStore              content.Store
+	Leases                    leases.Manager
+	ContentNamespace          string
 }
 
 // NewImageService returns a new ImageService from a configuration
@@ -55,15 +60,18 @@ func NewImageService(config ImageServiceConfig) *ImageService {
 	return &ImageService{
 		containers:                config.ContainerStore,
 		distributionMetadataStore: config.DistributionMetadataStore,
-		downloadManager:           xfer.NewLayerDownloadManager(config.LayerStores, config.MaxConcurrentDownloads, config.MaxDownloadAttempts),
+		downloadManager:           xfer.NewLayerDownloadManager(config.LayerStores, config.MaxConcurrentDownloads, xfer.WithMaxDownloadAttempts(config.MaxDownloadAttempts)),
 		eventsService:             config.EventsService,
-		imageStore:                config.ImageStore,
+		imageStore:                &imageStoreWithLease{Store: config.ImageStore, leases: config.Leases, ns: config.ContentNamespace},
 		layerStores:               config.LayerStores,
 		deltaStore:                config.DeltaStore,
 		referenceStore:            config.ReferenceStore,
 		registryService:           config.RegistryService,
 		trustKey:                  config.TrustKey,
-		uploadManager:             xfer.NewLayerUploadManager(config.MaxConcurrentUploads, config.MaxUploadAttempts),
+		uploadManager:             xfer.NewLayerUploadManager(config.MaxConcurrentUploads, xfer.WithMaxUploadAttempts(config.MaxUploadAttempts)),
+		leases:                    config.Leases,
+		content:                   config.ContentStore,
+		contentNamespace:          config.ContentNamespace,
 	}
 }
 
@@ -81,6 +89,9 @@ type ImageService struct {
 	registryService           registry.Service
 	trustKey                  libtrust.PrivateKey
 	uploadManager             *xfer.LayerUploadManager
+	leases                    leases.Manager
+	content                   content.Store
+	contentNamespace          string
 }
 
 // DistributionServices provides daemon image storage services
@@ -197,7 +208,7 @@ func (i *ImageService) GraphDriverForOS(os string) string {
 func (i *ImageService) ReleaseLayer(rwlayer layer.RWLayer, containerOS string) error {
 	metadata, err := i.layerStores[containerOS].ReleaseRWLayer(rwlayer)
 	layer.LogReleaseMetadata(metadata)
-	if err != nil && err != layer.ErrMountDoesNotExist && !os.IsNotExist(errors.Cause(err)) {
+	if err != nil && !errors.Is(err, layer.ErrMountDoesNotExist) && !errors.Is(err, os.ErrNotExist) {
 		return errors.Wrapf(err, "driver %q failed to remove root filesystem",
 			i.layerStores[containerOS].DriverName())
 	}

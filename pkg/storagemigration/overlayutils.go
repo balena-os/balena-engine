@@ -9,6 +9,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/docker/docker/daemon/graphdriver/overlay2"
+	"github.com/docker/docker/daemon/graphdriver/overlayutils"
+	"github.com/sirupsen/logrus"
 )
 
 // CreateLayerLink creates a link file in the layer root dir and a corresponding file in the l directory
@@ -42,9 +44,7 @@ func CreateLayerLink(root, layerID string) (layerRef string, err error) {
 			return "", fmt.Errorf("Error creating directory %s: %v", layerRefDir, err)
 		}
 	}
-	// idLength
-	// daemon/graphdriver/overlay2/overlay#L87
-	layerRef = overlay2.GenerateID(overlay2.IDLength)
+	layerRef = overlayutils.GenerateID(overlay2.IDLength, logrus.WithField("balena", "storagemigration"))
 	err = ioutil.WriteFile(layerLinkFile, []byte(layerRef), 0644)
 	if err != nil {
 		return "", fmt.Errorf("Error writing to %s: %v", layerLinkFile, err)

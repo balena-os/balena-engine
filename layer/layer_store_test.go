@@ -7,7 +7,7 @@ import (
 
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/containerfs"
-	"gotest.tools/skip"
+	"gotest.tools/v3/skip"
 )
 
 func TestLayerStore_prune(t *testing.T) {

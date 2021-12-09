@@ -7,16 +7,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/containerd/containerd/platforms"
 	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
 	networktypes "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/container"
+	"github.com/docker/docker/daemon/images"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
-	"github.com/opencontainers/selinux/go-selinux/label"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -59,15 +62,17 @@ func (daemon *Daemon) containerCreate(opts createOpts) (containertypes.Container
 	}
 
 	os := runtime.GOOS
+	var img *image.Image
 	if opts.params.Config.Image != "" {
-		img, err := daemon.imageService.GetImage(opts.params.Config.Image)
+		var err error
+		img, err = daemon.imageService.GetImage(opts.params.Config.Image, opts.params.Platform)
 		if err == nil {
 			os = img.OS
 		}
 	} else {
 		// This mean scratch. On Windows, we can safely assume that this is a linux
 		// container. On other platforms, it's the host OS (which it already is)
-		if runtime.GOOS == "windows" && system.LCOWSupported() {
+		if isWindows && system.LCOWSupported() {
 			os = "linux"
 		}
 	}
@@ -75,6 +80,19 @@ func (daemon *Daemon) containerCreate(opts createOpts) (containertypes.Container
 	warnings, err := daemon.verifyContainerSettings(os, opts.params.HostConfig, opts.params.Config, false)
 	if err != nil {
 		return containertypes.ContainerCreateCreatedBody{Warnings: warnings}, errdefs.InvalidParameter(err)
+	}
+
+	if img != nil && opts.params.Platform == nil {
+		p := platforms.DefaultSpec()
+		imgPlat := v1.Platform{
+			OS:           img.OS,
+			Architecture: img.Architecture,
+			Variant:      img.Variant,
+		}
+
+		if !images.OnlyPlatformWithFallback(p).Match(imgPlat) {
+			warnings = append(warnings, fmt.Sprintf("The requested image's platform (%s) does not match the detected host platform (%s) and no specific platform was requested", platforms.Format(imgPlat), platforms.Format(p)))
+		}
 	}
 
 	err = verifyNetworkingConfig(opts.params.NetworkingConfig)
@@ -90,7 +108,7 @@ func (daemon *Daemon) containerCreate(opts createOpts) (containertypes.Container
 		return containertypes.ContainerCreateCreatedBody{Warnings: warnings}, errdefs.InvalidParameter(err)
 	}
 
-	container, err := daemon.create(opts)
+	ctr, err := daemon.create(opts)
 	if err != nil {
 		return containertypes.ContainerCreateCreatedBody{Warnings: warnings}, err
 	}
@@ -100,7 +118,7 @@ func (daemon *Daemon) containerCreate(opts createOpts) (containertypes.Container
 		warnings = make([]string, 0) // Create an empty slice to avoid https://github.com/moby/moby/issues/38222
 	}
 
-	return containertypes.ContainerCreateCreatedBody{ID: container.ID, Warnings: warnings}, nil
+	return containertypes.ContainerCreateCreatedBody{ID: ctr.ID, Warnings: warnings}, nil
 }
 
 func setContainerIDEnv(container *container.Container, cidenv string) error {
@@ -121,15 +139,15 @@ func setContainerIDEnv(container *container.Container, cidenv string) error {
 // Create creates a new container from the given configuration with a given name.
 func (daemon *Daemon) create(opts createOpts) (retC *container.Container, retErr error) {
 	var (
-		container *container.Container
-		img       *image.Image
-		imgID     image.ID
-		err       error
+		ctr   *container.Container
+		img   *image.Image
+		imgID image.ID
+		err   error
 	)
 
 	os := runtime.GOOS
 	if opts.params.Config.Image != "" {
-		img, err = daemon.imageService.GetImage(opts.params.Config.Image)
+		img, err = daemon.imageService.GetImage(opts.params.Config.Image, opts.params.Platform)
 		if err != nil {
 			return nil, err
 		}
@@ -137,17 +155,17 @@ func (daemon *Daemon) create(opts createOpts) (retC *container.Container, retErr
 			os = img.OS
 		} else {
 			// default to the host OS except on Windows with LCOW
-			if runtime.GOOS == "windows" && system.LCOWSupported() {
+			if isWindows && system.LCOWSupported() {
 				os = "linux"
 			}
 		}
 		imgID = img.ID()
 
-		if runtime.GOOS == "windows" && img.OS == "linux" && !system.LCOWSupported() {
+		if isWindows && img.OS == "linux" && !system.LCOWSupported() {
 			return nil, errors.New("operating system on which parent image was created is not Windows")
 		}
 	} else {
-		if runtime.GOOS == "windows" {
+		if isWindows {
 			os = "linux" // 'scratch' case.
 		}
 	}
@@ -168,40 +186,40 @@ func (daemon *Daemon) create(opts createOpts) (retC *container.Container, retErr
 		return nil, errdefs.InvalidParameter(err)
 	}
 
-	if container, err = daemon.newContainer(opts.params.Name, os, opts.params.Config, opts.params.HostConfig, imgID, opts.managed); err != nil {
+	if ctr, err = daemon.newContainer(opts.params.Name, os, opts.params.Config, opts.params.HostConfig, imgID, opts.managed); err != nil {
 		return nil, err
 	}
 	defer func() {
 		if retErr != nil {
-			if err := daemon.cleanupContainer(container, true, true); err != nil {
+			if err := daemon.cleanupContainer(ctr, true, true); err != nil {
 				logrus.Errorf("failed to cleanup container on create error: %v", err)
 			}
 		}
 	}()
 
-	if err := setContainerIDEnv(container, opts.params.HostConfig.ContainerIDEnv); err != nil {
+	if err := setContainerIDEnv(ctr, opts.params.HostConfig.ContainerIDEnv); err != nil {
 		return nil, err
 	}
 
-	if err := daemon.setSecurityOptions(container, opts.params.HostConfig); err != nil {
+	if err := daemon.setSecurityOptions(ctr, opts.params.HostConfig); err != nil {
 		return nil, err
 	}
 
-	container.HostConfig.StorageOpt = opts.params.HostConfig.StorageOpt
+	ctr.HostConfig.StorageOpt = opts.params.HostConfig.StorageOpt
 
 	// Fixes: https://github.com/moby/moby/issues/34074 and
 	// https://github.com/docker/for-win/issues/999.
 	// Merge the daemon's storage options if they aren't already present. We only
 	// do this on Windows as there's no effective sandbox size limit other than
 	// physical on Linux.
-	if runtime.GOOS == "windows" {
-		if container.HostConfig.StorageOpt == nil {
-			container.HostConfig.StorageOpt = make(map[string]string)
+	if isWindows {
+		if ctr.HostConfig.StorageOpt == nil {
+			ctr.HostConfig.StorageOpt = make(map[string]string)
 		}
 		for _, v := range daemon.configStore.GraphOptions {
 			opt := strings.SplitN(v, "=", 2)
-			if _, ok := container.HostConfig.StorageOpt[opt[0]]; !ok {
-				container.HostConfig.StorageOpt[opt[0]] = opt[1]
+			if _, ok := ctr.HostConfig.StorageOpt[opt[0]]; !ok {
+				ctr.HostConfig.StorageOpt[opt[0]] = opt[1]
 			}
 		}
 	}
@@ -212,26 +230,25 @@ func (daemon *Daemon) create(opts createOpts) (retC *container.Container, retErr
 	}
 
 	// Set RWLayer for container after mount labels have been set
-	rwLayer, err := daemon.imageService.CreateLayer(container, initFunc)
+	rwLayer, err := daemon.imageService.CreateLayer(ctr, initFunc)
 	if err != nil {
 		return nil, errdefs.System(err)
 	}
-	container.RWLayer = rwLayer
+	ctr.RWLayer = rwLayer
 
-	rootIDs := daemon.idMapping.RootPair()
-
-	if err := idtools.MkdirAndChown(container.Root, 0700, rootIDs); err != nil {
+	current := idtools.CurrentIdentity()
+	if err := idtools.MkdirAndChown(ctr.Root, 0710, idtools.Identity{UID: current.UID, GID: daemon.IdentityMapping().RootPair().GID}); err != nil {
 		return nil, err
 	}
-	if err := idtools.MkdirAndChown(container.CheckpointDir(), 0700, rootIDs); err != nil {
-		return nil, err
-	}
-
-	if err := daemon.setHostConfig(container, opts.params.HostConfig); err != nil {
+	if err := idtools.MkdirAndChown(ctr.CheckpointDir(), 0700, current); err != nil {
 		return nil, err
 	}
 
-	if err := daemon.createContainerOSSpecificSettings(container, opts.params.Config, opts.params.HostConfig); err != nil {
+	if err := daemon.setHostConfig(ctr, opts.params.HostConfig); err != nil {
+		return nil, err
+	}
+
+	if err := daemon.createContainerOSSpecificSettings(ctr, opts.params.Config, opts.params.HostConfig); err != nil {
 		return nil, err
 	}
 
@@ -241,15 +258,15 @@ func (daemon *Daemon) create(opts createOpts) (retC *container.Container, retErr
 	}
 	// Make sure NetworkMode has an acceptable value. We do this to ensure
 	// backwards API compatibility.
-	runconfig.SetDefaultNetModeIfBlank(container.HostConfig)
+	runconfig.SetDefaultNetModeIfBlank(ctr.HostConfig)
 
-	daemon.updateContainerNetworkSettings(container, endpointsConfigs)
-	if err := daemon.Register(container); err != nil {
+	daemon.updateContainerNetworkSettings(ctr, endpointsConfigs)
+	if err := daemon.Register(ctr); err != nil {
 		return nil, err
 	}
-	stateCtr.set(container.ID, "stopped")
-	daemon.LogContainerEvent(container, "create")
-	return container, nil
+	stateCtr.set(ctr.ID, "stopped")
+	daemon.LogContainerEvent(ctr, "create")
+	return ctr, nil
 }
 
 func toHostConfigSelinuxLabels(labels []string) []string {
@@ -271,7 +288,7 @@ func (daemon *Daemon) generateSecurityOpt(hostConfig *containertypes.HostConfig)
 	pidMode := hostConfig.PidMode
 	privileged := hostConfig.Privileged
 	if ipcMode.IsHost() || pidMode.IsHost() || privileged {
-		return toHostConfigSelinuxLabels(label.DisableSecOpt()), nil
+		return toHostConfigSelinuxLabels(selinux.DisableSecOpt()), nil
 	}
 
 	var ipcLabel []string
@@ -283,7 +300,7 @@ func (daemon *Daemon) generateSecurityOpt(hostConfig *containertypes.HostConfig)
 		if err != nil {
 			return nil, err
 		}
-		ipcLabel, err = label.DupSecOpt(c.ProcessLabel)
+		ipcLabel, err = selinux.DupSecOpt(c.ProcessLabel)
 		if err != nil {
 			return nil, err
 		}
@@ -297,7 +314,7 @@ func (daemon *Daemon) generateSecurityOpt(hostConfig *containertypes.HostConfig)
 			return nil, err
 		}
 
-		pidLabel, err = label.DupSecOpt(c.ProcessLabel)
+		pidLabel, err = selinux.DupSecOpt(c.ProcessLabel)
 		if err != nil {
 			return nil, err
 		}

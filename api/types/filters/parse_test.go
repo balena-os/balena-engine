@@ -4,8 +4,8 @@ import (
 	"errors"
 	"testing"
 
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 func TestToJSON(t *testing.T) {
@@ -337,14 +337,17 @@ func TestWalkValues(t *testing.T) {
 	f.Add("status", "running")
 	f.Add("status", "paused")
 
-	f.WalkValues("status", func(value string) error {
+	err := f.WalkValues("status", func(value string) error {
 		if value != "running" && value != "paused" {
 			t.Fatalf("Unexpected value %s", value)
 		}
 		return nil
 	})
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
 
-	err := f.WalkValues("status", func(value string) error {
+	err = f.WalkValues("status", func(value string) error {
 		return errors.New("return")
 	})
 	if err == nil {

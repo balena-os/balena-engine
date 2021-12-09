@@ -3,7 +3,7 @@ package plugin // import "github.com/docker/docker/plugin"
 import (
 	"fmt"
 
-	"github.com/docker/docker/plugin/v2"
+	v2 "github.com/docker/docker/plugin/v2"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -25,4 +25,8 @@ func (pm *Manager) restore(p *v2.Plugin, c *controller) error {
 
 // Shutdown plugins
 func (pm *Manager) Shutdown() {
+}
+
+func recursiveUnmount(_ string) error {
+	return nil
 }

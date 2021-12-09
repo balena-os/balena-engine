@@ -7,8 +7,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/docker/docker/internal/test/registry"
-	"gotest.tools/assert"
+	"github.com/docker/docker/testutil/registry"
+	"gotest.tools/v3/assert"
 )
 
 func makefile(path string, contents string) (string, error) {
@@ -29,8 +29,8 @@ func (s *DockerRegistrySuite) TestV2Only(c *testing.T) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 
 	reg, err := registry.NewMock(c)
-	defer reg.Close()
 	assert.NilError(c, err)
+	defer reg.Close()
 
 	reg.RegisterHandler("/v2/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
@@ -51,11 +51,10 @@ func (s *DockerRegistrySuite) TestV2Only(c *testing.T) {
 	dockerfileName, err := makefile(tmp, fmt.Sprintf("FROM %s/busybox", reg.URL()))
 	assert.NilError(c, err, "Unable to create test dockerfile")
 
-	s.d.Cmd("build", "--file", dockerfileName, tmp)
-
-	s.d.Cmd("run", repoName)
-	s.d.Cmd("login", "-u", "richard", "-p", "testtest", reg.URL())
-	s.d.Cmd("tag", "busybox", repoName)
-	s.d.Cmd("push", repoName)
-	s.d.Cmd("pull", repoName)
+	_, _ = s.d.Cmd("build", "--file", dockerfileName, tmp)
+	_, _ = s.d.Cmd("run", repoName)
+	_, _ = s.d.Cmd("login", "-u", "richard", "-p", "testtest", reg.URL())
+	_, _ = s.d.Cmd("tag", "busybox", repoName)
+	_, _ = s.d.Cmd("push", repoName)
+	_, _ = s.d.Cmd("pull", repoName)
 }

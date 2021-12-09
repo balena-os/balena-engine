@@ -7,11 +7,11 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration/internal/container"
-	"github.com/docker/docker/internal/test/request"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/poll"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/request"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
+	"gotest.tools/v3/skip"
 )
 
 func TestKillContainerInvalidSignal(t *testing.T) {
@@ -30,7 +30,6 @@ func TestKillContainerInvalidSignal(t *testing.T) {
 }
 
 func TestKillContainer(t *testing.T) {
-	skip.If(t, testEnv.OSType == "windows", "TODO Windows: FIXME. No SIGWINCH")
 	defer setupTest(t)()
 	client := testEnv.APIClient()
 
@@ -38,27 +37,32 @@ func TestKillContainer(t *testing.T) {
 		doc    string
 		signal string
 		status string
+		skipOs string
 	}{
 		{
 			doc:    "no signal",
 			signal: "",
 			status: "exited",
+			skipOs: "",
 		},
 		{
 			doc:    "non killing signal",
 			signal: "SIGWINCH",
 			status: "running",
+			skipOs: "windows",
 		},
 		{
 			doc:    "killing signal",
 			signal: "SIGTERM",
 			status: "exited",
+			skipOs: "",
 		},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.doc, func(t *testing.T) {
+			skip.If(t, testEnv.OSType == tc.skipOs, "Windows does not support SIGWINCH")
 			ctx := context.Background()
 			id := container.Run(ctx, t, client)
 			err := client.ContainerKill(ctx, id, tc.signal)
@@ -148,7 +152,10 @@ func TestKillDifferentUserContainer(t *testing.T) {
 }
 
 func TestInspectOomKilledTrue(t *testing.T) {
-	skip.If(t, testEnv.DaemonInfo.OSType == "windows" || !testEnv.DaemonInfo.MemoryLimit || !testEnv.DaemonInfo.SwapLimit)
+	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+	skip.If(t, testEnv.DaemonInfo.CgroupDriver == "none")
+	skip.If(t, !testEnv.DaemonInfo.MemoryLimit || !testEnv.DaemonInfo.SwapLimit)
+	skip.If(t, testEnv.DaemonInfo.CgroupVersion == "2", "FIXME: flaky on cgroup v2 (https://github.com/moby/moby/issues/41929)")
 
 	defer setupTest(t)()
 	ctx := context.Background()

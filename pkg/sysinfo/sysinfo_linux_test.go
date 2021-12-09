@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 func TestReadProcBool(t *testing.T) {
@@ -94,6 +94,26 @@ func TestNewAppArmorDisabled(t *testing.T) {
 
 	sysInfo := New(true)
 	assert.Assert(t, !sysInfo.AppArmor)
+}
+
+func TestNewCgroupNamespacesEnabled(t *testing.T) {
+	// If cgroup namespaces are supported in the kernel, then sysInfo.CgroupNamespaces should be TRUE
+	if _, err := os.Stat("/proc/self/ns/cgroup"); err != nil {
+		t.Skip("cgroup namespaces must be enabled")
+	}
+
+	sysInfo := New(true)
+	assert.Assert(t, sysInfo.CgroupNamespaces)
+}
+
+func TestNewCgroupNamespacesDisabled(t *testing.T) {
+	// If cgroup namespaces are *not* supported in the kernel, then sysInfo.CgroupNamespaces should be FALSE
+	if _, err := os.Stat("/proc/self/ns/cgroup"); !os.IsNotExist(err) {
+		t.Skip("cgroup namespaces must be disabled")
+	}
+
+	sysInfo := New(true)
+	assert.Assert(t, !sysInfo.CgroupNamespaces)
 }
 
 func TestNumCPU(t *testing.T) {

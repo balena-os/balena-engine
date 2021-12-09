@@ -16,9 +16,10 @@ import (
 	"github.com/docker/docker/daemon/names"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/mount"
+	"github.com/docker/docker/quota"
 	"github.com/docker/docker/volume"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // VolumeDataPathName is the name of the directory where the volume data is stored.
@@ -49,7 +50,7 @@ type activeMount struct {
 func New(scope string, rootIdentity idtools.Identity) (*Root, error) {
 	rootDirectory := filepath.Join(scope, volumesPathName)
 
-	if err := idtools.MkdirAllAndChown(rootDirectory, 0700, rootIdentity); err != nil {
+	if err := idtools.MkdirAllAndChown(rootDirectory, 0701, idtools.CurrentIdentity()); err != nil {
 		return nil, err
 	}
 
@@ -65,6 +66,10 @@ func New(scope string, rootIdentity idtools.Identity) (*Root, error) {
 		return nil, err
 	}
 
+	if r.quotaCtl, err = quota.NewControl(rootDirectory); err != nil {
+		logrus.Debugf("No quota support for local volumes in %s: %v", rootDirectory, err)
+	}
+
 	for _, d := range dirs {
 		if !d.IsDir() {
 			continue
@@ -75,6 +80,7 @@ func New(scope string, rootIdentity idtools.Identity) (*Root, error) {
 			driverName: r.Name(),
 			name:       name,
 			path:       r.DataPath(name),
+			quotaCtl:   r.quotaCtl,
 		}
 		r.volumes[name] = v
 		optsFilePath := filepath.Join(rootDirectory, name, "opts.json")
@@ -88,9 +94,9 @@ func New(scope string, rootIdentity idtools.Identity) (*Root, error) {
 			if !reflect.DeepEqual(opts, optsConfig{}) {
 				v.opts = &opts
 			}
-
-			// unmount anything that may still be mounted (for example, from an unclean shutdown)
-			mount.Unmount(v.path)
+			// unmount anything that may still be mounted (for example, from an
+			// unclean shutdown). This is a no-op on windows
+			unmount(v.path)
 		}
 	}
 
@@ -104,6 +110,7 @@ type Root struct {
 	m            sync.Mutex
 	scope        string
 	path         string
+	quotaCtl     *quota.Control
 	volumes      map[string]*localVolume
 	rootIdentity idtools.Identity
 }
@@ -146,8 +153,15 @@ func (r *Root) Create(name string, opts map[string]string) (volume.Volume, error
 	}
 
 	path := r.DataPath(name)
+	volRoot := filepath.Dir(path)
+	// Root dir does not need to be accessed by the remapped root
+	if err := idtools.MkdirAllAndChown(volRoot, 0701, idtools.CurrentIdentity()); err != nil {
+		return nil, errors.Wrapf(errdefs.System(err), "error while creating volume root path '%s'", volRoot)
+	}
+
+	// Remapped root does need access to the data path
 	if err := idtools.MkdirAllAndChown(path, 0755, r.rootIdentity); err != nil {
-		return nil, errors.Wrapf(errdefs.System(err), "error while creating volume path '%s'", path)
+		return nil, errors.Wrapf(errdefs.System(err), "error while creating volume data path '%s'", path)
 	}
 
 	var err error
@@ -161,6 +175,7 @@ func (r *Root) Create(name string, opts map[string]string) (volume.Volume, error
 		driverName: r.Name(),
 		name:       name,
 		path:       path,
+		quotaCtl:   r.quotaCtl,
 	}
 
 	if len(opts) != 0 {
@@ -172,7 +187,7 @@ func (r *Root) Create(name string, opts map[string]string) (volume.Volume, error
 		if err != nil {
 			return nil, err
 		}
-		if err = ioutil.WriteFile(filepath.Join(filepath.Dir(path), "opts.json"), b, 600); err != nil {
+		if err = ioutil.WriteFile(filepath.Join(filepath.Dir(path), "opts.json"), b, 0600); err != nil {
 			return nil, errdefs.System(errors.Wrap(err, "error while persisting volume options"))
 		}
 	}
@@ -272,6 +287,8 @@ type localVolume struct {
 	opts *optsConfig
 	// active refcounts the active mounts
 	active activeMount
+	// reference to Root instances quotaCtl
+	quotaCtl *quota.Control
 }
 
 // Name returns the name of the given Volume.
@@ -299,7 +316,7 @@ func (v *localVolume) CachedPath() string {
 func (v *localVolume) Mount(id string) (string, error) {
 	v.m.Lock()
 	defer v.m.Unlock()
-	if v.opts != nil {
+	if v.needsMount() {
 		if !v.active.mounted {
 			if err := v.mount(); err != nil {
 				return "", errdefs.System(err)
@@ -307,6 +324,9 @@ func (v *localVolume) Mount(id string) (string, error) {
 			v.active.mounted = true
 		}
 		v.active.count++
+	}
+	if err := v.postMount(); err != nil {
+		return "", err
 	}
 	return v.path, nil
 }
@@ -321,7 +341,7 @@ func (v *localVolume) Unmount(id string) error {
 	// Essentially docker doesn't care if this fails, it will send an error, but
 	// ultimately there's nothing that can be done. If we don't decrement the count
 	// this volume can never be removed until a daemon restart occurs.
-	if v.opts != nil {
+	if v.needsMount() {
 		v.active.count--
 	}
 
@@ -330,18 +350,6 @@ func (v *localVolume) Unmount(id string) error {
 	}
 
 	return v.unmount()
-}
-
-func (v *localVolume) unmount() error {
-	if v.opts != nil {
-		if err := mount.Unmount(v.path); err != nil {
-			if mounted, mErr := mount.Mounted(v.path); mounted || mErr != nil {
-				return errdefs.System(err)
-			}
-		}
-		v.active.mounted = false
-	}
-	return nil
 }
 
 func (v *localVolume) Status() map[string]interface{} {

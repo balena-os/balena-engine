@@ -4,22 +4,24 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/strslice"
 	swarmtypes "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/integration/internal/network"
 	"github.com/docker/docker/integration/internal/swarm"
-	"github.com/docker/docker/internal/test/daemon"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/poll"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/daemon"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
+	"gotest.tools/v3/skip"
 )
 
 func TestServiceCreateInit(t *testing.T) {
@@ -32,10 +34,10 @@ func TestServiceCreateInit(t *testing.T) {
 
 func testServiceCreateInit(daemonEnabled bool) func(t *testing.T) {
 	return func(t *testing.T) {
-		var ops = []func(*daemon.Daemon){}
+		var ops = []daemon.Option{}
 
 		if daemonEnabled {
-			ops = append(ops, daemon.WithInit)
+			ops = append(ops, daemon.WithInit())
 		}
 		d := swarm.NewSwarm(t, testEnv, ops...)
 		defer d.Stop(t)
@@ -119,9 +121,33 @@ func TestCreateServiceMultipleTimes(t *testing.T) {
 	err = client.ServiceRemove(context.Background(), serviceID2)
 	assert.NilError(t, err)
 
+	// we can't just wait on no tasks for the service, counter-intuitively.
+	// Tasks may briefly exist but not show up, if they are are in the process
+	// of being deallocated. To avoid this case, we should retry network remove
+	// a few times, to give tasks time to be deallcoated
 	poll.WaitOn(t, swarm.NoTasksForService(ctx, client, serviceID2), swarm.ServicePoll)
 
-	err = client.NetworkRemove(context.Background(), overlayID)
+	for retry := 0; retry < 5; retry++ {
+		err = client.NetworkRemove(context.Background(), overlayID)
+		// TODO(dperny): using strings.Contains for error checking is awful,
+		// but so is the fact that swarm functions don't return errdefs errors.
+		// I don't have time at this moment to fix the latter, so I guess I'll
+		// go with the former.
+		//
+		// The full error we're looking for is something like this:
+		//
+		// Error response from daemon: rpc error: code = FailedPrecondition desc = network %v is in use by task %v
+		//
+		// The safest way to catch this, I think, will be to match on "is in
+		// use by", as this is an uninterrupted string that best identifies
+		// this error.
+		if err == nil || !strings.Contains(err.Error(), "is in use by") {
+			// if there is no error, or the error isn't this kind of error,
+			// then we'll break the loop body, and either fail the test or
+			// continue.
+			break
+		}
+	}
 	assert.NilError(t, err)
 
 	poll.WaitOn(t, network.IsRemoved(context.Background(), client, overlayID), poll.WithTimeout(1*time.Minute), poll.WithDelay(10*time.Second))
@@ -253,7 +279,7 @@ func TestCreateServiceSecretFileMode(t *testing.T) {
 	serviceID := swarm.CreateService(t, d,
 		swarm.ServiceWithReplicas(instances),
 		swarm.ServiceWithName(serviceName),
-		swarm.ServiceWithCommand([]string{"/bin/sh", "-c", "ls -l /etc/secret || /bin/top"}),
+		swarm.ServiceWithCommand([]string{"/bin/sh", "-c", "ls -l /etc/secret && sleep inf"}),
 		swarm.ServiceWithSecret(&swarmtypes.SecretReference{
 			File: &swarmtypes.SecretReferenceFileTarget{
 				Name: "/etc/secret",
@@ -268,15 +294,8 @@ func TestCreateServiceSecretFileMode(t *testing.T) {
 
 	poll.WaitOn(t, swarm.RunningTasksCount(client, serviceID, instances), swarm.ServicePoll)
 
-	filter := filters.NewArgs()
-	filter.Add("service", serviceID)
-	tasks, err := client.TaskList(ctx, types.TaskListOptions{
-		Filters: filter,
-	})
-	assert.NilError(t, err)
-	assert.Check(t, is.Equal(len(tasks), 1))
-
-	body, err := client.ContainerLogs(ctx, tasks[0].Status.ContainerStatus.ContainerID, types.ContainerLogsOptions{
+	body, err := client.ServiceLogs(ctx, serviceID, types.ContainerLogsOptions{
+		Tail:       "1",
 		ShowStdout: true,
 	})
 	assert.NilError(t, err)
@@ -318,7 +337,7 @@ func TestCreateServiceConfigFileMode(t *testing.T) {
 	serviceName := "TestService_" + t.Name()
 	serviceID := swarm.CreateService(t, d,
 		swarm.ServiceWithName(serviceName),
-		swarm.ServiceWithCommand([]string{"/bin/sh", "-c", "ls -l /etc/config || /bin/top"}),
+		swarm.ServiceWithCommand([]string{"/bin/sh", "-c", "ls -l /etc/config && sleep inf"}),
 		swarm.ServiceWithReplicas(instances),
 		swarm.ServiceWithConfig(&swarmtypes.ConfigReference{
 			File: &swarmtypes.ConfigReferenceFileTarget{
@@ -334,15 +353,8 @@ func TestCreateServiceConfigFileMode(t *testing.T) {
 
 	poll.WaitOn(t, swarm.RunningTasksCount(client, serviceID, instances))
 
-	filter := filters.NewArgs()
-	filter.Add("service", serviceID)
-	tasks, err := client.TaskList(ctx, types.TaskListOptions{
-		Filters: filter,
-	})
-	assert.NilError(t, err)
-	assert.Check(t, is.Equal(len(tasks), 1))
-
-	body, err := client.ContainerLogs(ctx, tasks[0].Status.ContainerStatus.ContainerID, types.ContainerLogsOptions{
+	body, err := client.ServiceLogs(ctx, serviceID, types.ContainerLogsOptions{
+		Tail:       "1",
 		ShowStdout: true,
 	})
 	assert.NilError(t, err)
@@ -455,4 +467,82 @@ func TestCreateServiceSysctls(t *testing.T) {
 			service.Spec.TaskTemplate.ContainerSpec.Sysctls, expectedSysctls,
 		)
 	}
+}
+
+// TestServiceCreateCapabilities tests that a service created with capabilities options in
+// the ContainerSpec correctly applies those options.
+//
+// To test this, we're going to create a service with the capabilities option
+//
+//   []string{"CAP_NET_RAW", "CAP_SYS_CHROOT"}
+//
+// We'll get the service's tasks to get the container ID, and then we'll
+// inspect the container. If the output of the container inspect contains the
+// capabilities option with the correct value, we can assume that the capabilities has been
+// plumbed correctly.
+func TestCreateServiceCapabilities(t *testing.T) {
+	skip.If(
+		t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.41"),
+		"setting service capabilities is unsupported before api v1.41",
+	)
+
+	defer setupTest(t)()
+	d := swarm.NewSwarm(t, testEnv)
+	defer d.Stop(t)
+	client := d.NewClientT(t)
+	defer client.Close()
+
+	ctx := context.Background()
+
+	// store the map we're going to be using everywhere.
+	capAdd := []string{"CAP_SYS_CHROOT"}
+	capDrop := []string{"CAP_NET_RAW"}
+
+	// Create the service with the capabilities options
+	var instances uint64 = 1
+	serviceID := swarm.CreateService(t, d,
+		swarm.ServiceWithCapabilities(capAdd, capDrop),
+	)
+
+	// wait for the service to converge to 1 running task as expected
+	poll.WaitOn(t, swarm.RunningTasksCount(client, serviceID, instances))
+
+	// we're going to check 3 things:
+	//
+	//   1. Does the container, when inspected, have the capabilities option set?
+	//   2. Does the task have the capabilities in the spec?
+	//   3. Does the service have the capabilities in the spec?
+	//
+	// if all 3 of these things are true, we know that the capabilities has been
+	// plumbed correctly through the engine.
+	//
+	// We don't actually have to get inside the container and check its
+	// logs or anything. If we see the capabilities set on the container inspect,
+	// we know that the capabilities is plumbed correctly. everything below that
+	// level has been tested elsewhere.
+
+	// get all of the tasks of the service, so we can get the container
+	filter := filters.NewArgs()
+	filter.Add("service", serviceID)
+	tasks, err := client.TaskList(ctx, types.TaskListOptions{
+		Filters: filter,
+	})
+	assert.NilError(t, err)
+	assert.Check(t, is.Equal(len(tasks), 1))
+
+	// verify that the container has the capabilities option set
+	ctnr, err := client.ContainerInspect(ctx, tasks[0].Status.ContainerStatus.ContainerID)
+	assert.NilError(t, err)
+	assert.DeepEqual(t, ctnr.HostConfig.CapAdd, strslice.StrSlice(capAdd))
+	assert.DeepEqual(t, ctnr.HostConfig.CapDrop, strslice.StrSlice(capDrop))
+
+	// verify that the task has the capabilities option set in the task object
+	assert.DeepEqual(t, tasks[0].Spec.ContainerSpec.CapabilityAdd, capAdd)
+	assert.DeepEqual(t, tasks[0].Spec.ContainerSpec.CapabilityDrop, capDrop)
+
+	// verify that the service also has the capabilities set in the spec.
+	service, _, err := client.ServiceInspectWithRaw(ctx, serviceID, types.ServiceInspectOptions{})
+	assert.NilError(t, err)
+	assert.DeepEqual(t, service.Spec.TaskTemplate.ContainerSpec.CapabilityAdd, capAdd)
+	assert.DeepEqual(t, service.Spec.TaskTemplate.ContainerSpec.CapabilityDrop, capDrop)
 }

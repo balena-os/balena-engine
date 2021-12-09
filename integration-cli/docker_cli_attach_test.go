@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/docker/docker/integration-cli/cli"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
 )
 
 const attachWait = 5 * time.Second
@@ -51,24 +51,24 @@ func (s *DockerSuite) TestAttachMultipleAndRestart(c *testing.T) {
 
 			out, err := cmd.StdoutPipe()
 			if err != nil {
-				c.Fatal(err)
+				c.Error(err)
 			}
 			defer out.Close()
 
 			if err := cmd.Start(); err != nil {
-				c.Fatal(err)
+				c.Error(err)
 			}
 
 			buf := make([]byte, 1024)
 
 			if _, err := out.Read(buf); err != nil && err != io.EOF {
-				c.Fatal(err)
+				c.Error(err)
 			}
 
 			startGroup.Done()
 
 			if !strings.Contains(string(buf), "hello") {
-				c.Fatalf("unexpected output %s expected hello\n", string(buf))
+				c.Errorf("unexpected output %s expected hello\n", string(buf))
 			}
 		}()
 	}
@@ -89,7 +89,7 @@ func (s *DockerSuite) TestAttachMultipleAndRestart(c *testing.T) {
 }
 
 func (s *DockerSuite) TestAttachTTYWithoutStdin(c *testing.T) {
-	// TODO @jhowardmsft. Figure out how to get this running again reliable on Windows.
+	// TODO: Figure out how to get this running again reliable on Windows.
 	// It works by accident at the moment. Sometimes. I've gone back to v1.13.0 and see the same.
 	// On Windows, docker run -d -ti busybox causes the container to exit immediately.
 	// Obviously a year back when I updated the test, that was not the case. However,
@@ -102,7 +102,7 @@ func (s *DockerSuite) TestAttachTTYWithoutStdin(c *testing.T) {
 	id := strings.TrimSpace(out)
 	assert.NilError(c, waitRun(id))
 
-	done := make(chan error)
+	done := make(chan error, 1)
 	go func() {
 		defer close(done)
 

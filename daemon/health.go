@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/exec"
@@ -66,7 +65,7 @@ type cmdProbe struct {
 func (p *cmdProbe) run(ctx context.Context, d *Daemon, cntr *container.Container) (*types.HealthcheckResult, error) {
 	cmdSlice := strslice.StrSlice(cntr.Config.Healthcheck.Test)[1:]
 	if p.shell {
-		cmdSlice = append(getShell(cntr.Config), cmdSlice...)
+		cmdSlice = append(getShell(cntr), cmdSlice...)
 	}
 	entrypoint, args := d.getEntrypointAndArgs(strslice.StrSlice{}, cmdSlice)
 	execConfig := exec.NewConfig()
@@ -206,12 +205,18 @@ func handleProbeResult(d *Daemon, c *container.Container, result *types.Healthch
 func monitor(d *Daemon, c *container.Container, stop chan struct{}, probe probe) {
 	probeTimeout := timeoutWithDefault(c.Config.Healthcheck.Timeout, defaultProbeTimeout)
 	probeInterval := timeoutWithDefault(c.Config.Healthcheck.Interval, defaultProbeInterval)
+
+	intervalTimer := time.NewTimer(probeInterval)
+	defer intervalTimer.Stop()
+
 	for {
+		intervalTimer.Reset(probeInterval)
+
 		select {
 		case <-stop:
 			logrus.Debugf("Stop healthcheck monitoring for container %s (received while idle)", c.ID)
 			return
-		case <-time.After(probeInterval):
+		case <-intervalTimer.C:
 			logrus.Debugf("Running health check for container %s ...", c.ID)
 			startTime := time.Now()
 			ctx, cancelProbe := context.WithTimeout(context.Background(), probeTimeout)
@@ -287,7 +292,7 @@ func getProbe(c *container.Container) probe {
 // Ensure the health-check monitor is running or not, depending on the current
 // state of the container.
 // Called from monitor.go, with c locked.
-func (d *Daemon) updateHealthMonitor(c *container.Container) {
+func (daemon *Daemon) updateHealthMonitor(c *container.Container) {
 	h := c.State.Health
 	if h == nil {
 		return // No healthcheck configured
@@ -297,7 +302,7 @@ func (d *Daemon) updateHealthMonitor(c *container.Container) {
 	wantRunning := c.Running && !c.Paused && probe != nil
 	if wantRunning {
 		if stop := h.OpenMonitorChannel(); stop != nil {
-			go monitor(d, c, stop, probe)
+			go monitor(daemon, c, stop, probe)
 		}
 	} else {
 		h.CloseMonitorChannel()
@@ -308,14 +313,14 @@ func (d *Daemon) updateHealthMonitor(c *container.Container) {
 // initHealthMonitor is called from monitor.go and we should never be running
 // two instances at once.
 // Called with c locked.
-func (d *Daemon) initHealthMonitor(c *container.Container) {
+func (daemon *Daemon) initHealthMonitor(c *container.Container) {
 	// If no healthcheck is setup then don't init the monitor
 	if getProbe(c) == nil {
 		return
 	}
 
 	// This is needed in case we're auto-restarting
-	d.stopHealthchecks(c)
+	daemon.stopHealthchecks(c)
 
 	if h := c.State.Health; h != nil {
 		h.SetStatus(types.Starting)
@@ -326,12 +331,12 @@ func (d *Daemon) initHealthMonitor(c *container.Container) {
 		c.State.Health = h
 	}
 
-	d.updateHealthMonitor(c)
+	daemon.updateHealthMonitor(c)
 }
 
 // Called when the container is being stopped (whether because the health check is
 // failing or for any other reason).
-func (d *Daemon) stopHealthchecks(c *container.Container) {
+func (daemon *Daemon) stopHealthchecks(c *container.Container) {
 	h := c.State.Health
 	if h != nil {
 		h.CloseMonitorChannel()
@@ -389,11 +394,14 @@ func min(x, y int) int {
 	return y
 }
 
-func getShell(config *containertypes.Config) []string {
-	if len(config.Shell) != 0 {
-		return config.Shell
+func getShell(cntr *container.Container) []string {
+	if len(cntr.Config.Shell) != 0 {
+		return cntr.Config.Shell
 	}
 	if runtime.GOOS != "windows" {
+		return []string{"/bin/sh", "-c"}
+	}
+	if cntr.OS != runtime.GOOS {
 		return []string{"/bin/sh", "-c"}
 	}
 	return []string{"cmd", "/S", "/C"}

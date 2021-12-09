@@ -10,7 +10,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	apiclient "github.com/docker/docker/client"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 // TestDeltaCreate creates a delta and checks if it exists

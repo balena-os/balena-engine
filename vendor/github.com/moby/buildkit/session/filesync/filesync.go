@@ -129,8 +129,8 @@ type progressCb func(int, bool)
 
 type protocol struct {
 	name   string
-	sendFn func(stream grpc.Stream, fs fsutil.FS, progress progressCb) error
-	recvFn func(stream grpc.Stream, destDir string, cu CacheUpdater, progress progressCb, mapFunc func(string, *fstypes.Stat) bool) error
+	sendFn func(stream Stream, fs fsutil.FS, progress progressCb) error
+	recvFn func(stream grpc.ClientStream, destDir string, cu CacheUpdater, progress progressCb, mapFunc func(string, *fstypes.Stat) bool) error
 }
 
 func isProtoSupported(p string) bool {
@@ -255,7 +255,7 @@ func (sp *fsSyncTarget) Register(server *grpc.Server) {
 	RegisterFileSendServer(server, sp)
 }
 
-func (sp *fsSyncTarget) DiffCopy(stream FileSend_DiffCopyServer) error {
+func (sp *fsSyncTarget) DiffCopy(stream FileSend_DiffCopyServer) (err error) {
 	if sp.outdir != "" {
 		return syncTargetDiffCopy(stream, sp.outdir)
 	}
@@ -277,7 +277,12 @@ func (sp *fsSyncTarget) DiffCopy(stream FileSend_DiffCopyServer) error {
 	if wc == nil {
 		return status.Errorf(codes.AlreadyExists, "target already exists")
 	}
-	defer wc.Close()
+	defer func() {
+		err1 := wc.Close()
+		if err != nil {
+			err = err1
+		}
+	}()
 	return writeTargetFile(stream, wc)
 }
 

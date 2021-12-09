@@ -15,9 +15,10 @@ import (
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/parsers"
-	"github.com/mistifyio/go-zfs"
+	zfs "github.com/mistifyio/go-zfs"
+	"github.com/moby/sys/mount"
+	"github.com/moby/sys/mountinfo"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -54,7 +55,7 @@ func Init(base string, opt []string, uidMaps, gidMaps []idtools.IDMap) (graphdri
 		return nil, graphdriver.ErrPrerequisites
 	}
 
-	file, err := os.OpenFile("/dev/zfs", os.O_RDWR, 600)
+	file, err := os.OpenFile("/dev/zfs", os.O_RDWR, 0600)
 	if err != nil {
 		logger.Debugf("cannot open /dev/zfs: %v", err)
 		return nil, graphdriver.ErrPrerequisites
@@ -103,11 +104,16 @@ func Init(base string, opt []string, uidMaps, gidMaps []idtools.IDMap) (graphdri
 		return nil, fmt.Errorf("BUG: zfs get all -t filesystem -rHp '%s' should contain '%s'", options.fsName, options.fsName)
 	}
 
-	rootUID, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
+	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get root uid/guid: %v", err)
+		return nil, err
 	}
-	if err := idtools.MkdirAllAndChown(base, 0700, idtools.Identity{UID: rootUID, GID: rootGID}); err != nil {
+
+	dirID := idtools.Identity{
+		UID: idtools.CurrentIdentity().UID,
+		GID: rootGID,
+	}
+	if err := idtools.MkdirAllAndChown(base, 0710, dirID); err != nil {
 		return nil, fmt.Errorf("Failed to create '%s': %v", base, err)
 	}
 
@@ -148,7 +154,7 @@ func lookupZfsDataset(rootdir string) (string, error) {
 	}
 	wantedDev := stat.Dev
 
-	mounts, err := mount.GetMounts(nil)
+	mounts, err := mountinfo.GetMounts(nil)
 	if err != nil {
 		return "", err
 	}
@@ -158,7 +164,7 @@ func lookupZfsDataset(rootdir string) (string, error) {
 			continue // may fail on fuse file systems
 		}
 
-		if stat.Dev == wantedDev && m.Fstype == "zfs" {
+		if stat.Dev == wantedDev && m.FSType == "zfs" {
 			return m.Source, nil
 		}
 	}

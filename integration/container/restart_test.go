@@ -8,16 +8,15 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/internal/test/daemon"
-	"gotest.tools/assert"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/daemon"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/skip"
 )
 
 func TestDaemonRestartKillContainers(t *testing.T) {
-	t.Skip("Pending balenaEngine compatibility investigation")
-
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot start daemon on remote test run")
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support live-restore")
 	type testCase struct {
 		desc       string
 		config     *container.Config
@@ -64,8 +63,7 @@ func TestDaemonRestartKillContainers(t *testing.T) {
 					liveRestoreEnabled := liveRestoreEnabled
 					stopDaemon := stopDaemon
 
-					// TODO(robertgzr): need to find the cause for the flaky behavior when these are run in parallel
-					// t.Parallel()
+					t.Parallel()
 
 					d := daemon.New(t)
 					client := d.NewClientT(t)
@@ -79,7 +77,7 @@ func TestDaemonRestartKillContainers(t *testing.T) {
 					defer d.Stop(t)
 					ctx := context.Background()
 
-					resp, err := client.ContainerCreate(ctx, c.config, c.hostConfig, nil, "")
+					resp, err := client.ContainerCreate(ctx, c.config, c.hostConfig, nil, nil, "")
 					assert.NilError(t, err)
 					defer client.ContainerRemove(ctx, resp.ID, types.ContainerRemoveOptions{Force: true})
 

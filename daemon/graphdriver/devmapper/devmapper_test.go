@@ -34,13 +34,14 @@ func initLoopbacks() error {
 	if err != nil {
 		return err
 	}
-	// create at least 8 loopback files, ya, that is a good number
-	for i := 0; i < 8; i++ {
+	// create at least 128 loopback files, since a few first ones
+	// might be already in use by the host OS
+	for i := 0; i < 128; i++ {
 		loopPath := fmt.Sprintf("/dev/loop%d", i)
 		// only create new loopback files if they don't exist
 		if _, err := os.Stat(loopPath); err != nil {
 			if mkerr := syscall.Mknod(loopPath,
-				uint32(statT.Mode|syscall.S_IFBLK), int((7<<8)|(i&0xff)|((i&0xfff00)<<12))); mkerr != nil {
+				uint32(statT.Mode|syscall.S_IFBLK), int((7<<8)|(i&0xff)|((i&0xfff00)<<12))); mkerr != nil { // nolint: unconvert
 				return mkerr
 			}
 			os.Chown(loopPath, int(statT.Uid), int(statT.Gid))
@@ -109,7 +110,7 @@ func testChangeLoopBackSize(t *testing.T, delta, expectDataSize, expectMetaDataS
 	if err := driver.Cleanup(); err != nil {
 		t.Fatal(err)
 	}
-	//Reload
+	// Reload
 	d, err := Init(driver.home, []string{
 		fmt.Sprintf("dm.loopdatasize=%d", defaultDataLoopbackSize+delta),
 		fmt.Sprintf("dm.loopmetadatasize=%d", defaultMetaDataLoopbackSize+delta),
