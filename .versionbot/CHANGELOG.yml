@@ -1,4 +1,17 @@
 - commits:
+    - subject: Merge upstream v20.10.11
+      hash: 8bd50366a9390750523562b3be8087c87e977fda
+      body: >-
+        For full changelog see:
+        https://github.com/balena-os/balena-engine/blob/20.10-balena/CHANGELOG.md#2021-12-09-upstream-release
+      footers:
+        change-type: major
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+      nested: []
+  version: 20.10.11
+  date: '2021-12-09T12:00:00.000Z'
+- commits:
     - subject: 'storagemigration: keep going if migration fails'
       hash: 2bde63c800b1df72fba7161d62b5b6da84a8d390
       body: |
