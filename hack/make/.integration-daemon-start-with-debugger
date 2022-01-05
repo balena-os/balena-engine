@@ -86,7 +86,7 @@ if [ -z "$DOCKER_TEST_HOST" ]; then
 		[ -n "$TESTDEBUG" ] && set -x
 		export GO111MODULE=off
 		exec \
-			dlv --listen=:40000 --headless=true --api-version=2 exec \
+			dlv --check-go-version=false --listen=:40000 --headless=true --api-version=2 exec \
 			bundles/dynbinary-balena/balena-engine-daemon -- --debug \
 			--host "$DOCKER_HOST" \
 			--storage-driver "$DOCKER_GRAPHDRIVER" \
