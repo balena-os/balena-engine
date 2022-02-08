@@ -709,7 +709,7 @@ func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.
 		hostConfig.Runtime = daemon.configStore.GetDefaultRuntimeName()
 	}
 
-	if rt := daemon.configStore.GetRuntime(hostConfig.Runtime); rt == nil {
+	if rt := daemon.configStore.GetRuntime(hostConfig.Runtime); rt == nil && hostConfig.Runtime != "bare" {
 		return warnings, fmt.Errorf("Unknown runtime specified %s", hostConfig.Runtime)
 	}
 
