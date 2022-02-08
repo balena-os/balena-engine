@@ -708,7 +708,7 @@ func verifyPlatformContainerSettings(daemon *Daemon, daemonCfg *configStore, hos
 		hostConfig.Runtime = daemonCfg.Runtimes.Default
 	}
 
-	if _, _, err := daemonCfg.Runtimes.Get(hostConfig.Runtime); err != nil {
+	if _, _, err := daemonCfg.Runtimes.Get(hostConfig.Runtime); err != nil && hostConfig.Runtime != "bare" {
 		return warnings, err
 	}
 
