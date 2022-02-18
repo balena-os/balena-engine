@@ -1,0 +1,49 @@
+type: type-product-os-t-golang-source@1.1.3
+name: balena-engine
+version: 20.10.11
+data:
+  $transformer: {}
+
+  platforms:
+    - linux/amd64
+    - linux/arm64
+    - linux/arm/v7
+    - linux/arm/v6
+  tags:
+    - apparmor
+    - seccomp
+    - no_btrfs
+    - no_cri
+    - no_devmapper
+    - no_zfs
+    - exclude_disk_quota
+    - exclude_graphdriver_btrfs
+    - exclude_graphdriver_devicemapper
+    - exclude_graphdriver_zfs
+  dependsOn:
+    debian:
+      - libseccomp-dev
+      - apparmor
+      # - bzip2
+      - iptables
+      # - jq
+      - libcap2-bin
+      # - libnet1
+      # - libnl-3-200
+      # - libprotobuf-c1
+      - net-tools
+      # - patch
+      - pigz
+      # - python3-pip
+      # - python3-setuptools
+      # - python3-wheel
+      # - sudo
+      # - thin-provisioning-tools
+      - uidmap
+      # - vim
+      # - vim-common
+      - xfsprogs
+      - xz-utils
+      - zip
+  hack:
+    module: github.com/docker/docker
