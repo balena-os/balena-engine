@@ -92,6 +92,9 @@ func dispatchLabel(d dispatchRequest, c *instructions.LabelCommand) error {
 // exist here. If you do not wish to have this automatic handling, use COPY.
 //
 func dispatchAdd(d dispatchRequest, c *instructions.AddCommand) error {
+	if c.Chmod != "" {
+		return errors.New("the --chmod option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled")
+	}
 	downloader := newRemoteSourceDownloader(d.builder.Output, d.builder.Stdout)
 	copier := copierFromDispatchRequest(d, downloader, nil)
 	defer copier.Cleanup()
@@ -111,6 +114,9 @@ func dispatchAdd(d dispatchRequest, c *instructions.AddCommand) error {
 // Same as 'ADD' but without the tar and remote url handling.
 //
 func dispatchCopy(d dispatchRequest, c *instructions.CopyCommand) error {
+	if c.Chmod != "" {
+		return errors.New("the --chmod option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled")
+	}
 	var im *imageMount
 	var err error
 	if c.From != "" {
@@ -205,7 +211,8 @@ func dispatchTriggeredOnBuild(d dispatchRequest, triggers []string) error {
 		}
 		cmd, err := instructions.ParseCommand(ast.AST.Children[0])
 		if err != nil {
-			if instructions.IsUnknownInstruction(err) {
+			var uiErr *instructions.UnknownInstruction
+			if errors.As(err, &uiErr) {
 				buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
 			}
 			return err
@@ -345,6 +352,12 @@ func dispatchRun(d dispatchRequest, c *instructions.RunCommand) error {
 	if !system.IsOSSupported(d.state.operatingSystem) {
 		return system.ErrNotSupportedOperatingSystem
 	}
+
+	if len(c.FlagsUsed) > 0 {
+		// classic builder RUN currently does not support any flags, so fail on the first one
+		return errors.Errorf("the --%s option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled", c.FlagsUsed[0])
+	}
+
 	stateRunConfig := d.state.runConfig
 	cmdFromArgs, argsEscaped := resolveCmdLine(c.ShellDependantCmdLine, stateRunConfig, d.state.operatingSystem, c.Name(), c.String())
 	buildArgs := d.state.buildArgs.FilterAllowed(stateRunConfig.Env)
@@ -586,14 +599,21 @@ func dispatchStopSignal(d dispatchRequest, c *instructions.StopSignalCommand) er
 // to builder using the --build-arg flag for expansion/substitution or passing to 'run'.
 // Dockerfile author may optionally set a default value of this variable.
 func dispatchArg(d dispatchRequest, c *instructions.ArgCommand) error {
-
-	commitStr := "ARG " + c.Key
-	if c.Value != nil {
-		commitStr += "=" + *c.Value
+	var commitStr strings.Builder
+	commitStr.WriteString("ARG ")
+	for i, arg := range c.Args {
+		if i > 0 {
+			commitStr.WriteString(" ")
+		}
+		commitStr.WriteString(arg.Key)
+		if arg.Value != nil {
+			commitStr.WriteString("=")
+			commitStr.WriteString(*arg.Value)
+		}
+		d.state.buildArgs.AddArg(arg.Key, arg.Value)
 	}
 
-	d.state.buildArgs.AddArg(c.Key, c.Value)
-	return d.builder.commit(d.state, commitStr)
+	return d.builder.commit(d.state, commitStr.String())
 }
 
 // SHELL powershell -command

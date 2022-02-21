@@ -6,10 +6,17 @@ import (
 	"testing"
 
 	"github.com/docker/docker/layer"
-	"github.com/opencontainers/go-digest"
-	"gotest.tools/assert"
-	"gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
+
+func TestCreate(t *testing.T) {
+	is, cleanup := defaultImageStore(t)
+	defer cleanup()
+
+	_, err := is.Create([]byte(`{}`))
+	assert.Check(t, cmp.Error(err, "invalid image JSON, no RootFS key"))
+}
 
 func TestRestore(t *testing.T) {
 	fs, cleanup := defaultFSStoreBackend(t)
@@ -60,11 +67,11 @@ func TestRestore(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Check(t, cmp.Equal(ID(id1), sid1))
 
-	sid1, err = is.Search(digest.Digest(id1).Hex()[:6])
+	sid1, err = is.Search(id1.Hex()[:6])
 	assert.NilError(t, err)
 	assert.Check(t, cmp.Equal(ID(id1), sid1))
 
-	invalidPattern := digest.Digest(id1).Hex()[1:6]
+	invalidPattern := id1.Hex()[1:6]
 	_, err = is.Search(invalidPattern)
 	assert.ErrorContains(t, err, "No such image")
 }

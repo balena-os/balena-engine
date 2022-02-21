@@ -1088,6 +1088,10 @@ func (n *network) delete(force bool, rmLBEndpoint bool) error {
 	// Cleanup the service discovery for this network
 	c.cleanupServiceDiscovery(n.ID())
 
+	// Cleanup the load balancer. On Windows this call is required
+	// to remove remote loadbalancers in VFP.
+	c.cleanupServiceBindings(n.ID())
+
 removeFromStore:
 	// deleteFromStore performs an atomic delete operation and the
 	// network.epCnt will help prevent any possible
@@ -1177,7 +1181,8 @@ func (n *network) createEndpoint(name string, options ...EndpointOption) (Endpoi
 	ep.locator = n.getController().clusterHostID()
 	ep.network, err = ep.getNetworkFromStore()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network during CreateEndpoint: %v", err)
+		logrus.Errorf("failed to get network during CreateEndpoint: %v", err)
+		return nil, err
 	}
 	n = ep.network
 
@@ -1325,7 +1330,7 @@ func (n *network) EndpointByID(id string) (Endpoint, error) {
 func (n *network) updateSvcRecord(ep *endpoint, localEps []*endpoint, isAdd bool) {
 	var ipv6 net.IP
 	epName := ep.Name()
-	if iface := ep.Iface(); iface.Address() != nil {
+	if iface := ep.Iface(); iface != nil && iface.Address() != nil {
 		myAliases := ep.MyAliases()
 		if iface.AddressIPv6() != nil {
 			ipv6 = iface.AddressIPv6().IP
@@ -1404,21 +1409,21 @@ func (n *network) addSvcRecords(eID, name, serviceID string, epIP, epIPv6 net.IP
 	if n.ingress {
 		return
 	}
-
-	logrus.Debugf("%s (%.7s).addSvcRecords(%s, %s, %s, %t) %s sid:%s", eID, n.ID(), name, epIP, epIPv6, ipMapUpdate, method, serviceID)
+	networkID := n.ID()
+	logrus.Debugf("%s (%.7s).addSvcRecords(%s, %s, %s, %t) %s sid:%s", eID, networkID, name, epIP, epIPv6, ipMapUpdate, method, serviceID)
 
 	c := n.getController()
 	c.Lock()
 	defer c.Unlock()
 
-	sr, ok := c.svcRecords[n.ID()]
+	sr, ok := c.svcRecords[networkID]
 	if !ok {
 		sr = svcInfo{
 			svcMap:     setmatrix.NewSetMatrix(),
 			svcIPv6Map: setmatrix.NewSetMatrix(),
 			ipMap:      setmatrix.NewSetMatrix(),
 		}
-		c.svcRecords[n.ID()] = sr
+		c.svcRecords[networkID] = sr
 	}
 
 	if ipMapUpdate {
@@ -1440,14 +1445,14 @@ func (n *network) deleteSvcRecords(eID, name, serviceID string, epIP net.IP, epI
 	if n.ingress {
 		return
 	}
-
-	logrus.Debugf("%s (%.7s).deleteSvcRecords(%s, %s, %s, %t) %s sid:%s ", eID, n.ID(), name, epIP, epIPv6, ipMapUpdate, method, serviceID)
+	networkID := n.ID()
+	logrus.Debugf("%s (%.7s).deleteSvcRecords(%s, %s, %s, %t) %s sid:%s ", eID, networkID, name, epIP, epIPv6, ipMapUpdate, method, serviceID)
 
 	c := n.getController()
 	c.Lock()
 	defer c.Unlock()
 
-	sr, ok := c.svcRecords[n.ID()]
+	sr, ok := c.svcRecords[networkID]
 	if !ok {
 		return
 	}
@@ -1967,9 +1972,10 @@ func (n *network) ResolveName(req string, ipType int) ([]net.IP, bool) {
 	var ipv6Miss bool
 
 	c := n.getController()
+	networkID := n.ID()
 	c.Lock()
 	defer c.Unlock()
-	sr, ok := c.svcRecords[n.ID()]
+	sr, ok := c.svcRecords[networkID]
 
 	if !ok {
 		return nil, false
@@ -2007,10 +2013,11 @@ func (n *network) ResolveName(req string, ipType int) ([]net.IP, bool) {
 }
 
 func (n *network) HandleQueryResp(name string, ip net.IP) {
+	networkID := n.ID()
 	c := n.getController()
 	c.Lock()
 	defer c.Unlock()
-	sr, ok := c.svcRecords[n.ID()]
+	sr, ok := c.svcRecords[networkID]
 
 	if !ok {
 		return
@@ -2026,10 +2033,11 @@ func (n *network) HandleQueryResp(name string, ip net.IP) {
 }
 
 func (n *network) ResolveIP(ip string) string {
+	networkID := n.ID()
 	c := n.getController()
 	c.Lock()
 	defer c.Unlock()
-	sr, ok := c.svcRecords[n.ID()]
+	sr, ok := c.svcRecords[networkID]
 
 	if !ok {
 		return ""
@@ -2080,9 +2088,10 @@ func (n *network) ResolveService(name string) ([]*net.SRV, []net.IP) {
 	proto := parts[1]
 	svcName := strings.Join(parts[2:], ".")
 
+	networkID := n.ID()
 	c.Lock()
 	defer c.Unlock()
-	sr, ok := c.svcRecords[n.ID()]
+	sr, ok := c.svcRecords[networkID]
 
 	if !ok {
 		return nil, nil

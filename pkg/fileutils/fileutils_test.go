@@ -10,13 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 // CopyFile with invalid src
 func TestCopyFileWithInvalidSrc(t *testing.T) {
-	tempFolder, err := ioutil.TempDir("", "docker-fileutils-test")
+	tempFolder, err := ioutil.TempDir("", "docker-fileutils-test") // #nosec G303
 	defer os.RemoveAll(tempFolder)
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +182,7 @@ func TestReadSymlinkedDirectoryToFile(t *testing.T) {
 	var err error
 	var file *os.File
 
+	// #nosec G303
 	if file, err = os.Create("/tmp/testReadSymlinkToFile"); err != nil {
 		t.Fatalf("failed to create file: %s", err)
 	}
@@ -376,8 +377,6 @@ func TestMatches(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		tests = append(tests, []matchesTestCase{
 			{"a\\*b", "a*b", true},
-			{"a\\", "a", false},
-			{"a\\", "a\\", false},
 		}...)
 	}
 

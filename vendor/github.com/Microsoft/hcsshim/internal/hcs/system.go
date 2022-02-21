@@ -4,12 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/log"
@@ -20,27 +17,6 @@ import (
 	"github.com/Microsoft/hcsshim/internal/vmcompute"
 	"go.opencensus.io/trace"
 )
-
-// currentContainerStarts is used to limit the number of concurrent container
-// starts.
-var currentContainerStarts containerStarts
-
-type containerStarts struct {
-	maxParallel int
-	inProgress  int
-	sync.Mutex
-}
-
-func init() {
-	mpsS := os.Getenv("HCSSHIM_MAX_PARALLEL_START")
-	if len(mpsS) > 0 {
-		mpsI, err := strconv.Atoi(mpsS)
-		if err != nil || mpsI < 0 {
-			return
-		}
-		currentContainerStarts.maxParallel = mpsI
-	}
-}
 
 type System struct {
 	handleLock     sync.RWMutex
@@ -99,7 +75,7 @@ func CreateComputeSystem(ctx context.Context, id string, hcsDocumentInterface in
 			// Terminate the compute system if it still exists. We're okay to
 			// ignore a failure here.
 			computeSystem.Terminate(ctx)
-			return nil, makeSystemError(computeSystem, operation, "", err, nil)
+			return nil, makeSystemError(computeSystem, operation, err, nil)
 		}
 	}
 
@@ -110,7 +86,7 @@ func CreateComputeSystem(ctx context.Context, id string, hcsDocumentInterface in
 			// ignore a failure here.
 			computeSystem.Terminate(ctx)
 		}
-		return nil, makeSystemError(computeSystem, operation, hcsDocument, err, events)
+		return nil, makeSystemError(computeSystem, operation, err, events)
 	}
 	go computeSystem.waitBackground()
 	if err = computeSystem.getCachedProperties(ctx); err != nil {
@@ -127,7 +103,7 @@ func OpenComputeSystem(ctx context.Context, id string) (*System, error) {
 	handle, resultJSON, err := vmcompute.HcsOpenComputeSystem(ctx, id)
 	events := processHcsResult(ctx, resultJSON)
 	if err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, events)
+		return nil, makeSystemError(computeSystem, operation, err, events)
 	}
 	computeSystem.handle = handle
 	defer func() {
@@ -136,7 +112,7 @@ func OpenComputeSystem(ctx context.Context, id string) (*System, error) {
 		}
 	}()
 	if err = computeSystem.registerCallback(ctx); err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 	go computeSystem.waitBackground()
 	if err = computeSystem.getCachedProperties(ctx); err != nil {
@@ -212,39 +188,13 @@ func (computeSystem *System) Start(ctx context.Context) (err error) {
 	defer computeSystem.handleLock.RUnlock()
 
 	if computeSystem.handle == 0 {
-		return makeSystemError(computeSystem, operation, "", ErrAlreadyClosed, nil)
-	}
-
-	// This is a very simple backoff-retry loop to limit the number
-	// of parallel container starts if environment variable
-	// HCSSHIM_MAX_PARALLEL_START is set to a positive integer.
-	// It should generally only be used as a workaround to various
-	// platform issues that exist between RS1 and RS4 as of Aug 2018
-	if currentContainerStarts.maxParallel > 0 {
-		for {
-			currentContainerStarts.Lock()
-			if currentContainerStarts.inProgress < currentContainerStarts.maxParallel {
-				currentContainerStarts.inProgress++
-				currentContainerStarts.Unlock()
-				break
-			}
-			if currentContainerStarts.inProgress == currentContainerStarts.maxParallel {
-				currentContainerStarts.Unlock()
-				time.Sleep(100 * time.Millisecond)
-			}
-		}
-		// Make sure we decrement the count when we are done.
-		defer func() {
-			currentContainerStarts.Lock()
-			currentContainerStarts.inProgress--
-			currentContainerStarts.Unlock()
-		}()
+		return makeSystemError(computeSystem, operation, ErrAlreadyClosed, nil)
 	}
 
 	resultJSON, err := vmcompute.HcsStartComputeSystem(ctx, computeSystem.handle, "")
 	events, err := processAsyncHcsResult(ctx, err, resultJSON, computeSystem.callbackNumber, hcsNotificationSystemStartCompleted, &timeout.SystemStart)
 	if err != nil {
-		return makeSystemError(computeSystem, operation, "", err, events)
+		return makeSystemError(computeSystem, operation, err, events)
 	}
 
 	return nil
@@ -271,7 +221,7 @@ func (computeSystem *System) Shutdown(ctx context.Context) error {
 	switch err {
 	case nil, ErrVmcomputeAlreadyStopped, ErrComputeSystemDoesNotExist, ErrVmcomputeOperationPending:
 	default:
-		return makeSystemError(computeSystem, operation, "", err, events)
+		return makeSystemError(computeSystem, operation, err, events)
 	}
 	return nil
 }
@@ -292,7 +242,7 @@ func (computeSystem *System) Terminate(ctx context.Context) error {
 	switch err {
 	case nil, ErrVmcomputeAlreadyStopped, ErrComputeSystemDoesNotExist, ErrVmcomputeOperationPending:
 	default:
-		return makeSystemError(computeSystem, operation, "", err, events)
+		return makeSystemError(computeSystem, operation, err, events)
 	}
 	return nil
 }
@@ -314,10 +264,10 @@ func (computeSystem *System) waitBackground() {
 		log.G(ctx).Debug("system exited")
 	case ErrVmcomputeUnexpectedExit:
 		log.G(ctx).Debug("unexpected system exit")
-		computeSystem.exitError = makeSystemError(computeSystem, operation, "", err, nil)
+		computeSystem.exitError = makeSystemError(computeSystem, operation, err, nil)
 		err = nil
 	default:
-		err = makeSystemError(computeSystem, operation, "", err, nil)
+		err = makeSystemError(computeSystem, operation, err, nil)
 	}
 	computeSystem.closedWaitOnce.Do(func() {
 		computeSystem.waitError = err
@@ -355,13 +305,13 @@ func (computeSystem *System) Properties(ctx context.Context, types ...schema1.Pr
 
 	queryBytes, err := json.Marshal(schema1.PropertyQuery{PropertyTypes: types})
 	if err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 
 	propertiesJSON, resultJSON, err := vmcompute.HcsGetComputeSystemProperties(ctx, computeSystem.handle, string(queryBytes))
 	events := processHcsResult(ctx, resultJSON)
 	if err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, events)
+		return nil, makeSystemError(computeSystem, operation, err, events)
 	}
 
 	if propertiesJSON == "" {
@@ -369,7 +319,7 @@ func (computeSystem *System) Properties(ctx context.Context, types ...schema1.Pr
 	}
 	properties := &schema1.ContainerProperties{}
 	if err := json.Unmarshal([]byte(propertiesJSON), properties); err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 
 	return properties, nil
@@ -384,13 +334,13 @@ func (computeSystem *System) PropertiesV2(ctx context.Context, types ...hcsschem
 
 	queryBytes, err := json.Marshal(hcsschema.PropertyQuery{PropertyTypes: types})
 	if err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 
 	propertiesJSON, resultJSON, err := vmcompute.HcsGetComputeSystemProperties(ctx, computeSystem.handle, string(queryBytes))
 	events := processHcsResult(ctx, resultJSON)
 	if err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, events)
+		return nil, makeSystemError(computeSystem, operation, err, events)
 	}
 
 	if propertiesJSON == "" {
@@ -398,7 +348,7 @@ func (computeSystem *System) PropertiesV2(ctx context.Context, types ...hcsschem
 	}
 	properties := &hcsschema.Properties{}
 	if err := json.Unmarshal([]byte(propertiesJSON), properties); err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 
 	return properties, nil
@@ -419,13 +369,13 @@ func (computeSystem *System) Pause(ctx context.Context) (err error) {
 	defer computeSystem.handleLock.RUnlock()
 
 	if computeSystem.handle == 0 {
-		return makeSystemError(computeSystem, operation, "", ErrAlreadyClosed, nil)
+		return makeSystemError(computeSystem, operation, ErrAlreadyClosed, nil)
 	}
 
 	resultJSON, err := vmcompute.HcsPauseComputeSystem(ctx, computeSystem.handle, "")
 	events, err := processAsyncHcsResult(ctx, err, resultJSON, computeSystem.callbackNumber, hcsNotificationSystemPauseCompleted, &timeout.SystemPause)
 	if err != nil {
-		return makeSystemError(computeSystem, operation, "", err, events)
+		return makeSystemError(computeSystem, operation, err, events)
 	}
 
 	return nil
@@ -446,13 +396,13 @@ func (computeSystem *System) Resume(ctx context.Context) (err error) {
 	defer computeSystem.handleLock.RUnlock()
 
 	if computeSystem.handle == 0 {
-		return makeSystemError(computeSystem, operation, "", ErrAlreadyClosed, nil)
+		return makeSystemError(computeSystem, operation, ErrAlreadyClosed, nil)
 	}
 
 	resultJSON, err := vmcompute.HcsResumeComputeSystem(ctx, computeSystem.handle, "")
 	events, err := processAsyncHcsResult(ctx, err, resultJSON, computeSystem.callbackNumber, hcsNotificationSystemResumeCompleted, &timeout.SystemResume)
 	if err != nil {
-		return makeSystemError(computeSystem, operation, "", err, events)
+		return makeSystemError(computeSystem, operation, err, events)
 	}
 
 	return nil
@@ -463,19 +413,19 @@ func (computeSystem *System) createProcess(ctx context.Context, operation string
 	defer computeSystem.handleLock.RUnlock()
 
 	if computeSystem.handle == 0 {
-		return nil, nil, makeSystemError(computeSystem, operation, "", ErrAlreadyClosed, nil)
+		return nil, nil, makeSystemError(computeSystem, operation, ErrAlreadyClosed, nil)
 	}
 
 	configurationb, err := json.Marshal(c)
 	if err != nil {
-		return nil, nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 
 	configuration := string(configurationb)
 	processInfo, processHandle, resultJSON, err := vmcompute.HcsCreateProcess(ctx, computeSystem.handle, configuration)
 	events := processHcsResult(ctx, resultJSON)
 	if err != nil {
-		return nil, nil, makeSystemError(computeSystem, operation, configuration, err, events)
+		return nil, nil, makeSystemError(computeSystem, operation, err, events)
 	}
 
 	log.G(ctx).WithField("pid", processInfo.ProcessId).Debug("created process pid")
@@ -497,7 +447,7 @@ func (computeSystem *System) CreateProcess(ctx context.Context, c interface{}) (
 
 	pipes, err := makeOpenFiles([]syscall.Handle{processInfo.StdInput, processInfo.StdOutput, processInfo.StdError})
 	if err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 	process.stdin = pipes[0]
 	process.stdout = pipes[1]
@@ -505,7 +455,7 @@ func (computeSystem *System) CreateProcess(ctx context.Context, c interface{}) (
 	process.hasCachedStdio = true
 
 	if err = process.registerCallback(ctx); err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 	go process.waitBackground()
 
@@ -520,18 +470,18 @@ func (computeSystem *System) OpenProcess(ctx context.Context, pid int) (*Process
 	operation := "hcsshim::System::OpenProcess"
 
 	if computeSystem.handle == 0 {
-		return nil, makeSystemError(computeSystem, operation, "", ErrAlreadyClosed, nil)
+		return nil, makeSystemError(computeSystem, operation, ErrAlreadyClosed, nil)
 	}
 
 	processHandle, resultJSON, err := vmcompute.HcsOpenProcess(ctx, computeSystem.handle, uint32(pid))
 	events := processHcsResult(ctx, resultJSON)
 	if err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, events)
+		return nil, makeSystemError(computeSystem, operation, err, events)
 	}
 
 	process := newProcess(processHandle, pid, computeSystem)
 	if err = process.registerCallback(ctx); err != nil {
-		return nil, makeSystemError(computeSystem, operation, "", err, nil)
+		return nil, makeSystemError(computeSystem, operation, err, nil)
 	}
 	go process.waitBackground()
 
@@ -555,12 +505,12 @@ func (computeSystem *System) Close() (err error) {
 	}
 
 	if err = computeSystem.unregisterCallback(ctx); err != nil {
-		return makeSystemError(computeSystem, operation, "", err, nil)
+		return makeSystemError(computeSystem, operation, err, nil)
 	}
 
 	err = vmcompute.HcsCloseComputeSystem(ctx, computeSystem.handle)
 	if err != nil {
-		return makeSystemError(computeSystem, operation, "", err, nil)
+		return makeSystemError(computeSystem, operation, err, nil)
 	}
 
 	computeSystem.handle = 0
@@ -637,7 +587,7 @@ func (computeSystem *System) Modify(ctx context.Context, config interface{}) err
 	operation := "hcsshim::System::Modify"
 
 	if computeSystem.handle == 0 {
-		return makeSystemError(computeSystem, operation, "", ErrAlreadyClosed, nil)
+		return makeSystemError(computeSystem, operation, ErrAlreadyClosed, nil)
 	}
 
 	requestBytes, err := json.Marshal(config)
@@ -649,7 +599,7 @@ func (computeSystem *System) Modify(ctx context.Context, config interface{}) err
 	resultJSON, err := vmcompute.HcsModifyComputeSystem(ctx, computeSystem.handle, requestJSON)
 	events := processHcsResult(ctx, resultJSON)
 	if err != nil {
-		return makeSystemError(computeSystem, operation, requestJSON, err, events)
+		return makeSystemError(computeSystem, operation, err, events)
 	}
 
 	return nil

@@ -10,12 +10,12 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 
-	"github.com/docker/docker/internal/test/daemon"
+	"github.com/docker/docker/testutil/daemon"
 
 	"golang.org/x/sys/unix"
-	"gotest.tools/assert"
-	"gotest.tools/fs"
-	"gotest.tools/skip"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/fs"
+	"gotest.tools/v3/skip"
 )
 
 func TestAufsToOverlay2Migration(t *testing.T) {
@@ -72,6 +72,7 @@ func TestAufsToOverlay2Migration(t *testing.T) {
 		&container.Config{
 			Image: "a2o-test",
 		},
+		nil,
 		nil,
 		nil,
 		"",

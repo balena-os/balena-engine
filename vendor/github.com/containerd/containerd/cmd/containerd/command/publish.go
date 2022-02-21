@@ -32,6 +32,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/backoff"
 )
 
 var publishCommand = cli.Command{
@@ -51,7 +52,7 @@ var publishCommand = cli.Command{
 		ctx := namespaces.WithNamespace(gocontext.Background(), context.String("namespace"))
 		topic := context.String("topic")
 		if topic == "" {
-			return errors.New("topic required to publish event")
+			return errors.Wrap(errdefs.ErrInvalidArgument, "topic required to publish event")
 		}
 		payload, err := getEventPayload(os.Stdin)
 		if err != nil {
@@ -84,20 +85,25 @@ func getEventPayload(r io.Reader) (*types.Any, error) {
 }
 
 func connectEvents(address string) (eventsapi.EventsClient, error) {
-	conn, err := connect(address, dialer.Dialer)
+	conn, err := connect(address, dialer.ContextDialer)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to dial %q", address)
 	}
 	return eventsapi.NewEventsClient(conn), nil
 }
 
-func connect(address string, d func(string, time.Duration) (net.Conn, error)) (*grpc.ClientConn, error) {
+func connect(address string, d func(gocontext.Context, string) (net.Conn, error)) (*grpc.ClientConn, error) {
+	backoffConfig := backoff.DefaultConfig
+	backoffConfig.MaxDelay = 3 * time.Second
+	connParams := grpc.ConnectParams{
+		Backoff: backoffConfig,
+	}
 	gopts := []grpc.DialOption{
 		grpc.WithBlock(),
 		grpc.WithInsecure(),
-		grpc.WithDialer(d),
+		grpc.WithContextDialer(d),
 		grpc.FailOnNonTempDialError(true),
-		grpc.WithBackoffMaxDelay(3 * time.Second),
+		grpc.WithConnectParams(connParams),
 	}
 	ctx, cancel := gocontext.WithTimeout(gocontext.Background(), 2*time.Second)
 	defer cancel()

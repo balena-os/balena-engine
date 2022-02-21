@@ -16,7 +16,10 @@ import (
 	"strings"
 	"time"
 
-	statsV1 "github.com/containerd/cgroups"
+	"github.com/containerd/cgroups"
+	statsV1 "github.com/containerd/cgroups/stats/v1"
+	statsV2 "github.com/containerd/cgroups/v2/stats"
+	"github.com/containerd/containerd/sys"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/blkiodev"
 	pblkiodev "github.com/docker/docker/api/types/blkiodev"
@@ -28,8 +31,6 @@ import (
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/ioutils"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/parsers/kernel"
 	"github.com/docker/docker/pkg/sysinfo"
@@ -42,9 +43,9 @@ import (
 	"github.com/docker/libnetwork/netutils"
 	"github.com/docker/libnetwork/options"
 	lntypes "github.com/docker/libnetwork/types"
-	"github.com/opencontainers/runc/libcontainer/cgroups"
-	rsystem "github.com/opencontainers/runc/libcontainer/system"
-	"github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/moby/sys/mount"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -53,6 +54,8 @@ import (
 )
 
 const (
+	isWindows = false
+
 	// DefaultShimBinary is the default shim to be used by containerd if none
 	// is specified
 	DefaultShimBinary = "balena-engine-containerd-shim"
@@ -65,8 +68,8 @@ const (
 	linuxMinCPUShares = 2
 	linuxMaxCPUShares = 262144
 	platformSupported = true
-	// It's not kernel limit, we want this 4M limit to supply a reasonable functional container
-	linuxMinMemory = 4194304
+	// It's not kernel limit, we want this 6M limit to account for overhead during startup, and to supply a reasonable functional container
+	linuxMinMemory = 6291456
 	// constants for remapped root settings
 	defaultIDSpecifier = "default"
 	defaultRemappedID  = "dockremap"
@@ -75,10 +78,6 @@ const (
 	cgroupFsDriver      = "cgroupfs"
 	cgroupSystemdDriver = "systemd"
 	cgroupNoneDriver    = "none"
-
-	// DefaultRuntimeName is the default runtime to be used by
-	// containerd if none is specified
-	DefaultRuntimeName = "balena-engine-runc"
 )
 
 type containerGetter interface {
@@ -189,7 +188,7 @@ func getBlkioWeightDevices(config containertypes.Resources) ([]specs.LinuxWeight
 
 	for _, weightDevice := range config.BlkioWeightDevice {
 		if err := unix.Stat(weightDevice.Path, &stat); err != nil {
-			return nil, err
+			return nil, errors.WithStack(&os.PathError{Op: "stat", Path: weightDevice.Path, Err: err})
 		}
 		weight := weightDevice.Weight
 		d := specs.LinuxWeightDevice{Weight: &weight}
@@ -262,7 +261,7 @@ func getBlkioThrottleDevices(devs []*blkiodev.ThrottleDevice) ([]specs.LinuxThro
 
 	for _, d := range devs {
 		if err := unix.Stat(d.Path, &stat); err != nil {
-			return nil, err
+			return nil, errors.WithStack(&os.PathError{Op: "stat", Path: d.Path, Err: err})
 		}
 		d := specs.LinuxThrottleDevice{Rate: d.Rate}
 		// the type is 32bit on mips
@@ -360,14 +359,32 @@ func (daemon *Daemon) adaptContainerSettings(hostConfig *containertypes.HostConf
 		hostConfig.IpcMode = containertypes.IpcMode(m)
 	}
 
+	// Set default cgroup namespace mode, if unset for container
+	if hostConfig.CgroupnsMode.IsEmpty() {
+		// for cgroup v2: unshare cgroupns even for privileged containers
+		// https://github.com/containers/libpod/pull/4374#issuecomment-549776387
+		if hostConfig.Privileged && cgroups.Mode() != cgroups.Unified {
+			hostConfig.CgroupnsMode = containertypes.CgroupnsMode("host")
+		} else {
+			m := "host"
+			if cgroups.Mode() == cgroups.Unified {
+				m = "private"
+			}
+			if daemon.configStore != nil {
+				m = daemon.configStore.CgroupNamespaceMode
+			}
+			hostConfig.CgroupnsMode = containertypes.CgroupnsMode(m)
+		}
+	}
+
 	adaptSharedNamespaceContainer(daemon, hostConfig)
 
 	var err error
-	opts, err := daemon.generateSecurityOpt(hostConfig)
+	secOpts, err := daemon.generateSecurityOpt(hostConfig)
 	if err != nil {
 		return err
 	}
-	hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, opts...)
+	hostConfig.SecurityOpt = append(hostConfig.SecurityOpt, secOpts...)
 	if hostConfig.OomKillDisable == nil {
 		defaultOomKillDisable := false
 		hostConfig.OomKillDisable = &defaultOomKillDisable
@@ -412,7 +429,7 @@ func verifyPlatformContainerResources(resources *containertypes.Resources, sysIn
 
 	// memory subsystem checks and adjustments
 	if resources.Memory != 0 && resources.Memory < linuxMinMemory {
-		return warnings, fmt.Errorf("Minimum memory limit allowed is 4MB")
+		return warnings, fmt.Errorf("Minimum memory limit allowed is 6MB")
 	}
 	if resources.Memory > 0 && !sysInfo.MemoryLimit {
 		warnings = append(warnings, "Your kernel does not support memory limit capabilities or the cgroup is not mounted. Limitation discarded.")
@@ -444,10 +461,16 @@ func verifyPlatformContainerResources(resources *containertypes.Resources, sysIn
 		resources.MemoryReservation = 0
 	}
 	if resources.MemoryReservation > 0 && resources.MemoryReservation < linuxMinMemory {
-		return warnings, fmt.Errorf("Minimum memory reservation allowed is 4MB")
+		return warnings, fmt.Errorf("Minimum memory reservation allowed is 6MB")
 	}
 	if resources.Memory > 0 && resources.MemoryReservation > 0 && resources.Memory < resources.MemoryReservation {
 		return warnings, fmt.Errorf("Minimum memory limit can not be less than memory reservation limit, see usage")
+	}
+	if resources.KernelMemory > 0 {
+		// Kernel memory limit is not supported on cgroup v2.
+		// Even on cgroup v1, kernel memory limit (`kmem.limit_in_bytes`) has been deprecated since kernel 5.4.
+		// https://github.com/torvalds/linux/commit/0158115f702b0ba208ab0b5adf44cae99b3ebcc7
+		warnings = append(warnings, "Specifying a kernel memory limit is deprecated and will be removed in a future release.")
 	}
 	if resources.KernelMemory > 0 && !sysInfo.KernelMemory {
 		warnings = append(warnings, "Your kernel does not support kernel memory limit capabilities or the cgroup is not mounted. Limitation discarded.")
@@ -484,8 +507,8 @@ func verifyPlatformContainerResources(resources *containertypes.Resources, sysIn
 	if resources.NanoCPUs > 0 && resources.CPUQuota > 0 {
 		return warnings, fmt.Errorf("Conflicting options: Nano CPUs and CPU Quota cannot both be set")
 	}
-	if resources.NanoCPUs > 0 && (!sysInfo.CPUCfsPeriod || !sysInfo.CPUCfsQuota) {
-		return warnings, fmt.Errorf("NanoCPUs can not be set, as your kernel does not support CPU cfs period/quota or the cgroup is not mounted")
+	if resources.NanoCPUs > 0 && !sysInfo.CPUCfs {
+		return warnings, fmt.Errorf("NanoCPUs can not be set, as your kernel does not support CPU CFS scheduler or the cgroup is not mounted")
 	}
 	// The highest precision we could get on Linux is 0.001, by setting
 	//   cpu.cfs_period_us=1000ms
@@ -502,16 +525,13 @@ func verifyPlatformContainerResources(resources *containertypes.Resources, sysIn
 		warnings = append(warnings, "Your kernel does not support CPU shares or the cgroup is not mounted. Shares discarded.")
 		resources.CPUShares = 0
 	}
-	if resources.CPUPeriod > 0 && !sysInfo.CPUCfsPeriod {
-		warnings = append(warnings, "Your kernel does not support CPU cfs period or the cgroup is not mounted. Period discarded.")
+	if (resources.CPUPeriod != 0 || resources.CPUQuota != 0) && !sysInfo.CPUCfs {
+		warnings = append(warnings, "Your kernel does not support CPU CFS scheduler. CPU period/quota discarded.")
 		resources.CPUPeriod = 0
+		resources.CPUQuota = 0
 	}
 	if resources.CPUPeriod != 0 && (resources.CPUPeriod < 1000 || resources.CPUPeriod > 1000000) {
 		return warnings, fmt.Errorf("CPU cfs period can not be less than 1ms (i.e. 1000) or larger than 1s (i.e. 1000000)")
-	}
-	if resources.CPUQuota > 0 && !sysInfo.CPUCfsQuota {
-		warnings = append(warnings, "Your kernel does not support CPU cfs quota or the cgroup is not mounted. Quota discarded.")
-		resources.CPUQuota = 0
 	}
 	if resources.CPUQuota > 0 && resources.CPUQuota < 1000 {
 		return warnings, fmt.Errorf("CPU cfs quota can not be less than 1ms (i.e. 1000)")
@@ -579,15 +599,13 @@ func verifyPlatformContainerResources(resources *containertypes.Resources, sysIn
 }
 
 func (daemon *Daemon) getCgroupDriver() string {
+	if UsingSystemd(daemon.configStore) {
+		return cgroupSystemdDriver
+	}
 	if daemon.Rootless() {
 		return cgroupNoneDriver
 	}
-	cgroupDriver := cgroupFsDriver
-
-	if UsingSystemd(daemon.configStore) {
-		cgroupDriver = cgroupSystemdDriver
-	}
-	return cgroupDriver
+	return cgroupFsDriver
 }
 
 // getCD gets the raw value of the native.cgroupdriver option, if set.
@@ -616,7 +634,23 @@ func VerifyCgroupDriver(config *config.Config) error {
 
 // UsingSystemd returns true if cli option includes native.cgroupdriver=systemd
 func UsingSystemd(config *config.Config) bool {
-	return getCD(config) == cgroupSystemdDriver
+	if getCD(config) == cgroupSystemdDriver {
+		return true
+	}
+	// On cgroup v2 hosts, default to systemd driver
+	if getCD(config) == "" && cgroups.Mode() == cgroups.Unified && IsRunningSystemd() {
+		return true
+	}
+	return false
+}
+
+// IsRunningSystemd is from https://github.com/opencontainers/runc/blob/46be7b612e2533c494e6a251111de46d8e286ed5/libcontainer/cgroups/systemd/common.go#L27-L33
+func IsRunningSystemd() bool {
+	fi, err := os.Lstat("/run/systemd/system")
+	if err != nil {
+		return false
+	}
+	return fi.IsDir()
 }
 
 // verifyPlatformContainerSettings performs platform-specific validation of the
@@ -625,7 +659,7 @@ func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.
 	if hostConfig == nil {
 		return nil, nil
 	}
-	sysInfo := sysinfo.New(true)
+	sysInfo := daemon.RawSysInfo(true)
 
 	w, err := verifyPlatformContainerResources(&hostConfig.Resources, sysInfo, update)
 
@@ -674,7 +708,7 @@ func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.
 		hostConfig.Runtime = daemon.configStore.GetDefaultRuntimeName()
 	}
 
-	if rt := daemon.configStore.GetRuntime(hostConfig.Runtime); rt == nil {
+	if rt := daemon.configStore.GetRuntime(hostConfig.Runtime); rt == nil && hostConfig.Runtime != "bare" {
 		return warnings, fmt.Errorf("Unknown runtime specified %s", hostConfig.Runtime)
 	}
 
@@ -685,55 +719,20 @@ func verifyPlatformContainerSettings(daemon *Daemon, hostConfig *containertypes.
 		}
 	}
 
+	if !hostConfig.CgroupnsMode.Valid() {
+		return warnings, fmt.Errorf("invalid cgroup namespace mode: %v", hostConfig.CgroupnsMode)
+	}
+	if hostConfig.CgroupnsMode.IsPrivate() {
+		if !sysInfo.CgroupNamespaces {
+			warnings = append(warnings, "Your kernel does not support cgroup namespaces.  Cgroup namespace setting discarded.")
+		}
+	}
+
+	if hostConfig.Runtime == config.LinuxV1RuntimeName || (hostConfig.Runtime == "" && daemon.configStore.DefaultRuntime == config.LinuxV1RuntimeName) {
+		warnings = append(warnings, fmt.Sprintf("Configured runtime %q is deprecated and will be removed in the next release.", config.LinuxV1RuntimeName))
+	}
+
 	return warnings, nil
-}
-
-func (daemon *Daemon) loadRuntimes() error {
-	return daemon.initRuntimes(daemon.configStore.Runtimes)
-}
-
-func (daemon *Daemon) initRuntimes(runtimes map[string]types.Runtime) (err error) {
-	runtimeDir := filepath.Join(daemon.configStore.Root, "runtimes")
-	// Remove old temp directory if any
-	os.RemoveAll(runtimeDir + "-old")
-	tmpDir, err := ioutils.TempDir(daemon.configStore.Root, "gen-runtimes")
-	if err != nil {
-		return errors.Wrap(err, "failed to get temp dir to generate runtime scripts")
-	}
-	defer func() {
-		if err != nil {
-			if err1 := os.RemoveAll(tmpDir); err1 != nil {
-				logrus.WithError(err1).WithField("dir", tmpDir).
-					Warn("failed to remove tmp dir")
-			}
-			return
-		}
-
-		if err = os.Rename(runtimeDir, runtimeDir+"-old"); err != nil {
-			return
-		}
-		if err = os.Rename(tmpDir, runtimeDir); err != nil {
-			err = errors.Wrap(err, "failed to setup runtimes dir, new containers may not start")
-			return
-		}
-		if err = os.RemoveAll(runtimeDir + "-old"); err != nil {
-			logrus.WithError(err).WithField("dir", tmpDir).
-				Warn("failed to remove old runtimes dir")
-		}
-	}()
-
-	for name, rt := range runtimes {
-		if len(rt.Args) == 0 {
-			continue
-		}
-
-		script := filepath.Join(tmpDir, name)
-		content := fmt.Sprintf("#!/bin/sh\n%s %s $@\n", rt.Path, strings.Join(rt.Args, " "))
-		if err := ioutil.WriteFile(script, []byte(content), 0700); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // verifyDaemonSettings performs validation of daemon config struct
@@ -748,6 +747,9 @@ func verifyDaemonSettings(conf *config.Config) error {
 	if !conf.BridgeConfig.EnableIPTables && !conf.BridgeConfig.InterContainerCommunication {
 		return fmt.Errorf("You specified --iptables=false with --icc=false. ICC=false uses iptables to function. Please set --icc or --iptables to true")
 	}
+	if conf.BridgeConfig.EnableIP6Tables && !conf.Experimental {
+		return fmt.Errorf("ip6tables rules are only available if experimental features are enabled")
+	}
 	if !conf.BridgeConfig.EnableIPTables && conf.BridgeConfig.EnableIPMasq {
 		conf.BridgeConfig.EnableIPMasq = false
 	}
@@ -760,15 +762,19 @@ func verifyDaemonSettings(conf *config.Config) error {
 		}
 	}
 
-	if conf.DefaultRuntime == "" {
-		conf.DefaultRuntime = config.StockRuntimeName
+	if conf.Rootless && UsingSystemd(conf) && cgroups.Mode() != cgroups.Unified {
+		return fmt.Errorf("exec-opt native.cgroupdriver=systemd requires cgroup v2 for rootless mode")
 	}
-	if conf.Runtimes == nil {
-		conf.Runtimes = make(map[string]types.Runtime)
-	}
-	conf.Runtimes[config.StockRuntimeName] = types.Runtime{Path: DefaultRuntimeName}
-	conf.Runtimes["bare"] = types.Runtime{}
 
+	configureRuntimes(conf)
+	if rtName := conf.GetDefaultRuntimeName(); rtName != "" {
+		if conf.GetRuntime(rtName) == nil {
+			return fmt.Errorf("specified default runtime '%s' does not exist", rtName)
+		}
+		if rtName == config.LinuxV1RuntimeName {
+			logrus.Warnf("Configured default runtime %q is deprecated and will be removed in the next release.", config.LinuxV1RuntimeName)
+		}
+	}
 	return nil
 }
 
@@ -804,31 +810,20 @@ func overlaySupportsSelinux() (bool, error) {
 	}
 	defer f.Close()
 
-	var symAddr, symType, symName, text string
-
 	s := bufio.NewScanner(f)
 	for s.Scan() {
-		if err := s.Err(); err != nil {
-			return false, err
-		}
-
-		text = s.Text()
-		if _, err := fmt.Sscanf(text, "%s %s %s", &symAddr, &symType, &symName); err != nil {
-			return false, fmt.Errorf("Scanning '%s' failed: %s", text, err)
-		}
-
-		// Check for presence of symbol security_inode_copy_up.
-		if symName == "security_inode_copy_up" {
+		if strings.HasSuffix(s.Text(), " security_inode_copy_up") {
 			return true, nil
 		}
 	}
-	return false, nil
+
+	return false, s.Err()
 }
 
 // configureKernelSecuritySupport configures and validates security support for the kernel
 func configureKernelSecuritySupport(config *config.Config, driverName string) error {
 	if config.EnableSelinuxSupport {
-		if !selinuxEnabled() {
+		if !selinux.GetEnabled() {
 			logrus.Warn("Docker could not enable SELinux on the host system")
 			return nil
 		}
@@ -846,7 +841,7 @@ func configureKernelSecuritySupport(config *config.Config, driverName string) er
 			}
 		}
 	} else {
-		selinuxSetDisabled()
+		selinux.SetDisabled()
 	}
 	return nil
 }
@@ -900,6 +895,19 @@ func (daemon *Daemon) initNetworkController(config *config.Config, activeSandbox
 		removeDefaultBridgeInterface()
 	}
 
+	// Set HostGatewayIP to the default bridge's IP  if it is empty
+	if daemon.configStore.HostGatewayIP == nil && controller != nil {
+		if n, err := controller.NetworkByName("bridge"); err == nil {
+			v4Info, v6Info := n.Info().IpamInfo()
+			var gateway net.IP
+			if len(v4Info) > 0 {
+				gateway = v4Info[0].Gateway.IP
+			} else if len(v6Info) > 0 {
+				gateway = v6Info[0].Gateway.IP
+			}
+			daemon.configStore.HostGatewayIP = gateway
+		}
+	}
 	return controller, nil
 }
 
@@ -907,6 +915,7 @@ func driverOptions(config *config.Config) []nwconfig.Option {
 	bridgeConfig := options.Generic{
 		"EnableIPForwarding":  config.BridgeConfig.EnableIPForward,
 		"EnableIPTables":      config.BridgeConfig.EnableIPTables,
+		"EnableIP6Tables":     config.BridgeConfig.EnableIP6Tables,
 		"EnableUserlandProxy": config.BridgeConfig.EnableUserlandProxy,
 		"UserlandProxyPath":   config.BridgeConfig.UserlandProxyPath}
 	bridgeOption := options.Generic{netlabel.GenericData: bridgeConfig}
@@ -934,12 +943,7 @@ func initBridgeDriver(controller libnetwork.NetworkController, config *config.Co
 		netOption[bridge.DefaultBindingIP] = config.BridgeConfig.DefaultIP.String()
 	}
 
-	var (
-		ipamV4Conf *libnetwork.IpamConf
-		ipamV6Conf *libnetwork.IpamConf
-	)
-
-	ipamV4Conf = &libnetwork.IpamConf{AuxAddresses: make(map[string]string)}
+	ipamV4Conf := &libnetwork.IpamConf{AuxAddresses: make(map[string]string)}
 
 	nwList, nw6List, err := netutils.ElectInterfaceAddresses(bridgeName)
 	if err != nil {
@@ -968,11 +972,11 @@ func initBridgeDriver(controller libnetwork.NetworkController, config *config.Co
 	}
 
 	if config.BridgeConfig.IP != "" {
-		ipamV4Conf.PreferredPool = config.BridgeConfig.IP
-		ip, _, err := net.ParseCIDR(config.BridgeConfig.IP)
+		ip, ipNet, err := net.ParseCIDR(config.BridgeConfig.IP)
 		if err != nil {
 			return err
 		}
+		ipamV4Conf.PreferredPool = ipNet.String()
 		ipamV4Conf.Gateway = ip.String()
 	} else if bridgeName == bridge.DefaultBridgeName && ipamV4Conf.PreferredPool != "" {
 		logrus.Infof("Default bridge (%s) is assigned with an IP address %s. Daemon option --bip can be used to set a preferred IP address", bridgeName, ipamV4Conf.PreferredPool)
@@ -991,8 +995,14 @@ func initBridgeDriver(controller libnetwork.NetworkController, config *config.Co
 		ipamV4Conf.AuxAddresses["DefaultGatewayIPv4"] = config.BridgeConfig.DefaultGatewayIPv4.String()
 	}
 
-	var deferIPv6Alloc bool
-	if config.BridgeConfig.FixedCIDRv6 != "" {
+	var (
+		deferIPv6Alloc bool
+		ipamV6Conf     *libnetwork.IpamConf
+	)
+
+	if config.BridgeConfig.EnableIPv6 && config.BridgeConfig.FixedCIDRv6 == "" {
+		return errdefs.InvalidParameter(errors.New("IPv6 is enabled for the default bridge, but no subnet is configured. Specify an IPv6 subnet using --fixed-cidr-v6"))
+	} else if config.BridgeConfig.FixedCIDRv6 != "" {
 		_, fCIDRv6, err := net.ParseCIDR(config.BridgeConfig.FixedCIDRv6)
 		if err != nil {
 			return err
@@ -1007,10 +1017,10 @@ func initBridgeDriver(controller libnetwork.NetworkController, config *config.Co
 		ones, _ := fCIDRv6.Mask.Size()
 		deferIPv6Alloc = ones <= 80
 
-		if ipamV6Conf == nil {
-			ipamV6Conf = &libnetwork.IpamConf{AuxAddresses: make(map[string]string)}
+		ipamV6Conf = &libnetwork.IpamConf{
+			AuxAddresses:  make(map[string]string),
+			PreferredPool: fCIDRv6.String(),
 		}
-		ipamV6Conf.PreferredPool = fCIDRv6.String()
 
 		// In case the --fixed-cidr-v6 is specified and the current docker0 bridge IPv6
 		// address belongs to the same network, we need to inform libnetwork about it, so
@@ -1173,11 +1183,11 @@ func setupRemappedRoot(config *config.Config) (*idtools.IdentityMapping, error) 
 			logrus.Warn("User namespaces: root cannot be remapped with itself; user namespaces are OFF")
 			return &idtools.IdentityMapping{}, nil
 		}
-		logrus.Infof("User namespaces: ID ranges will be mapped to subuid/subgid ranges of: %s:%s", username, groupname)
+		logrus.Infof("User namespaces: ID ranges will be mapped to subuid/subgid ranges of: %s", username)
 		// update remapped root setting now that we have resolved them to actual names
 		config.RemappedRoot = fmt.Sprintf("%s:%s", username, groupname)
 
-		mappings, err := idtools.NewIdentityMapping(username, groupname)
+		mappings, err := idtools.NewIdentityMapping(username)
 		if err != nil {
 			return nil, errors.Wrap(err, "Can't create ID mappings")
 		}
@@ -1186,7 +1196,7 @@ func setupRemappedRoot(config *config.Config) (*idtools.IdentityMapping, error) 
 	return &idtools.IdentityMapping{}, nil
 }
 
-func setupDaemonRoot(config *config.Config, rootDir string, rootIdentity idtools.Identity) error {
+func setupDaemonRoot(config *config.Config, rootDir string, remappedRoot idtools.Identity) error {
 	config.Root = rootDir
 	// the docker root metadata directory needs to have execute permissions for all users (g+x,o+x)
 	// so that syscalls executing as non-root, operating on subdirectories of the graph root
@@ -1206,15 +1216,21 @@ func setupDaemonRoot(config *config.Config, rootDir string, rootIdentity idtools
 		}
 	}
 
+	id := idtools.Identity{UID: idtools.CurrentIdentity().UID, GID: remappedRoot.GID}
+	// First make sure the current root dir has the correct perms.
+	if err := idtools.MkdirAllAndChown(config.Root, 0710, id); err != nil {
+		return errors.Wrapf(err, "could not create or set daemon root permissions: %s", config.Root)
+	}
+
 	// if user namespaces are enabled we will create a subtree underneath the specified root
 	// with any/all specified remapped root uid/gid options on the daemon creating
 	// a new subdirectory with ownership set to the remapped uid/gid (so as to allow
 	// `chdir()` to work for containers namespaced to that uid/gid)
 	if config.RemappedRoot != "" {
-		config.Root = filepath.Join(rootDir, fmt.Sprintf("%d.%d", rootIdentity.UID, rootIdentity.GID))
+		config.Root = filepath.Join(rootDir, fmt.Sprintf("%d.%d", remappedRoot.UID, remappedRoot.GID))
 		logrus.Debugf("Creating user namespaced daemon root: %s", config.Root)
 		// Create the root directory if it doesn't exist
-		if err := idtools.MkdirAllAndChown(config.Root, 0700, rootIdentity); err != nil {
+		if err := idtools.MkdirAllAndChown(config.Root, 0710, id); err != nil {
 			return fmt.Errorf("Cannot create daemon root: %s: %v", config.Root, err)
 		}
 		// we also need to verify that any pre-existing directories in the path to
@@ -1227,7 +1243,7 @@ func setupDaemonRoot(config *config.Config, rootDir string, rootIdentity idtools
 			if dirPath == "/" {
 				break
 			}
-			if !idtools.CanAccess(dirPath, rootIdentity) {
+			if !idtools.CanAccess(dirPath, remappedRoot) {
 				return fmt.Errorf("a subdirectory in your graphroot path (%s) restricts access to the remapped root uid/gid; please fix by allowing 'o+x' permissions on existing directories", config.Root)
 			}
 		}
@@ -1240,7 +1256,7 @@ func setupDaemonRoot(config *config.Config, rootDir string, rootIdentity idtools
 }
 
 func setupDaemonRootPropagation(cfg *config.Config) error {
-	rootParentMount, options, err := getSourceMount(cfg.Root)
+	rootParentMount, mountOptions, err := getSourceMount(cfg.Root)
 	if err != nil {
 		return errors.Wrap(err, "error getting daemon root's parent mount")
 	}
@@ -1256,7 +1272,7 @@ func setupDaemonRootPropagation(cfg *config.Config) error {
 		}
 	}()
 
-	if hasMountinfoOption(options, sharedPropagationOption, slavePropagationOption) {
+	if hasMountInfoOption(mountOptions, sharedPropagationOption, slavePropagationOption) {
 		cleanupOldFile = true
 		return nil
 	}
@@ -1377,6 +1393,17 @@ func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
 	s := &types.StatsJSON{}
 	s.Read = cs.Read
 	stats := cs.Metrics
+	switch t := stats.(type) {
+	case *statsV1.Metrics:
+		return daemon.statsV1(s, t)
+	case *statsV2.Metrics:
+		return daemon.statsV2(s, t)
+	default:
+		return nil, errors.Errorf("unexpected type of metrics %+v", t)
+	}
+}
+
+func (daemon *Daemon) statsV1(s *types.StatsJSON, stats *statsV1.Metrics) (*types.StatsJSON, error) {
 	if stats.Blkio != nil {
 		s.BlkioStats = types.BlkioStats{
 			IoServiceBytesRecursive: copyBlkioEntry(stats.Blkio.IoServiceBytesRecursive),
@@ -1470,6 +1497,108 @@ func (daemon *Daemon) stats(c *container.Container) (*types.StatsJSON, error) {
 	return s, nil
 }
 
+func (daemon *Daemon) statsV2(s *types.StatsJSON, stats *statsV2.Metrics) (*types.StatsJSON, error) {
+	if stats.Io != nil {
+		var isbr []types.BlkioStatEntry
+		for _, re := range stats.Io.Usage {
+			isbr = append(isbr,
+				types.BlkioStatEntry{
+					Major: re.Major,
+					Minor: re.Minor,
+					Op:    "read",
+					Value: re.Rbytes,
+				},
+				types.BlkioStatEntry{
+					Major: re.Major,
+					Minor: re.Minor,
+					Op:    "write",
+					Value: re.Wbytes,
+				},
+			)
+		}
+		s.BlkioStats = types.BlkioStats{
+			IoServiceBytesRecursive: isbr,
+			// Other fields are unsupported
+		}
+	}
+
+	if stats.CPU != nil {
+		s.CPUStats = types.CPUStats{
+			CPUUsage: types.CPUUsage{
+				TotalUsage: stats.CPU.UsageUsec * 1000,
+				// PercpuUsage is not supported
+				UsageInKernelmode: stats.CPU.SystemUsec * 1000,
+				UsageInUsermode:   stats.CPU.UserUsec * 1000,
+			},
+			ThrottlingData: types.ThrottlingData{
+				Periods:          stats.CPU.NrPeriods,
+				ThrottledPeriods: stats.CPU.NrThrottled,
+				ThrottledTime:    stats.CPU.ThrottledUsec * 1000,
+			},
+		}
+	}
+
+	if stats.Memory != nil {
+		raw := make(map[string]uint64)
+		raw["anon"] = stats.Memory.Anon
+		raw["file"] = stats.Memory.File
+		raw["kernel_stack"] = stats.Memory.KernelStack
+		raw["slab"] = stats.Memory.Slab
+		raw["sock"] = stats.Memory.Sock
+		raw["shmem"] = stats.Memory.Shmem
+		raw["file_mapped"] = stats.Memory.FileMapped
+		raw["file_dirty"] = stats.Memory.FileDirty
+		raw["file_writeback"] = stats.Memory.FileWriteback
+		raw["anon_thp"] = stats.Memory.AnonThp
+		raw["inactive_anon"] = stats.Memory.InactiveAnon
+		raw["active_anon"] = stats.Memory.ActiveAnon
+		raw["inactive_file"] = stats.Memory.InactiveFile
+		raw["active_file"] = stats.Memory.ActiveFile
+		raw["unevictable"] = stats.Memory.Unevictable
+		raw["slab_reclaimable"] = stats.Memory.SlabReclaimable
+		raw["slab_unreclaimable"] = stats.Memory.SlabUnreclaimable
+		raw["pgfault"] = stats.Memory.Pgfault
+		raw["pgmajfault"] = stats.Memory.Pgmajfault
+		raw["workingset_refault"] = stats.Memory.WorkingsetRefault
+		raw["workingset_activate"] = stats.Memory.WorkingsetActivate
+		raw["workingset_nodereclaim"] = stats.Memory.WorkingsetNodereclaim
+		raw["pgrefill"] = stats.Memory.Pgrefill
+		raw["pgscan"] = stats.Memory.Pgscan
+		raw["pgsteal"] = stats.Memory.Pgsteal
+		raw["pgactivate"] = stats.Memory.Pgactivate
+		raw["pgdeactivate"] = stats.Memory.Pgdeactivate
+		raw["pglazyfree"] = stats.Memory.Pglazyfree
+		raw["pglazyfreed"] = stats.Memory.Pglazyfreed
+		raw["thp_fault_alloc"] = stats.Memory.ThpFaultAlloc
+		raw["thp_collapse_alloc"] = stats.Memory.ThpCollapseAlloc
+		s.MemoryStats = types.MemoryStats{
+			// Stats is not compatible with v1
+			Stats: raw,
+			Usage: stats.Memory.Usage,
+			// MaxUsage is not supported
+			Limit: stats.Memory.UsageLimit,
+		}
+		// if the container does not set memory limit, use the machineMemory
+		if s.MemoryStats.Limit > daemon.machineMemory && daemon.machineMemory > 0 {
+			s.MemoryStats.Limit = daemon.machineMemory
+		}
+		if stats.MemoryEvents != nil {
+			// Failcnt is set to the "oom" field of the "memory.events" file.
+			// See https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html
+			s.MemoryStats.Failcnt = stats.MemoryEvents.Oom
+		}
+	}
+
+	if stats.Pids != nil {
+		s.PidsStats = types.PidsStats{
+			Current: stats.Pids.Current,
+			Limit:   stats.Pids.Limit,
+		}
+	}
+
+	return s, nil
+}
+
 // setDefaultIsolation determines the default isolation mode for the
 // daemon to run in. This is only applicable on Windows
 func (daemon *Daemon) setDefaultIsolation() error {
@@ -1509,7 +1638,7 @@ func setMayDetachMounts() error {
 		// Setting may_detach_mounts does not work in an
 		// unprivileged container. Ignore the error, but log
 		// it if we appear not to be in that situation.
-		if !rsystem.RunningInUserNS() {
+		if !sys.RunningInUserNS() {
 			logrus.Debugf("Permission denied writing %q to /proc/sys/fs/may_detach_mounts", "1")
 		}
 		return nil
@@ -1518,6 +1647,9 @@ func setMayDetachMounts() error {
 }
 
 func setupOOMScoreAdj(score int) error {
+	if score == 0 {
+		return nil
+	}
 	f, err := os.OpenFile("/proc/self/oom_score_adj", os.O_WRONLY, 0)
 	if err != nil {
 		return err
@@ -1529,7 +1661,7 @@ func setupOOMScoreAdj(score int) error {
 		// Setting oom_score_adj does not work in an
 		// unprivileged container. Ignore the error, but log
 		// it if we appear not to be in that situation.
-		if !rsystem.RunningInUserNS() {
+		if !sys.RunningInUserNS() {
 			logrus.Debugf("Permission denied writing %q to /proc/self/oom_score_adj", stringScore)
 		}
 		return nil
@@ -1538,47 +1670,32 @@ func setupOOMScoreAdj(score int) error {
 	return err
 }
 
-func (daemon *Daemon) initCgroupsPath(path string) error {
+func (daemon *Daemon) initCPURtController(mnt, path string) error {
 	if path == "/" || path == "." {
-		return nil
-	}
-
-	if daemon.configStore.CPURealtimePeriod == 0 && daemon.configStore.CPURealtimeRuntime == 0 {
 		return nil
 	}
 
 	// Recursively create cgroup to ensure that the system and all parent cgroups have values set
 	// for the period and runtime as this limits what the children can be set to.
-	daemon.initCgroupsPath(filepath.Dir(path))
-
-	mnt, root, err := cgroups.FindCgroupMountpointAndRoot("", "cpu")
-	if err != nil {
+	if err := daemon.initCPURtController(mnt, filepath.Dir(path)); err != nil {
 		return err
 	}
-	// When docker is run inside docker, the root is based of the host cgroup.
-	// Should this be handled in runc/libcontainer/cgroups ?
-	if strings.HasPrefix(root, "/docker/") {
-		root = "/"
-	}
 
-	path = filepath.Join(mnt, root, path)
-	sysinfo := sysinfo.New(true)
-	if err := maybeCreateCPURealTimeFile(sysinfo.CPURealtimePeriod, daemon.configStore.CPURealtimePeriod, "cpu.rt_period_us", path); err != nil {
+	path = filepath.Join(mnt, path)
+	if err := os.MkdirAll(path, 0755); err != nil {
 		return err
 	}
-	return maybeCreateCPURealTimeFile(sysinfo.CPURealtimeRuntime, daemon.configStore.CPURealtimeRuntime, "cpu.rt_runtime_us", path)
+	if err := maybeCreateCPURealTimeFile(daemon.configStore.CPURealtimePeriod, "cpu.rt_period_us", path); err != nil {
+		return err
+	}
+	return maybeCreateCPURealTimeFile(daemon.configStore.CPURealtimeRuntime, "cpu.rt_runtime_us", path)
 }
 
-func maybeCreateCPURealTimeFile(sysinfoPresent bool, configValue int64, file string, path string) error {
-	if sysinfoPresent && configValue != 0 {
-		if err := os.MkdirAll(path, 0755); err != nil {
-			return err
-		}
-		if err := ioutil.WriteFile(filepath.Join(path, file), []byte(strconv.FormatInt(configValue, 10)), 0700); err != nil {
-			return err
-		}
+func maybeCreateCPURealTimeFile(configValue int64, file string, path string) error {
+	if configValue == 0 {
+		return nil
 	}
-	return nil
+	return ioutil.WriteFile(filepath.Join(path, file), []byte(strconv.FormatInt(configValue, 10)), 0700)
 }
 
 func (daemon *Daemon) setupSeccompProfile() error {
@@ -1591,4 +1708,21 @@ func (daemon *Daemon) setupSeccompProfile() error {
 		daemon.seccompProfile = b
 	}
 	return nil
+}
+
+// RawSysInfo returns *sysinfo.SysInfo .
+func (daemon *Daemon) RawSysInfo(quiet bool) *sysinfo.SysInfo {
+	var opts []sysinfo.Opt
+	if daemon.getCgroupDriver() == cgroupSystemdDriver {
+		rootlesskitParentEUID := os.Getenv("ROOTLESSKIT_PARENT_EUID")
+		if rootlesskitParentEUID != "" {
+			groupPath := fmt.Sprintf("/user.slice/user-%s.slice", rootlesskitParentEUID)
+			opts = append(opts, sysinfo.WithCgroup2GroupPath(groupPath))
+		}
+	}
+	return sysinfo.New(quiet, opts...)
+}
+
+func recursiveUnmount(target string) error {
+	return mount.RecursiveUnmount(target)
 }

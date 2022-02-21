@@ -3,7 +3,6 @@ package logger // import "github.com/docker/docker/daemon/logger"
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -204,7 +203,7 @@ func TestCopierSlow(t *testing.T) {
 	}
 
 	var jsonBuf bytes.Buffer
-	//encoder := &encodeCloser{Encoder: json.NewEncoder(&jsonBuf)}
+	// encoder := &encodeCloser{Encoder: json.NewEncoder(&jsonBuf)}
 	jsonLog := &TestLoggerJSON{Encoder: json.NewEncoder(&jsonBuf), delay: 100 * time.Millisecond}
 
 	c := NewCopier(map[string]io.Reader{"stdout": &stdout}, jsonLog)
@@ -224,16 +223,36 @@ func TestCopierSlow(t *testing.T) {
 }
 
 func TestCopierWithSized(t *testing.T) {
+	t.Run("as is", func(t *testing.T) {
+		testCopierWithSized(t, func(l SizedLogger) SizedLogger {
+			return l
+		})
+	})
+	t.Run("With RingLogger", func(t *testing.T) {
+		testCopierWithSized(t, func(l SizedLogger) SizedLogger {
+			return newRingLogger(l, Info{}, defaultRingMaxSize)
+		})
+	})
+}
+
+func testCopierWithSized(t *testing.T, loggerFactory func(SizedLogger) SizedLogger) {
 	var jsonBuf bytes.Buffer
 	expectedMsgs := 2
-	sizedLogger := &TestSizedLoggerJSON{Encoder: json.NewEncoder(&jsonBuf)}
-	logbuf := bytes.NewBufferString(strings.Repeat(".", sizedLogger.BufSize()*expectedMsgs))
+	sizedLogger := loggerFactory(&TestSizedLoggerJSON{Encoder: json.NewEncoder(&jsonBuf)})
+
+	size := sizedLogger.BufSize()
+	if size < 0 {
+		size = 100
+	}
+	logbuf := bytes.NewBufferString(strings.Repeat(".", size*expectedMsgs))
 	c := NewCopier(map[string]io.Reader{"stdout": logbuf}, sizedLogger)
 
 	c.Run()
 	// Wait for Copier to finish writing to the buffered logger.
 	c.Wait()
 	c.Close()
+
+	sizedLogger.Close()
 
 	recvdMsgs := 0
 	dec := json.NewDecoder(&jsonBuf)
@@ -254,7 +273,7 @@ func TestCopierWithSized(t *testing.T) {
 		recvdMsgs++
 	}
 	if recvdMsgs != expectedMsgs {
-		t.Fatalf("expected to receive %d messages, actually received %d", expectedMsgs, recvdMsgs)
+		t.Fatalf("expected to receive %d messages, actually received %d %q", expectedMsgs, recvdMsgs, jsonBuf.String())
 	}
 }
 
@@ -453,9 +472,9 @@ func piped(b *testing.B, iterations int, delay time.Duration, buf []byte) io.Rea
 			time.Sleep(delay)
 			if n, err := w.Write(buf); err != nil || n != len(buf) {
 				if err != nil {
-					b.Fatal(err)
+					b.Error(err)
 				}
-				b.Fatal(fmt.Errorf("short write"))
+				b.Error("short write")
 			}
 		}
 		w.Close()

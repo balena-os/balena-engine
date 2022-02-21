@@ -57,7 +57,7 @@ func (s *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWrite
 		}
 	}
 
-	if image != "" { //pull
+	if image != "" { // pull
 		metaHeaders := map[string][]string{}
 		for k, v := range r.Header {
 			if strings.HasPrefix(k, "X-Meta-") {
@@ -76,7 +76,7 @@ func (s *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWrite
 			}
 		}
 		err = s.backend.PullImage(ctx, image, tag, platform, metaHeaders, authConfig, output)
-	} else { //import
+	} else { // import
 		src := r.Form.Get("fromSrc")
 		// 'err' MUST NOT be defined within this block, we need any error
 		// generated from the download to be available to the output
@@ -91,7 +91,7 @@ func (s *imageRouter) postImagesCreate(ctx context.Context, w http.ResponseWrite
 		if !output.Flushed() {
 			return err
 		}
-		output.Write(streamformatter.FormatError(err))
+		_, _ = output.Write(streamformatter.FormatError(err))
 	}
 
 	return nil
@@ -162,7 +162,7 @@ func (s *imageRouter) postImagesPush(ctx context.Context, w http.ResponseWriter,
 		if !output.Flushed() {
 			return err
 		}
-		output.Write(streamformatter.FormatError(err))
+		_, _ = output.Write(streamformatter.FormatError(err))
 	}
 	return nil
 }
@@ -187,7 +187,7 @@ func (s *imageRouter) getImagesGet(ctx context.Context, w http.ResponseWriter, r
 		if !output.Flushed() {
 			return err
 		}
-		output.Write(streamformatter.FormatError(err))
+		_, _ = output.Write(streamformatter.FormatError(err))
 	}
 	return nil
 }
@@ -203,7 +203,7 @@ func (s *imageRouter) postImagesLoad(ctx context.Context, w http.ResponseWriter,
 	output := ioutils.NewWriteFlusher(w)
 	defer output.Close()
 	if err := s.backend.LoadImage(r.Body, output, quiet); err != nil {
-		output.Write(streamformatter.FormatError(err))
+		_, _ = output.Write(streamformatter.FormatError(err))
 	}
 	return nil
 }
@@ -257,10 +257,12 @@ func (s *imageRouter) getImagesJSON(ctx context.Context, w http.ResponseWriter, 
 		return err
 	}
 
-	filterParam := r.Form.Get("filter")
-	// FIXME(vdemeester) This has been deprecated in 1.13, and is target for removal for v17.12
-	if filterParam != "" {
-		imageFilters.Add("reference", filterParam)
+	version := httputils.VersionFromContext(ctx)
+	if versions.LessThan(version, "1.41") {
+		filterParam := r.Form.Get("filter")
+		if filterParam != "" {
+			imageFilters.Add("reference", filterParam)
+		}
 	}
 
 	images, err := s.backend.Images(imageFilters, httputils.BoolValue(r, "all"), false)

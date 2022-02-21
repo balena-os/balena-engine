@@ -242,6 +242,8 @@ func (o *copier) calcCopyInfo(origPath string, allowWildcards bool) ([]copyInfo,
 	// Deal with the single file case
 	copyInfo, err := copyInfoForFile(o.source, origPath)
 	switch {
+	case imageSource == nil && errors.Is(err, os.ErrNotExist):
+		return nil, errors.Wrapf(err, "file not found in build context or excluded by .dockerignore")
 	case err != nil:
 		return nil, err
 	case copyInfo.hash != "":
@@ -315,6 +317,10 @@ func (o *copier) copyWithWildcards(origPath string) ([]copyInfo, error) {
 func copyInfoForFile(source builder.Source, path string) (copyInfo, error) {
 	fi, err := remotecontext.StatAt(source, path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			// return the relative path in the error, which is more user-friendly than the full path to the tmp-dir
+			return copyInfo{}, errors.WithStack(&os.PathError{Op: "stat", Path: path, Err: os.ErrNotExist})
+		}
 		return copyInfo{}, err
 	}
 
@@ -559,8 +565,11 @@ func copyFile(archiver Archiver, source, dest *copyEndpoint, identity *idtools.I
 		// Normal containers
 		if identity == nil {
 			// Use system.MkdirAll here, which is a custom version of os.MkdirAll
-			// modified for use on Windows to handle volume GUID paths (\\?\{dae8d3ac-b9a1-11e9-88eb-e8554b2ba1db}\path\)
-			if err := system.MkdirAll(filepath.Dir(dest.path), 0755, ""); err != nil {
+			// modified for use on Windows to handle volume GUID paths. These paths
+			// are of the form \\?\Volume{<GUID>}\<path>. An example would be:
+			// \\?\Volume{dae8d3ac-b9a1-11e9-88eb-e8554b2ba1db}\bin\busybox.exe
+
+			if err := system.MkdirAll(filepath.Dir(dest.path), 0755); err != nil {
 				return err
 			}
 		} else {
@@ -588,7 +597,7 @@ func endsInSlash(driver containerfs.Driver, path string) bool {
 func isExistingDirectory(point *copyEndpoint) (bool, error) {
 	destStat, err := point.driver.Stat(point.path)
 	switch {
-	case os.IsNotExist(err):
+	case errors.Is(err, os.ErrNotExist):
 		return false, nil
 	case err != nil:
 		return false, err

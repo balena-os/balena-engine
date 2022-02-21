@@ -8,7 +8,7 @@ set -eo pipefail
 # debian                           latest              f6fab3b798be3174f45aa1eb731f8182705555f89c9026d8c1ef230cbf8301dd   10 weeks ago        85.1 MB
 
 # check if essential commands are in our PATH
-for cmd in curl jq go; do
+for cmd in curl jq; do
 	if ! command -v $cmd &> /dev/null; then
 		echo >&2 "error: \"$cmd\" not found!"
 		exit 1
@@ -24,7 +24,9 @@ usage() {
 dir="$1" # dir for building tar in
 shift || usage 1 >&2
 
-[ $# -gt 0 -a "$dir" ] || usage 2 >&2
+if ! [ $# -gt 0 ] && [ "$dir" ]; then
+	usage 2 >&2
+fi
 mkdir -p "$dir"
 
 # hacky workarounds for Bash 3 support (no associative arrays)
@@ -34,13 +36,11 @@ manifestJsonEntries=()
 doNotGenerateManifestJson=
 # repositories[busybox]='"latest": "...", "ubuntu-14.04": "..."'
 
-# bash v4 on Windows CI requires CRLF separator
+# bash v4 on Windows CI requires CRLF separator... and linux doesn't seem to care either way
 newlineIFS=$'\n'
-if [ "$(go env GOHOSTOS)" = 'windows' ]; then
-	major=$(echo ${BASH_VERSION%%[^0.9]} | cut -d. -f1)
-	if [ "$major" -ge 4 ]; then
-		newlineIFS=$'\r\n'
-	fi
+major=$(echo "${BASH_VERSION%%[^0.9]}" | cut -d. -f1)
+if [ "$major" -ge 4 ]; then
+	newlineIFS=$'\r\n'
 fi
 
 registryBase='https://registry-1.docker.io'
@@ -49,13 +49,18 @@ authService='registry.docker.io'
 
 # https://github.com/moby/moby/issues/33700
 fetch_blob() {
-	local token="$1"; shift
-	local image="$1"; shift
-	local digest="$1"; shift
-	local targetFile="$1"; shift
-	local curlArgs=( "$@" )
+	local token="$1"
+	shift
+	local image="$1"
+	shift
+	local digest="$1"
+	shift
+	local targetFile="$1"
+	shift
+	local curlArgs=("$@")
 
-	local curlHeaders="$(
+	local curlHeaders
+	curlHeaders="$(
 		curl -S "${curlArgs[@]}" \
 			-H "Authorization: Bearer $token" \
 			"$registryBase/v2/$image/blobs/$digest" \
@@ -63,10 +68,11 @@ fetch_blob() {
 			-D-
 	)"
 	curlHeaders="$(echo "$curlHeaders" | tr -d '\r')"
-	if grep -qE "^HTTP/[0-9].[0-9] 3" <<<"$curlHeaders"; then
+	if grep -qE "^HTTP/[0-9].[0-9] 3" <<< "$curlHeaders"; then
 		rm -f "$targetFile"
 
-		local blobRedirect="$(echo "$curlHeaders" | awk -F ': ' 'tolower($1) == "location" { print $2; exit }')"
+		local blobRedirect
+		blobRedirect="$(echo "$curlHeaders" | awk -F ': ' 'tolower($1) == "location" { print $2; exit }')"
 		if [ -z "$blobRedirect" ]; then
 			echo >&2 "error: failed fetching '$image' blob '$digest'"
 			echo "$curlHeaders" | head -1 >&2
@@ -81,17 +87,21 @@ fetch_blob() {
 
 # handle 'application/vnd.docker.distribution.manifest.v2+json' manifest
 handle_single_manifest_v2() {
-	local manifestJson="$1"; shift
+	local manifestJson="$1"
+	shift
 
-	local configDigest="$(echo "$manifestJson" | jq --raw-output '.config.digest')"
+	local configDigest
+	configDigest="$(echo "$manifestJson" | jq --raw-output '.config.digest')"
 	local imageId="${configDigest#*:}" # strip off "sha256:"
 
 	local configFile="$imageId.json"
 	fetch_blob "$token" "$image" "$configDigest" "$dir/$configFile" -s
 
-	local layersFs="$(echo "$manifestJson" | jq --raw-output --compact-output '.layers[]')"
+	local layersFs
+	layersFs="$(echo "$manifestJson" | jq --raw-output --compact-output '.layers[]')"
 	local IFS="$newlineIFS"
-	local layers=( $layersFs )
+	local layers
+	mapfile -t layers <<< "$layersFs"
 	unset IFS
 
 	echo "Downloading '$imageIdentifier' (${#layers[@]} layers)..."
@@ -100,8 +110,10 @@ handle_single_manifest_v2() {
 	for i in "${!layers[@]}"; do
 		local layerMeta="${layers[$i]}"
 
-		local layerMediaType="$(echo "$layerMeta" | jq --raw-output '.mediaType')"
-		local layerDigest="$(echo "$layerMeta" | jq --raw-output '.digest')"
+		local layerMediaType
+		layerMediaType="$(echo "$layerMeta" | jq --raw-output '.mediaType')"
+		local layerDigest
+		layerDigest="$(echo "$layerMeta" | jq --raw-output '.digest')"
 
 		# save the previous layer's ID
 		local parentId="$layerId"
@@ -113,10 +125,12 @@ handle_single_manifest_v2() {
 		echo '1.0' > "$dir/$layerId/VERSION"
 
 		if [ ! -s "$dir/$layerId/json" ]; then
-			local parentJson="$(printf ', parent: "%s"' "$parentId")"
-			local addJson="$(printf '{ id: "%s"%s }' "$layerId" "${parentId:+$parentJson}")"
+			local parentJson
+			parentJson="$(printf ', parent: "%s"' "$parentId")"
+			local addJson
+			addJson="$(printf '{ id: "%s"%s }' "$layerId" "${parentId:+$parentJson}")"
 			# this starter JSON is taken directly from Docker's own "docker save" output for unimportant layers
-			jq "$addJson + ." > "$dir/$layerId/json" <<-'EOJSON'
+			jq "$addJson + ." > "$dir/$layerId/json" <<- 'EOJSON'
 				{
 					"created": "0001-01-01T00:00:00Z",
 					"container_config": {
@@ -145,7 +159,7 @@ handle_single_manifest_v2() {
 		case "$layerMediaType" in
 			application/vnd.docker.image.rootfs.diff.tar.gzip)
 				local layerTar="$layerId/layer.tar"
-				layerFiles=( "${layerFiles[@]}" "$layerTar" )
+				layerFiles=("${layerFiles[@]}" "$layerTar")
 				# TODO figure out why "-C -" doesn't work here
 				# "curl: (33) HTTP server doesn't seem to support byte ranges. Cannot resume."
 				# "HTTP/1.1 416 Requested Range Not Satisfiable"
@@ -154,8 +168,9 @@ handle_single_manifest_v2() {
 					echo "skipping existing ${layerId:0:12}"
 					continue
 				fi
-				local token="$(curl -fsSL "$authBase/token?service=$authService&scope=repository:$image:pull" | jq --raw-output '.token')"
-				fetch_blob "$token" "$image" "$layerDigest" "$dir/$layerTar" --progress
+				local token
+				token="$(curl -fsSL "$authBase/token?service=$authService&scope=repository:$image:pull" | jq --raw-output '.token')"
+				fetch_blob "$token" "$image" "$layerDigest" "$dir/$layerTar" --progress-bar
 				;;
 
 			*)
@@ -169,17 +184,81 @@ handle_single_manifest_v2() {
 	imageId="$layerId"
 
 	# munge the top layer image manifest to have the appropriate image configuration for older daemons
-	local imageOldConfig="$(jq --raw-output --compact-output '{ id: .id } + if .parent then { parent: .parent } else {} end' "$dir/$imageId/json")"
+	local imageOldConfig
+	imageOldConfig="$(jq --raw-output --compact-output '{ id: .id } + if .parent then { parent: .parent } else {} end' "$dir/$imageId/json")"
 	jq --raw-output "$imageOldConfig + del(.history, .rootfs)" "$dir/$configFile" > "$dir/$imageId/json"
 
-	local manifestJsonEntry="$(
+	local manifestJsonEntry
+	manifestJsonEntry="$(
 		echo '{}' | jq --raw-output '. + {
 			Config: "'"$configFile"'",
 			RepoTags: ["'"${image#library\/}:$tag"'"],
 			Layers: '"$(echo '[]' | jq --raw-output ".$(for layerFile in "${layerFiles[@]}"; do echo " + [ \"$layerFile\" ]"; done)")"'
 		}'
 	)"
-	manifestJsonEntries=( "${manifestJsonEntries[@]}" "$manifestJsonEntry" )
+	manifestJsonEntries=("${manifestJsonEntries[@]}" "$manifestJsonEntry")
+}
+
+get_target_arch() {
+	if [ -n "${TARGETARCH:-}" ]; then
+		echo "${TARGETARCH}"
+		return 0
+	fi
+
+	if type go > /dev/null; then
+		go env GOARCH
+		return 0
+	fi
+
+	if type dpkg > /dev/null; then
+		debArch="$(dpkg --print-architecture)"
+		case "${debArch}" in
+			armel | armhf)
+				echo "arm"
+				return 0
+				;;
+			*64el)
+				echo "${debArch%el}le"
+				return 0
+				;;
+			*)
+				echo "${debArch}"
+				return 0
+				;;
+		esac
+	fi
+
+	if type uname > /dev/null; then
+		uArch="$(uname -m)"
+		case "${uArch}" in
+			x86_64)
+				echo amd64
+				return 0
+				;;
+			arm | armv[0-9]*)
+				echo arm
+				return 0
+				;;
+			aarch64)
+				echo arm64
+				return 0
+				;;
+			mips*)
+				echo >&2 "I see you are running on mips but I don't know how to determine endianness yet, so I cannot select a correct arch to fetch."
+				echo >&2 "Consider installing \"go\" on the system which I can use to determine the correct arch or specify it explictly by setting TARGETARCH"
+				exit 1
+				;;
+			*)
+				echo "${uArch}"
+				return 0
+				;;
+		esac
+
+	fi
+
+	# default value
+	echo >&2 "Unable to determine CPU arch, falling back to amd64. You can specify a target arch by setting TARGETARCH"
+	echo amd64
 }
 
 while [ $# -gt 0 ]; do
@@ -227,15 +306,16 @@ while [ $# -gt 0 ]; do
 				application/vnd.docker.distribution.manifest.list.v2+json)
 					layersFs="$(echo "$manifestJson" | jq --raw-output --compact-output '.manifests[]')"
 					IFS="$newlineIFS"
-					layers=( $layersFs )
+					mapfile -t layers <<< "$layersFs"
 					unset IFS
 
 					found=""
+					targetArch="$(get_target_arch)"
 					# parse first level multi-arch manifest
 					for i in "${!layers[@]}"; do
 						layerMeta="${layers[$i]}"
 						maniArch="$(echo "$layerMeta" | jq --raw-output '.platform.architecture')"
-						if [ "$maniArch" = "$(go env GOARCH)" ]; then
+						if [ "$maniArch" = "${targetArch}" ]; then
 							digest="$(echo "$layerMeta" | jq --raw-output '.digest')"
 							# get second level single manifest
 							submanifestJson="$(
@@ -273,7 +353,7 @@ while [ $# -gt 0 ]; do
 
 			layersFs="$(echo "$manifestJson" | jq --raw-output '.fsLayers | .[] | .blobSum')"
 			IFS="$newlineIFS"
-			layers=( $layersFs )
+			mapfile -t layers <<< "$layersFs"
 			unset IFS
 
 			history="$(echo "$manifestJson" | jq '.history | [.[] | .v1Compatibility]')"
@@ -299,7 +379,7 @@ while [ $# -gt 0 ]; do
 					continue
 				fi
 				token="$(curl -fsSL "$authBase/token?service=$authService&scope=repository:$image:pull" | jq --raw-output '.token')"
-				fetch_blob "$token" "$image" "$imageLayer" "$dir/$layerId/layer.tar" --progress
+				fetch_blob "$token" "$image" "$imageLayer" "$dir/$layerId/layer.tar" --progress-bar
 			done
 			;;
 
@@ -314,7 +394,7 @@ while [ $# -gt 0 ]; do
 	if [ -s "$dir/tags-$imageFile.tmp" ]; then
 		echo -n ', ' >> "$dir/tags-$imageFile.tmp"
 	else
-		images=( "${images[@]}" "$image" )
+		images=("${images[@]}" "$image")
 	fi
 	echo -n '"'"$tag"'": "'"$imageId"'"' >> "$dir/tags-$imageFile.tmp"
 done

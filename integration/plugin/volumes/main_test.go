@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/docker/docker/internal/test/environment"
+	"github.com/docker/docker/testutil/environment"
 )
 
 var (
@@ -18,9 +18,6 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
-	}
-	if testEnv.OSType != "linux" {
-		os.Exit(0)
 	}
 	err = environment.EnsureFrozenImagesLinux(testEnv)
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 
 	eventstestutils "github.com/docker/docker/daemon/events/testutils"
 	"github.com/sirupsen/logrus"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 // eventMatcher is a function that tries to match an event input.
@@ -187,18 +187,6 @@ func parseEvents(c *testing.T, out, match string) {
 	events := strings.Split(strings.TrimSpace(out), "\n")
 	for _, event := range events {
 		matches := eventstestutils.ScanMap(event)
-		matched, err := regexp.MatchString(match, matches["action"])
-		assert.NilError(c, err)
-		assert.Assert(c, matched, "Matcher: %s did not match %s", match, matches["action"])
-	}
-}
-
-func parseEventsWithID(c *testing.T, out, match, id string) {
-	events := strings.Split(strings.TrimSpace(out), "\n")
-	for _, event := range events {
-		matches := eventstestutils.ScanMap(event)
-		assert.Assert(c, matchEventID(matches, id))
-
 		matched, err := regexp.MatchString(match, matches["action"])
 		assert.NilError(c, err)
 		assert.Assert(c, matched, "Matcher: %s did not match %s", match, matches["action"])

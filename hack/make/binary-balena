@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-set -e
-rm -rf "$DEST"
-
-(
-	source "${MAKEDIR}/.binary-setup"
-	. hack/make/binary-daemon
-	. hack/make/.binary-symlinks
-)

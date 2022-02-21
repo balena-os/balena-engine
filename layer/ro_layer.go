@@ -6,7 +6,7 @@ import (
 
 	"github.com/docker/distribution"
 	"github.com/docker/docker/pkg/ioutils"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 )
 
 type roLayer struct {

@@ -9,7 +9,7 @@ import (
 
 	contdriver "github.com/containerd/continuity/driver"
 	"github.com/docker/docker/pkg/stringid"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 // DriverBenchExists benchmarks calls to exist
@@ -172,6 +172,10 @@ func DriverBenchDiffApplyN(b *testing.B, fileCount int, drivername string, drive
 		b.StopTimer()
 		arch.Close()
 
+		// suppressing "SA9003: empty branch (staticcheck)" instead of commenting-out/removing
+		// these lines because removing/commenting these lines causes a ripple effect
+		// of changes, and there's still a to-do below
+		//nolint:staticcheck
 		if applyDiffSize != diffSize {
 			// TODO: enforce this
 			//b.Fatalf("Apply diff size different, got %d, expected %s", applyDiffSize, diffSize)

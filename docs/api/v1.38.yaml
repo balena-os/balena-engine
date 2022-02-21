@@ -104,7 +104,7 @@ tags:
   - name: "Network"
     x-displayName: "Networks"
     description: |
-      Networks are user-defined networks that containers can be attached to. See the [networking documentation](https://docs.docker.com/engine/userguide/networking/) for more information.
+      Networks are user-defined networks that containers can be attached to. See the [networking documentation](https://docs.docker.com/network/) for more information.
   - name: "Volume"
     x-displayName: "Volumes"
     description: |
@@ -437,7 +437,7 @@ definitions:
         format: "int64"
         minimum: 0
         maximum: 100
-      NanoCPUs:
+      NanoCpus:
         description: "CPU quota in units of 10<sup>-9</sup> CPUs."
         type: "integer"
         format: "int64"
@@ -3702,7 +3702,7 @@ definitions:
         example: 4
       MemTotal:
         description: |
-          Total amount of physical memory available on the host, in kilobytes (kB).
+          Total amount of physical memory available on the host, in bytes.
         type: "integer"
         format: "int64"
         example: 2095882240
@@ -4490,7 +4490,7 @@ paths:
                 MemorySwap: 0
                 MemoryReservation: 0
                 KernelMemory: 0
-                NanoCPUs: 500000
+                NanoCpus: 500000
                 CpuPercent: 80
                 CpuShares: 512
                 CpuPeriod: 100000
@@ -4599,12 +4599,12 @@ paths:
           schema:
             $ref: "#/definitions/ErrorResponse"
         404:
-          description: "no such container"
+          description: "no such image"
           schema:
             $ref: "#/definitions/ErrorResponse"
           examples:
             application/json:
-              message: "No such container: c2ada9df5af8"
+              message: "No such image: c2ada9df5af8"
         409:
           description: "conflict"
           schema:
@@ -5897,7 +5897,7 @@ paths:
           type: "string"
         - name: "v"
           in: "query"
-          description: "Remove the volumes associated with the container."
+          description: "Remove anonymous volumes associated with the container."
           type: "boolean"
           default: false
         - name: "force"
@@ -6257,7 +6257,7 @@ paths:
 
 
             For example, the build arg `FOO=bar` would become `{"FOO":"bar"}` in JSON. This would result in the
-            the query parameter `buildargs={"FOO":"bar"}`. Note that `{"FOO":"bar"}` should be URI component encoded.
+            query parameter `buildargs={"FOO":"bar"}`. Note that `{"FOO":"bar"}` should be URI component encoded.
 
 
             [Read more about the buildargs instruction.](https://docs.docker.com/engine/reference/builder/#arg)

@@ -83,7 +83,7 @@ hour. To run the test suite, do the following:
     * cross-compiles all the binaries for the various operating systems
     * runs all the tests in the system
 
-    It can take approximate one hour to run all the tests. The time depends
+    It can take approximately one hour to run all the tests. The time depends
     on your host performance. The default timeout is 60 minutes, which is
     defined in `hack/make.sh` (`${TIMEOUT:=60m}`). You can modify the timeout
     value on the basis of your host performance. When they complete
@@ -208,7 +208,7 @@ run a Bash terminal on Windows.
     ```
 
 4.  Set `DOCKER_TEST_HOST` to the `tcp://IP_ADDRESS:2376` value; substitute your
-    Linux machines actual IP address. For example:
+    Linux machine's actual IP address. For example:
 
     ```bash
     $ export DOCKER_TEST_HOST=tcp://213.124.23.200:2376
@@ -237,6 +237,14 @@ run a Bash terminal on Windows.
 
 You can now choose to make changes to the Moby source or the tests. If you
 make any changes, just run these commands again.
+
+## [Public CI infrastructure](ci.docker.com/public)
+
+The current infrastructure is maintained here: [Moby ci job](https://ci.docker.com/public/job/moby).  The Jenkins infrastructure is for the Moby project is maintained and
+managed by Docker Inc.  All contributions against the Jenkinsfile are
+appreciated and welcomed!  However we might not be able to fully provide the
+infrastructure to test against various architectures in our CI pipelines.  All
+jobs can be triggered and re-ran by the Moby maintainers
 
 ## Where to go next
 

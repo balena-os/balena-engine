@@ -1,5 +1,3 @@
-// +build !no_buildkit
-
 package buildkit
 
 import (
@@ -12,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/remotes/docker"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/builder"
@@ -29,7 +27,6 @@ import (
 	"github.com/moby/buildkit/identity"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/util/entitlements"
-	"github.com/moby/buildkit/util/resolver"
 	"github.com/moby/buildkit/util/tracing"
 	"github.com/pkg/errors"
 	"golang.org/x/sync/errgroup"
@@ -73,11 +70,12 @@ type Opt struct {
 	Dist                images.DistributionServices
 	NetworkController   libnetwork.NetworkController
 	DefaultCgroupParent string
-	ResolverOpt         resolver.ResolveOptionsFunc
+	RegistryHosts       docker.RegistryHosts
 	BuilderConfig       config.BuilderConfig
 	Rootless            bool
 	IdentityMapping     *idtools.IdentityMapping
 	DNSConfig           config.DNSConfig
+	ApparmorProfile     string
 }
 
 // Builder can build using BuildKit backend
@@ -243,7 +241,9 @@ func (b *Builder) Build(ctx context.Context, opt backend.BuildConfig) (*builder.
 		}
 
 		defer func() {
+			b.mu.Lock()
 			delete(b.jobs, buildID)
+			b.mu.Unlock()
 		}()
 	}
 
@@ -468,14 +468,6 @@ func (sp *pruneProxy) SendMsg(m interface{}) error {
 		sp.ch <- sr
 	}
 	return nil
-}
-
-type contentStoreNoLabels struct {
-	content.Store
-}
-
-func (c *contentStoreNoLabels) Update(ctx context.Context, info content.Info, fieldpaths ...string) (content.Info, error) {
-	return content.Info{}, nil
 }
 
 type wrapRC struct {

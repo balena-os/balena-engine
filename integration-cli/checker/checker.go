@@ -5,8 +5,8 @@ package checker // import "github.com/docker/docker/integration-cli/checker"
 import (
 	"fmt"
 
-	"gotest.tools/assert"
-	"gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 )
 
 // Compare defines the interface to compare values
@@ -62,14 +62,14 @@ func DeepEquals(y interface{}) Compare {
 	}
 }
 
-// DeepEquals compares if two values are deepequal
+// HasLen checks if the value has the expected number of elements
 func HasLen(y int) Compare {
 	return func(x interface{}) assert.BoolOrComparison {
 		return cmp.Len(x, y)
 	}
 }
 
-// DeepEquals checks if the given value is nil
+// IsNil checks if the value is nil
 func IsNil() Compare {
 	return func(x interface{}) assert.BoolOrComparison {
 		return cmp.Nil(x)

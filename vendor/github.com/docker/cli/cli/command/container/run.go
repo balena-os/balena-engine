@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"runtime"
 	"strings"
 	"syscall"
@@ -15,7 +14,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/pkg/signal"
-	"github.com/docker/docker/pkg/term"
+	"github.com/moby/term"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -55,6 +54,8 @@ func NewRunCommand(dockerCli command.Cli) *cobra.Command {
 	flags.BoolVar(&opts.sigProxy, "sig-proxy", true, "Proxy received signals to the process")
 	flags.StringVar(&opts.name, "name", "", "Assign a name to the container")
 	flags.StringVar(&opts.detachKeys, "detach-keys", "", "Override the key sequence for detaching a container")
+	flags.StringVar(&opts.createOptions.pull, "pull", PullImageMissing,
+		`Pull image before running ("`+PullImageAlways+`"|"`+PullImageMissing+`"|"`+PullImageNever+`")`)
 
 	// Add an explicit help that doesn't have a `-h` to prevent the conflict
 	// with hostname
@@ -130,7 +131,8 @@ func runContainer(dockerCli command.Cli, opts *runOptions, copts *containerOptio
 		return runStartContainerErr(err)
 	}
 	if opts.sigProxy {
-		sigc := ForwardAllSignals(ctx, dockerCli, createResponse.ID)
+		sigc := notfiyAllSignals()
+		go ForwardAllSignals(ctx, dockerCli, createResponse.ID, sigc)
 		defer signal.StopCatch(sigc)
 	}
 
@@ -162,7 +164,7 @@ func runContainer(dockerCli command.Cli, opts *runOptions, copts *containerOptio
 
 	statusChan := waitExitOrRemoved(ctx, dockerCli, createResponse.ID, copts.autoRemove)
 
-	//start the container
+	// start the container
 	if err := client.ContainerStart(ctx, createResponse.ID, types.ContainerStartOptions{}); err != nil {
 		// If we have hijackedIOStreamer, we should notify
 		// hijackedIOStreamer we are going to exit and wait
@@ -280,9 +282,9 @@ func attachContainer(
 func reportError(stderr io.Writer, name string, str string, withHelp bool) {
 	str = strings.TrimSuffix(str, ".") + "."
 	if withHelp {
-		str += "\nSee '" + os.Args[0] + " " + name + " --help'."
+		str += "\nSee 'docker " + name + " --help'."
 	}
-	fmt.Fprintf(stderr, "%s: %s\n", os.Args[0], str)
+	fmt.Fprintln(stderr, "docker:", str)
 }
 
 // if container start fails with 'not found'/'no such' error, return 127

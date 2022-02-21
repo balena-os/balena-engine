@@ -3,7 +3,8 @@ set -e
 
 # This script exists as backwards compatibility for CI
 (
-    DEST="${DEST}-balena"
-    ABS_DEST="${ABS_DEST}-balena"
-    . hack/make/dynbinary-balena
+	DEST="${DEST}-daemon"
+	ABS_DEST="${ABS_DEST}-daemon"
+	. hack/make/dynbinary-daemon
+	. hack/make/.binary-symlinks
 )

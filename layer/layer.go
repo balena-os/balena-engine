@@ -17,7 +17,7 @@ import (
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/ioutils"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
 )
 
@@ -150,6 +150,9 @@ type RWLayer interface {
 
 	// Metadata returns the low level metadata for the mutable layer
 	Metadata() (map[string]string, error)
+
+	// ApplyDiff applies the diff to the RW layer
+	ApplyDiff(diff io.Reader) (int64, error)
 }
 
 // Metadata holds information about a

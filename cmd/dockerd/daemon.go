@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	containerddefaults "github.com/containerd/containerd/defaults"
-	"github.com/docker/distribution/uuid"
 	"github.com/docker/docker/api"
 	apiserver "github.com/docker/docker/api/server"
 	buildbackend "github.com/docker/docker/api/server/backend/build"
@@ -28,7 +28,6 @@ import (
 	"github.com/docker/docker/api/server/router/volume"
 	buildkit "github.com/docker/docker/builder/builder-next"
 	"github.com/docker/docker/builder/dockerfile"
-	"github.com/docker/docker/builder/fscache"
 	"github.com/docker/docker/cli/debug"
 	"github.com/docker/docker/daemon"
 	"github.com/docker/docker/daemon/config"
@@ -42,6 +41,7 @@ import (
 	"github.com/docker/docker/pkg/pidfile"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/signal"
+	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/plugin"
 	"github.com/docker/docker/rootless"
@@ -73,14 +73,12 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	stopc := make(chan bool)
 	defer close(stopc)
 
-	// warn from uuid package when running the daemon
-	uuid.Loggerf = logrus.Warnf
-
 	opts.SetDefaultOptions(opts.flags)
 
 	if cli.Config, err = loadDaemonCliConfig(opts); err != nil {
 		return err
 	}
+	warnOnDeprecatedConfigOptions(cli.Config)
 
 	if err := configureDaemonLogs(cli.Config); err != nil {
 		return err
@@ -97,23 +95,21 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 
 	if cli.Config.Experimental {
 		logrus.Warn("Running experimental build")
-		if cli.Config.IsRootless() {
-			logrus.Warn("Running in rootless mode. Cgroups, AppArmor, and CRIU are disabled.")
-		}
-		if rootless.RunningWithRootlessKit() {
-			logrus.Info("Running with RootlessKit integration")
-			if !cli.Config.IsRootless() {
-				return fmt.Errorf("rootless mode needs to be enabled for running with RootlessKit")
-			}
-		}
-	} else {
-		if cli.Config.IsRootless() {
-			return fmt.Errorf("rootless mode is supported only when running in experimental mode")
+	}
+
+	if cli.Config.IsRootless() {
+		logrus.Warn("Running in rootless mode. This mode has feature limitations.")
+	}
+	if rootless.RunningWithRootlessKit() {
+		logrus.Info("Running with RootlessKit integration")
+		if !cli.Config.IsRootless() {
+			return fmt.Errorf("rootless mode needs to be enabled for running with RootlessKit")
 		}
 	}
+
 	// return human-friendly error before creating files
 	if runtime.GOOS == "linux" && os.Geteuid() != 0 {
-		return fmt.Errorf("dockerd needs to be started with root. To see how to run dockerd in rootless mode with unprivileged user, see the documentation")
+		return fmt.Errorf("dockerd needs to be started with root privileges. To run dockerd in rootless mode as an unprivileged user, see https://docs.docker.com/go/rootless/")
 	}
 
 	system.InitLCOW(cli.Config.Experimental)
@@ -128,7 +124,7 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 		return err
 	}
 
-	if err := system.MkdirAll(cli.Config.ExecRoot, 0700, ""); err != nil {
+	if err := system.MkdirAll(cli.Config.ExecRoot, 0700); err != nil {
 		return err
 	}
 
@@ -183,7 +179,7 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	}, logrus.StandardLogger())
 
 	// Notify that the API is active, but before daemon is set up.
-	preNotifySystem()
+	preNotifyReady()
 
 	pluginStore := plugin.NewStore()
 
@@ -203,19 +199,13 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 		return errors.Wrap(err, "failed to validate authorization plugin")
 	}
 
-	// TODO: move into startMetricsServer()
-	if cli.Config.MetricsAddress != "" {
-		if !d.HasExperimental() {
-			return errors.Wrap(err, "metrics-addr is only supported when experimental is enabled")
-		}
-		if err := startMetricsServer(cli.Config.MetricsAddress); err != nil {
-			return err
-		}
+	cli.d = d
+
+	if err := startMetricsServer(cli.Config.MetricsAddress); err != nil {
+		return errors.Wrap(err, "failed to start metrics server")
 	}
 
 	logrus.Info("Daemon has completed initialization")
-
-	cli.d = d
 
 	routerOptions, err := newRouterOptions(cli.Config, d)
 	if err != nil {
@@ -234,12 +224,14 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	go cli.api.Wait(serveAPIWait)
 
 	// after the daemon is done setting up we can notify systemd api
-	notifySystem()
+	notifyReady()
 
 	// Daemon is fully initialized and handling API traffic
 	// Wait for serve API to complete
 	errAPI := <-serveAPIWait
 
+	// notify systemd that we're shutting down
+	notifyStopping()
 	shutdownDaemon(d)
 
 	// Stop notification processing and any background processes
@@ -256,7 +248,6 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 type routerOptions struct {
 	sessionManager *session.Manager
 	buildBackend   *buildbackend.Backend
-	buildCache     *fscache.FSCache // legacy
 	features       *map[string]bool
 	buildkit       *buildkit.Builder
 	daemon         *daemon.Daemon
@@ -270,21 +261,7 @@ func newRouterOptions(config *config.Config, d *daemon.Daemon) (routerOptions, e
 		return opts, errors.Wrap(err, "failed to create sessionmanager")
 	}
 
-	builderStateDir := filepath.Join(config.Root, "builder")
-
-	buildCache, err := fscache.NewFSCache(fscache.Opt{
-		Backend: fscache.NewNaiveCacheBackend(builderStateDir),
-		Root:    builderStateDir,
-		GCPolicy: fscache.GCPolicy{ // TODO: expose this in config
-			MaxSize:         1024 * 1024 * 512,  // 512MB
-			MaxKeepDuration: 7 * 24 * time.Hour, // 1 week
-		},
-	})
-	if err != nil {
-		return opts, errors.Wrap(err, "failed to create fscache")
-	}
-
-	manager, err := dockerfile.NewBuildManager(d.BuilderBackend(), sm, buildCache, d.IdentityMapping())
+	manager, err := dockerfile.NewBuildManager(d.BuilderBackend(), d.IdentityMapping())
 	if err != nil {
 		return opts, err
 	}
@@ -295,24 +272,24 @@ func newRouterOptions(config *config.Config, d *daemon.Daemon) (routerOptions, e
 		Dist:                d.DistributionServices(),
 		NetworkController:   d.NetworkController(),
 		DefaultCgroupParent: cgroupParent,
-		ResolverOpt:         d.NewResolveOptionsFunc(),
+		RegistryHosts:       d.RegistryHosts(),
 		BuilderConfig:       config.Builder,
 		Rootless:            d.Rootless(),
 		IdentityMapping:     d.IdentityMapping(),
 		DNSConfig:           config.DNSConfig,
+		ApparmorProfile:     daemon.DefaultApparmorProfile(),
 	})
 	if err != nil {
 		return opts, err
 	}
 
-	bb, err := buildbackend.NewBackend(d.ImageService(), manager, buildCache, bk)
+	bb, err := buildbackend.NewBackend(d.ImageService(), manager, bk, d.EventsService)
 	if err != nil {
 		return opts, errors.Wrap(err, "failed to create buildmanager")
 	}
 	return routerOptions{
 		sessionManager: sm,
 		buildBackend:   bb,
-		buildCache:     buildCache,
 		buildkit:       bk,
 		features:       d.Features(),
 		daemon:         d,
@@ -328,19 +305,6 @@ func (cli *DaemonCli) reloadConfig() {
 			return
 		}
 		cli.authzMiddleware.SetPlugins(c.AuthorizationPlugins)
-
-		// The namespaces com.docker.*, io.docker.*, org.dockerproject.* have been documented
-		// to be reserved for Docker's internal use, but this was never enforced.  Allowing
-		// configured labels to use these namespaces are deprecated for 18.05.
-		//
-		// The following will check the usage of such labels, and report a warning for deprecation.
-		//
-		// TODO: At the next stable release, the validation should be folded into the other
-		// configuration validation functions and an error will be returned instead, and this
-		// block should be deleted.
-		if err := config.ValidateReservedNamespaceLabels(c.Labels); err != nil {
-			logrus.Warnf("Configured labels using reserved namespaces is deprecated: %s", err)
-		}
 
 		if err := cli.d.Reload(c); err != nil {
 			logrus.Errorf("Error reconfiguring the daemon: %v", err)
@@ -382,10 +346,14 @@ func shutdownDaemon(d *daemon.Daemon) {
 		logrus.Debug("Clean shutdown succeeded")
 		return
 	}
+
+	timeout := time.NewTimer(time.Duration(shutdownTimeout) * time.Second)
+	defer timeout.Stop()
+
 	select {
 	case <-ch:
 		logrus.Debug("Clean shutdown succeeded")
-	case <-time.After(time.Duration(shutdownTimeout) * time.Second):
+	case <-timeout.C:
 		logrus.Error("Force shutdown daemon")
 	}
 }
@@ -396,8 +364,16 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 	conf.Debug = opts.Debug
 	conf.Hosts = opts.Hosts
 	conf.LogLevel = opts.LogLevel
-	conf.TLS = opts.TLS
-	conf.TLSVerify = opts.TLSVerify
+
+	if opts.flags.Changed(FlagTLS) {
+		conf.TLS = &opts.TLS
+	}
+	if opts.flags.Changed(FlagTLSVerify) {
+		conf.TLSVerify = &opts.TLSVerify
+		v := true
+		conf.TLS = &v
+	}
+
 	conf.CommonTLSOptions = config.CommonTLSOptions{}
 
 	if opts.TLSOptions != nil {
@@ -425,6 +401,7 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 				return nil, errors.Wrapf(err, "unable to configure the Docker daemon with file %s", opts.configFile)
 			}
 		}
+
 		// the merged configuration can be nil if the config file didn't exist.
 		// leave the current configuration as it is if when that happens.
 		if c != nil {
@@ -445,37 +422,45 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The namespaces com.docker.*, io.docker.*, org.dockerproject.* have been documented
-	// to be reserved for Docker's internal use, but this was never enforced.  Allowing
-	// configured labels to use these namespaces are deprecated for 18.05.
-	//
-	// The following will check the usage of such labels, and report a warning for deprecation.
-	//
-	// TODO: At the next stable release, the validation should be folded into the other
-	// configuration validation functions and an error will be returned instead, and this
-	// block should be deleted.
-	if err := config.ValidateReservedNamespaceLabels(newLabels); err != nil {
-		logrus.Warnf("Configured labels using reserved namespaces is deprecated: %s", err)
-	}
 	conf.Labels = newLabels
 
 	// Regardless of whether the user sets it to true or false, if they
 	// specify TLSVerify at all then we need to turn on TLS
 	if conf.IsValueSet(FlagTLSVerify) {
-		conf.TLS = true
+		v := true
+		conf.TLS = &v
+	}
+
+	if conf.TLSVerify == nil && conf.TLS != nil {
+		conf.TLSVerify = conf.TLS
 	}
 
 	return conf, nil
 }
 
+func warnOnDeprecatedConfigOptions(config *config.Config) {
+	if config.ClusterAdvertise != "" {
+		logrus.Warn(`The "cluster-advertise" option is deprecated. To be removed soon.`)
+	}
+	if config.ClusterStore != "" {
+		logrus.Warn(`The "cluster-store" option is deprecated. To be removed soon.`)
+	}
+	if len(config.ClusterOpts) > 0 {
+		logrus.Warn(`The "cluster-store-opt" option is deprecated. To be removed soon.`)
+	}
+}
+
 func initRouter(opts routerOptions) {
-	decoder := runconfig.ContainerDecoder{}
+	decoder := runconfig.ContainerDecoder{
+		GetSysInfo: func() *sysinfo.SysInfo {
+			return opts.daemon.RawSysInfo(true)
+		},
+	}
 
 	routers := []router.Router{
-		// we need to add the checkpoint router before the container router or the DELETE gets masked
-		container.NewRouter(opts.daemon, decoder),
+		container.NewRouter(opts.daemon, decoder, opts.daemon.RawSysInfo(true).CgroupUnified),
 		image.NewRouter(opts.daemon.ImageService()),
-		systemrouter.NewRouter(opts.daemon, opts.buildCache, opts.buildkit, opts.features),
+		systemrouter.NewRouter(opts.daemon, nil, opts.buildkit, opts.features),
 		volume.NewRouter(opts.daemon.VolumesService()),
 		build.NewRouter(opts.buildBackend, opts.daemon, opts.features),
 		sessionrouter.NewRouter(opts.sessionManager),
@@ -493,7 +478,7 @@ func initRouter(opts routerOptions) {
 	}
 
 	if opts.daemon.NetworkControllerEnabled() {
-		routers = append(routers, network.NewRouter(opts.daemon))
+		routers = append(routers, network.NewRouter(opts.daemon, nil))
 	}
 
 	if opts.daemon.HasExperimental() {
@@ -557,7 +542,7 @@ func newAPIServerConfig(cli *DaemonCli) (*apiserver.Config, error) {
 		CorsHeaders: cli.Config.CorsHeaders,
 	}
 
-	if cli.Config.TLS {
+	if cli.Config.TLS != nil && *cli.Config.TLS {
 		tlsOptions := tlsconfig.Options{
 			CAFile:             cli.Config.CommonTLSOptions.CAFile,
 			CertFile:           cli.Config.CommonTLSOptions.CertFile,
@@ -565,7 +550,7 @@ func newAPIServerConfig(cli *DaemonCli) (*apiserver.Config, error) {
 			ExclusiveRootPools: true,
 		}
 
-		if cli.Config.TLSVerify {
+		if cli.Config.TLSVerify == nil || *cli.Config.TLSVerify {
 			// server requires and verifies client's certificate
 			tlsOptions.ClientAuth = tls.RequireAndVerifyClientCert
 		}
@@ -583,13 +568,43 @@ func newAPIServerConfig(cli *DaemonCli) (*apiserver.Config, error) {
 	return serverConfig, nil
 }
 
+// checkTLSAuthOK checks basically for an explicitly disabled TLS/TLSVerify
+// Going forward we do not want to support a scenario where dockerd listens
+//   on TCP without either TLS client auth (or an explicit opt-in to disable it)
+func checkTLSAuthOK(c *config.Config) bool {
+	if c.TLS == nil {
+		// Either TLS is enabled by default, in which case TLS verification should be enabled by default, or explicitly disabled
+		// Or TLS is disabled by default... in any of these cases, we can just take the default value as to how to proceed
+		return DefaultTLSValue
+	}
+
+	if !*c.TLS {
+		// TLS is explicitly disabled, which is supported
+		return true
+	}
+
+	if c.TLSVerify == nil {
+		// this actually shouldn't happen since we set TLSVerify on the config object anyway
+		// But in case it does get here, be cautious and assume this is not supported.
+		return false
+	}
+
+	// Either TLSVerify is explicitly enabled or disabled, both cases are supported
+	return true
+}
+
 func loadListeners(cli *DaemonCli, serverConfig *apiserver.Config) ([]string, error) {
 	var hosts []string
 	seen := make(map[string]struct{}, len(cli.Config.Hosts))
 
+	useTLS := DefaultTLSValue
+	if cli.Config.TLS != nil {
+		useTLS = *cli.Config.TLS
+	}
+
 	for i := 0; i < len(cli.Config.Hosts); i++ {
 		var err error
-		if cli.Config.Hosts[i], err = dopts.ParseHost(cli.Config.TLS, honorXDG, cli.Config.Hosts[i]); err != nil {
+		if cli.Config.Hosts[i], err = dopts.ParseHost(useTLS, honorXDG, cli.Config.Hosts[i]); err != nil {
 			return nil, errors.Wrapf(err, "error parsing -H %s", cli.Config.Hosts[i])
 		}
 		if _, ok := seen[cli.Config.Hosts[i]]; ok {
@@ -607,14 +622,48 @@ func loadListeners(cli *DaemonCli, serverConfig *apiserver.Config) ([]string, er
 		addr := protoAddrParts[1]
 
 		// It's a bad idea to bind to TCP without tlsverify.
-		if proto == "tcp" && (serverConfig.TLSConfig == nil || serverConfig.TLSConfig.ClientAuth != tls.RequireAndVerifyClientCert) {
-			logrus.Warn("[!] DON'T BIND ON ANY IP ADDRESS WITHOUT setting --tlsverify IF YOU DON'T KNOW WHAT YOU'RE DOING [!]")
+		authEnabled := serverConfig.TLSConfig != nil && serverConfig.TLSConfig.ClientAuth == tls.RequireAndVerifyClientCert
+		if proto == "tcp" && !authEnabled {
+			logrus.WithField("host", protoAddr).Warn("Binding to IP address without --tlsverify is insecure and gives root access on this machine to everyone who has access to your network.")
+			logrus.WithField("host", protoAddr).Warn("Binding to an IP address, even on localhost, can also give access to scripts run in a browser. Be safe out there!")
+			time.Sleep(time.Second)
+
+			// If TLSVerify is explicitly set to false we'll take that as "Please let me shoot myself in the foot"
+			// We do not want to continue to support a default mode where tls verification is disabled, so we do some extra warnings here and eventually remove support
+			if !checkTLSAuthOK(cli.Config) {
+				ipAddr, _, err := net.SplitHostPort(addr)
+				if err != nil {
+					return nil, errors.Wrap(err, "error parsing tcp address")
+				}
+
+				// shortcut all this extra stuff for literal "localhost"
+				// -H supports specifying hostnames, since we want to bypass this on loopback interfaces we'll look it up here.
+				if ipAddr != "localhost" {
+					ip := net.ParseIP(ipAddr)
+					if ip == nil {
+						ipA, err := net.ResolveIPAddr("ip", ipAddr)
+						if err != nil {
+							logrus.WithError(err).WithField("host", ipAddr).Error("Error looking up specified host address")
+						}
+						if ipA != nil {
+							ip = ipA.IP
+						}
+					}
+					if ip == nil || !ip.IsLoopback() {
+						logrus.WithField("host", protoAddr).Warn("Binding to an IP address without --tlsverify is deprecated. Startup is intentionally being slowed down to show this message")
+						logrus.WithField("host", protoAddr).Warn("Please consider generating tls certificates with client validation to prevent exposing unauthenticated root access to your network")
+						logrus.WithField("host", protoAddr).Warnf("You can override this by explicitly specifying '--%s=false' or '--%s=false'", FlagTLS, FlagTLSVerify)
+						logrus.WithField("host", protoAddr).Warnf("Support for listening on TCP without authentication or explicit intent to run without authentication will be removed in the next release")
+
+						time.Sleep(15 * time.Second)
+					}
+				}
+			}
 		}
 		ls, err := listeners.Init(proto, addr, serverConfig.SocketGroup, serverConfig.TLSConfig)
 		if err != nil {
 			return nil, err
 		}
-		ls = wrapListeners(proto, ls)
 		// If we're binding to a TCP port, make sure that a container doesn't try to use it.
 		if proto == "tcp" {
 			if err := allocateDaemonPort(addr); err != nil {

@@ -3,7 +3,6 @@ package imageutil
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
@@ -13,7 +12,9 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes"
+	"github.com/containerd/containerd/remotes/docker"
 	"github.com/moby/buildkit/util/leaseutil"
+	"github.com/moby/buildkit/util/resolver/retryhandler"
 	digest "github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -36,6 +37,12 @@ func CancelCacheLeases() {
 	leasesMu.Unlock()
 }
 
+func AddLease(f func(context.Context) error) {
+	leasesMu.Lock()
+	leasesF = append(leasesF, f)
+	leasesMu.Unlock()
+}
+
 func Config(ctx context.Context, str string, resolver remotes.Resolver, cache ContentCache, leaseManager leases.Manager, p *specs.Platform) (digest.Digest, []byte, error) {
 	// TODO: fix buildkit to take interface instead of struct
 	var platform platforms.MatchComparer
@@ -50,16 +57,14 @@ func Config(ctx context.Context, str string, resolver remotes.Resolver, cache Co
 	}
 
 	if leaseManager != nil {
-		ctx2, done, err := leaseutil.WithLease(ctx, leaseManager, leases.WithExpiration(5*time.Minute))
+		ctx2, done, err := leaseutil.WithLease(ctx, leaseManager, leases.WithExpiration(5*time.Minute), leaseutil.MakeTemporary)
 		if err != nil {
 			return "", nil, errors.WithStack(err)
 		}
 		ctx = ctx2
 		defer func() {
 			// this lease is not deleted to allow other components to access manifest/config from cache. It will be deleted after 5 min deadline or on pruning inactive builder
-			leasesMu.Lock()
-			leasesF = append(leasesF, done)
-			leasesMu.Unlock()
+			AddLease(done)
 		}()
 	}
 
@@ -94,12 +99,9 @@ func Config(ctx context.Context, str string, resolver remotes.Resolver, cache Co
 	}
 
 	children := childrenConfigHandler(cache, platform)
-	if m, ok := cache.(content.Manager); ok {
-		children = SetChildrenLabelsNonBlobs(m, children)
-	}
 
 	handlers := []images.Handler{
-		fetchWithoutRoot(remotes.FetchHandler(cache, fetcher)),
+		retryhandler.New(remotes.FetchHandler(cache, fetcher), func(_ []byte) {}),
 		children,
 	}
 	if err := images.Dispatch(ctx, images.Handlers(handlers...), nil, desc); err != nil {
@@ -116,16 +118,6 @@ func Config(ctx context.Context, str string, resolver remotes.Resolver, cache Co
 	}
 
 	return desc.Digest, dt, nil
-}
-
-func fetchWithoutRoot(fetch images.HandlerFunc) images.HandlerFunc {
-	return func(ctx context.Context, desc specs.Descriptor) ([]specs.Descriptor, error) {
-		if desc.Annotations == nil {
-			desc.Annotations = map[string]string{}
-		}
-		desc.Annotations["buildkit/noroot"] = "true"
-		return fetch(ctx, desc)
-	}
 }
 
 func childrenConfigHandler(provider content.Provider, platform platforms.MatchComparer) images.HandlerFunc {
@@ -166,7 +158,7 @@ func childrenConfigHandler(provider content.Provider, platform platforms.MatchCo
 			} else {
 				descs = append(descs, index.Manifests...)
 			}
-		case images.MediaTypeDockerSchema2Config, specs.MediaTypeImageConfig:
+		case images.MediaTypeDockerSchema2Config, specs.MediaTypeImageConfig, docker.LegacyConfigMediaType:
 			// childless data types.
 			return nil, nil
 		default:
@@ -191,55 +183,39 @@ func DetectManifestMediaType(ra content.ReaderAt) (string, error) {
 
 func DetectManifestBlobMediaType(dt []byte) (string, error) {
 	var mfst struct {
-		MediaType string          `json:"mediaType"`
+		MediaType *string         `json:"mediaType"`
 		Config    json.RawMessage `json:"config"`
+		Manifests json.RawMessage `json:"manifests"`
+		Layers    json.RawMessage `json:"layers"`
 	}
 
 	if err := json.Unmarshal(dt, &mfst); err != nil {
 		return "", err
 	}
 
-	if mfst.MediaType != "" {
-		return mfst.MediaType, nil
-	}
-	if mfst.Config != nil {
-		return images.MediaTypeDockerSchema2Manifest, nil
-	}
-	return images.MediaTypeDockerSchema2ManifestList, nil
-}
+	mt := images.MediaTypeDockerSchema2ManifestList
 
-func SetChildrenLabelsNonBlobs(manager content.Manager, f images.HandlerFunc) images.HandlerFunc {
-	return func(ctx context.Context, desc specs.Descriptor) ([]specs.Descriptor, error) {
-		children, err := f(ctx, desc)
-		if err != nil {
-			return children, err
+	if mfst.Config != nil || mfst.Layers != nil {
+		mt = images.MediaTypeDockerSchema2Manifest
+
+		if mfst.Manifests != nil {
+			return "", errors.Errorf("invalid ambiguous manifest and manifest list")
 		}
-
-		if len(children) > 0 {
-			info := content.Info{
-				Digest: desc.Digest,
-				Labels: map[string]string{},
-			}
-			fields := []string{}
-			for i, ch := range children {
-				switch ch.MediaType {
-				case images.MediaTypeDockerSchema2Layer, images.MediaTypeDockerSchema2LayerGzip, specs.MediaTypeImageLayer, specs.MediaTypeImageLayerGzip:
-					continue
-				default:
-				}
-
-				info.Labels[fmt.Sprintf("containerd.io/gc.ref.content.%d", i)] = ch.Digest.String()
-				fields = append(fields, fmt.Sprintf("labels.containerd.io/gc.ref.content.%d", i))
-			}
-
-			if len(info.Labels) > 0 {
-				_, err := manager.Update(ctx, info, fields...)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-
-		return children, err
 	}
+
+	if mfst.MediaType != nil {
+		switch *mfst.MediaType {
+		case images.MediaTypeDockerSchema2ManifestList, specs.MediaTypeImageIndex:
+			if mt != images.MediaTypeDockerSchema2ManifestList {
+				return "", errors.Errorf("mediaType in manifest does not match manifest contents")
+			}
+			mt = *mfst.MediaType
+		case images.MediaTypeDockerSchema2Manifest, specs.MediaTypeImageManifest:
+			if mt != images.MediaTypeDockerSchema2Manifest {
+				return "", errors.Errorf("mediaType in manifest does not match manifest contents")
+			}
+			mt = *mfst.MediaType
+		}
+	}
+	return mt, nil
 }

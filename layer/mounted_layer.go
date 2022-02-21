@@ -13,7 +13,6 @@ type mountedLayer struct {
 	mountID    string
 	initID     string
 	parent     *roLayer
-	path       string
 	layerStore *layerStore
 
 	sync.Mutex
@@ -109,4 +108,9 @@ func (rl *referencedRWLayer) Mount(mountLabel string) (containerfs.ContainerFS, 
 // Callers should only call `Unmount` once per call to `Mount`, even on error.
 func (rl *referencedRWLayer) Unmount() error {
 	return rl.layerStore.driver.Put(rl.mountedLayer.mountID)
+}
+
+// ApplyDiff applies specified diff to the layer
+func (rl *referencedRWLayer) ApplyDiff(diff io.Reader) (int64, error) {
+	return rl.layerStore.driver.ApplyDiff(rl.mountID, rl.cacheParent(), diff)
 }

@@ -49,13 +49,13 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 
 	// "--graph" is "soft-deprecated" in favor of "data-root". This flag was added
 	// before Docker 1.0, so won't be removed, only hidden, to discourage its usage.
-	flags.MarkHidden("graph")
+	_ = flags.MarkHidden("graph")
 
 	flags.StringVar(&conf.Root, "data-root", defaultDataRoot, "Root directory of persistent balenaEngine state")
 	flags.StringVar(&conf.DeltaRoot, "delta-data-root", "", "Root directory of read-only balenaEngine state used for deltas")
 
 	flags.BoolVarP(&conf.AutoRestart, "restart", "r", true, "--restart on the daemon has been deprecated in favor of --restart policies on balena-engine run")
-	flags.MarkDeprecated("restart", "Please use a restart policy on balena-engine run")
+	_ = flags.MarkDeprecated("restart", "Please use a restart policy on balena-engine run")
 
 	// Windows doesn't support setting the storage driver - there is no choice as to which ones to use.
 	if runtime.GOOS != "windows" {
@@ -68,20 +68,26 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	flags.Var(opts.NewListOptsRef(&conf.DNS, opts.ValidateIPAddress), "dns", "DNS server to use")
 	flags.Var(opts.NewNamedListOptsRef("dns-opts", &conf.DNSOptions, nil), "dns-opt", "DNS options to use")
 	flags.Var(opts.NewListOptsRef(&conf.DNSSearch, opts.ValidateDNSSearch), "dns-search", "DNS search domains to use")
+	flags.Var(opts.NewIPOpt(&conf.HostGatewayIP, ""), "host-gateway-ip", "IP address that the special 'host-gateway' string in --add-host resolves to. Defaults to the IP address of the default bridge")
 	flags.Var(opts.NewNamedListOptsRef("labels", &conf.Labels, opts.ValidateLabel), "label", "Set key=value labels to the daemon")
 	flags.StringVar(&conf.LogConfig.Type, "log-driver", "json-file", "Default driver for container logs")
 	flags.Var(opts.NewNamedMapOpts("log-opts", conf.LogConfig.Config, nil), "log-opt", "Default log driver options for containers")
+
 	flags.StringVar(&conf.ClusterAdvertise, "cluster-advertise", "", "Address or interface name to advertise")
+	_ = flags.MarkDeprecated("cluster-advertise", "Swarm classic is deprecated. Please use Swarm-mode (docker swarm init)")
 	flags.StringVar(&conf.ClusterStore, "cluster-store", "", "URL of the distributed storage backend")
+	_ = flags.MarkDeprecated("cluster-store", "Swarm classic is deprecated. Please use Swarm-mode (docker swarm init)")
 	flags.Var(opts.NewNamedMapOpts("cluster-store-opts", conf.ClusterOpts, nil), "cluster-store-opt", "Set cluster store options")
+	_ = flags.MarkDeprecated("cluster-store-opt", "Swarm classic is deprecated. Please use Swarm-mode (docker swarm init)")
+
 	flags.StringVar(&conf.CorsHeaders, "api-cors-header", "", "Set CORS headers in the Engine API")
 	flags.IntVar(&maxConcurrentDownloads, "max-concurrent-downloads", config.DefaultMaxConcurrentDownloads, "Set the max concurrent downloads for each pull")
 	flags.IntVar(&maxConcurrentUploads, "max-concurrent-uploads", config.DefaultMaxConcurrentUploads, "Set the max concurrent uploads for each push")
-	flags.IntVar(&maxDownloadAttempts, "max-download-attempts", config.DefaultMaxDownloadAttempts, "Set the max download attempts for each pull")
-	flags.IntVar(&maxUploadAttempts, "max-upload-attempts", config.DefaultMaxUploadAttempts, "Set the max upload attempts for each push")
+	flags.IntVar(&maxDownloadAttempts, "max-download-attempts", config.DefaultDownloadAttempts, "Set the max download attempts for each pull")
+	flags.IntVar(&maxUploadAttempts, "max-upload-attempts", config.DefaultUploadAttempts, "Set the max upload attempts for each push")
 	flags.IntVar(&conf.ShutdownTimeout, "shutdown-timeout", defaultShutdownTimeout, "Set the default shutdown timeout")
 	flags.IntVar(&conf.NetworkDiagnosticPort, "network-diagnostic-port", 0, "TCP port number of the network diagnostic server")
-	flags.MarkHidden("network-diagnostic-port")
+	_ = flags.MarkHidden("network-diagnostic-port")
 
 	flags.StringVar(&conf.SwarmDefaultAdvertiseAddr, "swarm-default-advertise-addr", "", "Set default address or interface for swarm advertised address")
 	flags.BoolVar(&conf.Experimental, "experimental", false, "Enable experimental features")
@@ -97,11 +103,9 @@ func installCommonConfigFlags(conf *config.Config, flags *pflag.FlagSet) error {
 	conf.MaxUploadAttempts = &maxUploadAttempts
 
 	flags.StringVar(&conf.ContainerdNamespace, "containerd-namespace", daemon.ContainersNamespace, "Containerd namespace to use")
-	if err := flags.MarkHidden("containerd-namespace"); err != nil {
-		return err
-	}
 	flags.StringVar(&conf.ContainerdPluginNamespace, "containerd-plugins-namespace", containerd.PluginNamespace, "Containerd namespace to use for plugins")
-	return flags.MarkHidden("containerd-plugins-namespace")
+
+	return nil
 }
 
 func installRegistryServiceFlags(options *registry.ServiceOptions, flags *pflag.FlagSet) {

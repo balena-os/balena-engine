@@ -3,12 +3,16 @@ package dockerd
 import (
 	"net"
 	"net/http"
+	"strings"
 
-	"github.com/docker/go-metrics"
+	metrics "github.com/docker/go-metrics"
 	"github.com/sirupsen/logrus"
 )
 
 func startMetricsServer(addr string) error {
+	if addr == "" {
+		return nil
+	}
 	if err := allocateDaemonPort(addr); err != nil {
 		return err
 	}
@@ -19,8 +23,9 @@ func startMetricsServer(addr string) error {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics.Handler())
 	go func() {
-		if err := http.Serve(l, mux); err != nil {
-			logrus.Errorf("serve metrics api: %s", err)
+		logrus.Infof("metrics API listening on %s", l.Addr())
+		if err := http.Serve(l, mux); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+			logrus.WithError(err).Error("error serving metrics API")
 		}
 	}()
 	return nil

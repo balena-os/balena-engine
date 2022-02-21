@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/internal/test/fixtures/plugin"
-	"github.com/docker/docker/pkg/locker"
+	"github.com/docker/docker/testutil/fixtures/plugin"
+	"github.com/moby/locker"
 	"github.com/pkg/errors"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 var pluginBuildLock = locker.New()
@@ -36,7 +36,7 @@ func ensurePlugin(t *testing.T, name string) string {
 	assert.NilError(t, err)
 
 	cmd := exec.Command(goBin, "build", "-o", installPath, "./"+filepath.Join("cmd", name))
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GO111MODULE=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatal(errors.Wrapf(err, "error building basic plugin bin: %s", string(out)))
 	}

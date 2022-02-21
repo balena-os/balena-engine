@@ -52,12 +52,17 @@ func handleSignals(ctx context.Context, signals chan os.Signal, serverC chan *se
 				case unix.SIGPIPE:
 					continue
 				default:
+					if err := notifyStopping(ctx); err != nil {
+						log.G(ctx).WithError(err).Error("notify stopping failed")
+					}
+
 					if server == nil {
 						close(done)
 						return
 					}
 					server.Stop()
 					close(done)
+					return
 				}
 			}
 		}

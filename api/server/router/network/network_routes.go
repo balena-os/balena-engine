@@ -29,7 +29,7 @@ func (n *networkRouter) getNetworksList(ctx context.Context, w http.ResponseWrit
 	}
 
 	if err := network.ValidateFilters(filter); err != nil {
-		return err
+		return errdefs.InvalidParameter(err)
 	}
 
 	var list []types.NetworkResource
@@ -39,7 +39,8 @@ func (n *networkRouter) getNetworksList(ctx context.Context, w http.ResponseWrit
 		return err
 	}
 
-	// Removed unnecessary filtering
+	// NOTE (robertgzr): we don't handle swarm networks, so filtering
+	// was removed here.
 	list = localNetworks
 
 	if list == nil {
@@ -122,6 +123,8 @@ func (n *networkRouter) getNetwork(ctx context.Context, w http.ResponseWriter, r
 		}
 	}
 
+	// NOTE (robertgzr): removed swarm network handling
+
 	// Find based on full name, returns true only if no duplicates
 	if len(listByFullName) == 1 {
 		for _, v := range listByFullName {
@@ -171,6 +174,7 @@ func (n *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWr
 				return nameConflict(create.Name)
 			}
 		}
+		// NOTE (robertgzr): always return the error
 		return err
 	}
 
@@ -262,8 +266,6 @@ func (n *networkRouter) postNetworksPrune(ctx context.Context, w http.ResponseWr
 // For full name and partial ID, save the result first, and process later
 // in case multiple records was found based on the same term
 // TODO (yongtang): should we wrap with version here for backward compatibility?
-//
-// NOTE (robertgzr): searching cluster scope has been removed.
 func (n *networkRouter) findUniqueNetwork(term string) (types.NetworkResource, error) {
 	listByFullName := map[string]types.NetworkResource{}
 	listByPartialID := map[string]types.NetworkResource{}
@@ -285,6 +287,8 @@ func (n *networkRouter) findUniqueNetwork(term string) (types.NetworkResource, e
 			listByPartialID[network.ID] = network
 		}
 	}
+
+	// NOTE (robertgzr): searching cluster scope has been removed.
 
 	// Find based on full name, returns true only if no duplicates
 	if len(listByFullName) == 1 {

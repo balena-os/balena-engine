@@ -1,10 +1,11 @@
 package vfs // import "github.com/docker/docker/daemon/graphdriver/vfs"
 
 import (
-	"github.com/docker/docker/daemon/graphdriver/quota"
+	"github.com/docker/docker/quota"
 	"github.com/sirupsen/logrus"
 )
 
+//nolint:structcheck
 type driverQuota struct {
 	quotaCtl *quota.Control
 	quotaOpt quota.Quota

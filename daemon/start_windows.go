@@ -7,22 +7,22 @@ import (
 	"github.com/docker/docker/pkg/system"
 )
 
-func (daemon *Daemon) getLibcontainerdCreateOptions(container *container.Container) (interface{}, error) {
+func (daemon *Daemon) getLibcontainerdCreateOptions(container *container.Container) (string, interface{}, error) {
 
 	// Set the runtime options to debug regardless of current logging level.
 	if system.ContainerdRuntimeSupported() {
 		opts := &options.Options{Debug: true}
-		return opts, nil
+		return "", opts, nil
 	}
 
-	// TODO @jhowardmsft (containerd) - Probably need to revisit LCOW options here
+	// TODO (containerd) - Probably need to revisit LCOW options here
 	// rather than blindly ignoring them.
 
 	// LCOW options.
 	if container.OS == "linux" {
 		config := &client.Config{}
 		if err := config.GenerateDefault(daemon.configStore.GraphOptions); err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		// Override from user-supplied options.
 		for k, v := range container.HostConfig.StorageOpt {
@@ -34,11 +34,11 @@ func (daemon *Daemon) getLibcontainerdCreateOptions(container *container.Contain
 			}
 		}
 		if err := config.Validate(); err != nil {
-			return nil, err
+			return "", nil, err
 		}
 
-		return config, nil
+		return "", config, nil
 	}
 
-	return nil, nil
+	return "", nil, nil
 }

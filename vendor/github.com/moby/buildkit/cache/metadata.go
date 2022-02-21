@@ -19,13 +19,207 @@ const keyLastUsedAt = "cache.lastUsedAt"
 const keyUsageCount = "cache.usageCount"
 const keyLayerType = "cache.layerType"
 const keyRecordType = "cache.recordType"
+const keyCommitted = "snapshot.committed"
+const keyParent = "cache.parent"
+const keyDiffID = "cache.diffID"
+const keyChainID = "cache.chainID"
+const keyBlobChainID = "cache.blobChainID"
+const keyBlob = "cache.blob"
+const keySnapshot = "cache.snapshot"
+const keyBlobOnly = "cache.blobonly"
+const keyMediaType = "cache.mediatype"
+const keyImageRefs = "cache.imageRefs"
+
+// BlobSize is the packed blob size as specified in the oci descriptor
+const keyBlobSize = "cache.blobsize"
 
 const keyDeleted = "cache.deleted"
+
+func queueDiffID(si *metadata.StorageItem, str string) error {
+	if str == "" {
+		return nil
+	}
+	v, err := metadata.NewValue(str)
+	if err != nil {
+		return errors.Wrap(err, "failed to create diffID value")
+	}
+	si.Update(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyDiffID, v)
+	})
+	return nil
+}
+
+func getMediaType(si *metadata.StorageItem) string {
+	v := si.Get(keyMediaType)
+	if v == nil {
+		return si.ID()
+	}
+	var str string
+	if err := v.Unmarshal(&str); err != nil {
+		return ""
+	}
+	return str
+}
+
+func queueMediaType(si *metadata.StorageItem, str string) error {
+	if str == "" {
+		return nil
+	}
+	v, err := metadata.NewValue(str)
+	if err != nil {
+		return errors.Wrap(err, "failed to create mediaType value")
+	}
+	si.Queue(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyMediaType, v)
+	})
+	return nil
+}
+
+func getSnapshotID(si *metadata.StorageItem) string {
+	v := si.Get(keySnapshot)
+	if v == nil {
+		return si.ID()
+	}
+	var str string
+	if err := v.Unmarshal(&str); err != nil {
+		return ""
+	}
+	return str
+}
+
+func queueSnapshotID(si *metadata.StorageItem, str string) error {
+	if str == "" {
+		return nil
+	}
+	v, err := metadata.NewValue(str)
+	if err != nil {
+		return errors.Wrap(err, "failed to create chainID value")
+	}
+	si.Queue(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keySnapshot, v)
+	})
+	return nil
+}
+
+func getDiffID(si *metadata.StorageItem) string {
+	v := si.Get(keyDiffID)
+	if v == nil {
+		return ""
+	}
+	var str string
+	if err := v.Unmarshal(&str); err != nil {
+		return ""
+	}
+	return str
+}
+
+func queueChainID(si *metadata.StorageItem, str string) error {
+	if str == "" {
+		return nil
+	}
+	v, err := metadata.NewValue(str)
+	if err != nil {
+		return errors.Wrap(err, "failed to create chainID value")
+	}
+	v.Index = "chainid:" + str
+	si.Update(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyChainID, v)
+	})
+	return nil
+}
+
+func getBlobChainID(si *metadata.StorageItem) string {
+	v := si.Get(keyBlobChainID)
+	if v == nil {
+		return ""
+	}
+	var str string
+	if err := v.Unmarshal(&str); err != nil {
+		return ""
+	}
+	return str
+}
+
+func queueBlobChainID(si *metadata.StorageItem, str string) error {
+	if str == "" {
+		return nil
+	}
+	v, err := metadata.NewValue(str)
+	if err != nil {
+		return errors.Wrap(err, "failed to create chainID value")
+	}
+	v.Index = "blobchainid:" + str
+	si.Update(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyBlobChainID, v)
+	})
+	return nil
+}
+
+func getChainID(si *metadata.StorageItem) string {
+	v := si.Get(keyChainID)
+	if v == nil {
+		return ""
+	}
+	var str string
+	if err := v.Unmarshal(&str); err != nil {
+		return ""
+	}
+	return str
+}
+
+func queueBlob(si *metadata.StorageItem, str string) error {
+	if str == "" {
+		return nil
+	}
+	v, err := metadata.NewValue(str)
+	if err != nil {
+		return errors.Wrap(err, "failed to create blob value")
+	}
+	si.Update(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyBlob, v)
+	})
+	return nil
+}
+
+func getBlob(si *metadata.StorageItem) string {
+	v := si.Get(keyBlob)
+	if v == nil {
+		return ""
+	}
+	var str string
+	if err := v.Unmarshal(&str); err != nil {
+		return ""
+	}
+	return str
+}
+
+func queueBlobOnly(si *metadata.StorageItem, b bool) error {
+	v, err := metadata.NewValue(b)
+	if err != nil {
+		return errors.Wrap(err, "failed to create blobonly value")
+	}
+	si.Queue(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyBlobOnly, v)
+	})
+	return nil
+}
+
+func getBlobOnly(si *metadata.StorageItem) bool {
+	v := si.Get(keyBlobOnly)
+	if v == nil {
+		return false
+	}
+	var blobOnly bool
+	if err := v.Unmarshal(&blobOnly); err != nil {
+		return false
+	}
+	return blobOnly
+}
 
 func setDeleted(si *metadata.StorageItem) error {
 	v, err := metadata.NewValue(true)
 	if err != nil {
-		return errors.Wrap(err, "failed to create size value")
+		return errors.Wrap(err, "failed to create deleted value")
 	}
 	si.Update(func(b *bolt.Bucket) error {
 		return si.SetValue(b, keyDeleted, v)
@@ -45,6 +239,55 @@ func getDeleted(si *metadata.StorageItem) bool {
 	return deleted
 }
 
+func queueCommitted(si *metadata.StorageItem) error {
+	v, err := metadata.NewValue(true)
+	if err != nil {
+		return errors.Wrap(err, "failed to create committed value")
+	}
+	si.Queue(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyCommitted, v)
+	})
+	return nil
+}
+
+func getCommitted(si *metadata.StorageItem) bool {
+	v := si.Get(keyCommitted)
+	if v == nil {
+		return false
+	}
+	var committed bool
+	if err := v.Unmarshal(&committed); err != nil {
+		return false
+	}
+	return committed
+}
+
+func queueParent(si *metadata.StorageItem, parent string) error {
+	if parent == "" {
+		return nil
+	}
+	v, err := metadata.NewValue(parent)
+	if err != nil {
+		return errors.Wrap(err, "failed to create parent value")
+	}
+	si.Update(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyParent, v)
+	})
+	return nil
+}
+
+func getParent(si *metadata.StorageItem) string {
+	v := si.Get(keyParent)
+	if v == nil {
+		return ""
+	}
+	var parent string
+	if err := v.Unmarshal(&parent); err != nil {
+		return ""
+	}
+	return parent
+}
+
 func setSize(si *metadata.StorageItem, s int64) error {
 	v, err := metadata.NewValue(s)
 	if err != nil {
@@ -58,6 +301,63 @@ func setSize(si *metadata.StorageItem, s int64) error {
 
 func getSize(si *metadata.StorageItem) int64 {
 	v := si.Get(keySize)
+	if v == nil {
+		return sizeUnknown
+	}
+	var size int64
+	if err := v.Unmarshal(&size); err != nil {
+		return sizeUnknown
+	}
+	return size
+}
+
+func appendImageRef(si *metadata.StorageItem, s string) error {
+	return si.GetAndSetValue(keyImageRefs, func(v *metadata.Value) (*metadata.Value, error) {
+		var imageRefs []string
+		if v != nil {
+			if err := v.Unmarshal(&imageRefs); err != nil {
+				return nil, err
+			}
+		}
+		for _, existing := range imageRefs {
+			if existing == s {
+				return nil, metadata.ErrSkipSetValue
+			}
+		}
+		imageRefs = append(imageRefs, s)
+		v, err := metadata.NewValue(imageRefs)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to create imageRefs value")
+		}
+		return v, nil
+	})
+}
+
+func getImageRefs(si *metadata.StorageItem) []string {
+	v := si.Get(keyImageRefs)
+	if v == nil {
+		return nil
+	}
+	var refs []string
+	if err := v.Unmarshal(&refs); err != nil {
+		return nil
+	}
+	return refs
+}
+
+func queueBlobSize(si *metadata.StorageItem, s int64) error {
+	v, err := metadata.NewValue(s)
+	if err != nil {
+		return errors.Wrap(err, "failed to create blobsize value")
+	}
+	si.Queue(func(b *bolt.Bucket) error {
+		return si.SetValue(b, keyBlobSize, v)
+	})
+	return nil
+}
+
+func getBlobSize(si *metadata.StorageItem) int64 {
+	v := si.Get(keyBlobSize)
 	if v == nil {
 		return sizeUnknown
 	}

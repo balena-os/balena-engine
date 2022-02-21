@@ -37,10 +37,11 @@ import (
 
 	"github.com/containerd/containerd/events"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/pkg/process"
 	shimlog "github.com/containerd/containerd/runtime/v1"
-	"github.com/containerd/containerd/runtime/v1/linux/proc"
 	"github.com/containerd/containerd/runtime/v1/shim"
 	shimapi "github.com/containerd/containerd/runtime/v1/shim/v1"
+	"github.com/containerd/containerd/sys/reaper"
 	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl"
 	ptypes "github.com/gogo/protobuf/types"
@@ -74,7 +75,7 @@ func Main() {
 	flag.StringVar(&socketFlag, "socket", "", "abstract socket path to serve")
 	flag.StringVar(&addressFlag, "address", "", "grpc address back to main containerd")
 	flag.StringVar(&workdirFlag, "workdir", "", "path used to storge large temporary data")
-	flag.StringVar(&runtimeRootFlag, "runtime-root", proc.RuncRoot, "root directory for the runtime")
+	flag.StringVar(&runtimeRootFlag, "runtime-root", process.RuncRoot, "root directory for the runtime")
 	flag.StringVar(&criuFlag, "criu", "", "path to criu binary")
 	flag.BoolVar(&systemdCgroupFlag, "systemd-cgroup", false, "set runtime to use systemd-cgroup")
 	// currently, the `containerd publish` utility is embedded in the daemon binary.
@@ -110,6 +111,10 @@ func Main() {
 		stderr.Close()
 	}()
 
+	// redirect the following output into fifo to make sure that containerd
+	// still can read the log after restart
+	logrus.SetOutput(stdout)
+
 	if err := executeShim(); err != nil {
 		fmt.Fprintf(os.Stderr, "containerd-shim: %s\n", err)
 		os.Exit(1)
@@ -119,7 +124,7 @@ func Main() {
 // If containerd server process dies, we need the shim to keep stdout/err reader
 // FDs so that Linux does not SIGPIPE the shim process if it tries to use its end of
 // these pipes.
-func openStdioKeepAlivePipes(dir string) (io.ReadCloser, io.ReadCloser, error) {
+func openStdioKeepAlivePipes(dir string) (io.ReadWriteCloser, io.ReadWriteCloser, error) {
 	background := context.Background()
 	keepStdoutAlive, err := shimlog.OpenShimStdoutLog(background, dir)
 	if err != nil {
@@ -192,7 +197,9 @@ func serve(ctx context.Context, server *ttrpc.Server, path string) error {
 		err error
 	)
 	if path == "" {
-		l, err = net.FileListener(os.NewFile(3, "socket"))
+		f := os.NewFile(3, "socket")
+		l, err = net.FileListener(f)
+		f.Close()
 		path = "[inherited from parent]"
 	} else {
 		if len(path) > 106 {
@@ -227,7 +234,7 @@ func handleSignals(logger *logrus.Entry, signals chan os.Signal, server *ttrpc.S
 		case s := <-signals:
 			switch s {
 			case unix.SIGCHLD:
-				if err := shim.Reap(); err != nil {
+				if err := reaper.Reap(); err != nil {
 					logger.WithError(err).Error("reap exit status")
 				}
 			case unix.SIGTERM, unix.SIGINT:
@@ -286,11 +293,11 @@ func (l *remoteEventsPublisher) Publish(ctx context.Context, topic string, event
 	defer bufPool.Put(b)
 	cmd.Stdout = b
 	cmd.Stderr = b
-	c, err := shim.Default.Start(cmd)
+	c, err := reaper.Default.Start(cmd)
 	if err != nil {
 		return err
 	}
-	status, err := shim.Default.Wait(cmd, c)
+	status, err := reaper.Default.Wait(cmd, c)
 	if err != nil {
 		return errors.Wrapf(err, "failed to publish event: %s", b.String())
 	}

@@ -10,10 +10,10 @@ import (
 	swarmtypes "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/integration/internal/swarm"
 	"github.com/google/go-cmp/cmp"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/poll"
-	"gotest.tools/skip"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/poll"
+	"gotest.tools/v3/skip"
 )
 
 func TestInspect(t *testing.T) {
@@ -29,7 +29,7 @@ func TestInspect(t *testing.T) {
 
 	var now = time.Now()
 	var instances uint64 = 2
-	serviceSpec := fullSwarmServiceSpec("test-service-inspect", instances)
+	serviceSpec := fullSwarmServiceSpec("test-service-inspect"+t.Name(), instances)
 
 	ctx := context.Background()
 	resp, err := client.ServiceCreate(ctx, serviceSpec, types.ServiceCreateOptions{
@@ -90,7 +90,7 @@ func fullSwarmServiceSpec(name string, replicas uint64) swarmtypes.ServiceSpec {
 				Image:           "busybox:latest",
 				Labels:          map[string]string{"container-label": "container-value"},
 				Command:         []string{"/bin/top"},
-				Args:            []string{"-u", "root"},
+				Args:            []string{"-d", "5"},
 				Hostname:        "hostname",
 				Env:             []string{"envvar=envvalue"},
 				Dir:             "/work",

@@ -9,6 +9,7 @@ import (
 	networktypes "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/go-connections/nat"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // WithName sets the name of the container
@@ -175,5 +176,40 @@ func WithRestartPolicy(policy string) func(c *TestContainerConfig) {
 func WithUser(user string) func(c *TestContainerConfig) {
 	return func(c *TestContainerConfig) {
 		c.Config.User = user
+	}
+}
+
+// WithPrivileged sets privileged mode for the container
+func WithPrivileged(privileged bool) func(*TestContainerConfig) {
+	return func(c *TestContainerConfig) {
+		if c.HostConfig == nil {
+			c.HostConfig = &containertypes.HostConfig{}
+		}
+		c.HostConfig.Privileged = privileged
+	}
+}
+
+// WithCgroupnsMode sets the cgroup namespace mode for the container
+func WithCgroupnsMode(mode string) func(*TestContainerConfig) {
+	return func(c *TestContainerConfig) {
+		if c.HostConfig == nil {
+			c.HostConfig = &containertypes.HostConfig{}
+		}
+		c.HostConfig.CgroupnsMode = containertypes.CgroupnsMode(mode)
+	}
+}
+
+// WithExtraHost sets the user defined IP:Host mappings in the container's
+// /etc/hosts file
+func WithExtraHost(extraHost string) func(*TestContainerConfig) {
+	return func(c *TestContainerConfig) {
+		c.HostConfig.ExtraHosts = append(c.HostConfig.ExtraHosts, extraHost)
+	}
+}
+
+// WithPlatform specifies the desired platform the image should have.
+func WithPlatform(p *specs.Platform) func(*TestContainerConfig) {
+	return func(c *TestContainerConfig) {
+		c.Platform = p
 	}
 }

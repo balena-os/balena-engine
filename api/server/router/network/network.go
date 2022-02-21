@@ -7,13 +7,15 @@ import (
 // networkRouter is a router to talk with the network controller
 type networkRouter struct {
 	backend Backend
+	cluster ClusterBackend
 	routes  []router.Route
 }
 
 // NewRouter initializes a new network router
-func NewRouter(b Backend) router.Router {
+func NewRouter(b Backend, c ClusterBackend) router.Router {
 	r := &networkRouter{
 		backend: b,
+		cluster: c,
 	}
 	r.initRoutes()
 	return r

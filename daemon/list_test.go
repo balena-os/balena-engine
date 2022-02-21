@@ -12,9 +12,9 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/image"
 	"github.com/google/uuid"
-	"github.com/opencontainers/go-digest"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	digest "github.com/opencontainers/go-digest"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 var root string
@@ -69,8 +69,8 @@ func setupContainerWithName(t *testing.T, name string, daemon *Daemon) *containe
 }
 
 func containerListContainsName(containers []*types.Container, name string) bool {
-	for _, container := range containers {
-		for _, containerName := range container.Names {
+	for _, ctr := range containers {
+		for _, containerName := range ctr.Names {
 			if containerName == name {
 				return true
 			}

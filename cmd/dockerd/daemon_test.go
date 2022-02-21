@@ -6,9 +6,9 @@ import (
 	"github.com/docker/docker/daemon/config"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/fs"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/fs"
 )
 
 func defaultOptions(t *testing.T, configFile string) *daemonOptions {
@@ -112,7 +112,7 @@ func TestLoadDaemonCliConfigWithTLSVerify(t *testing.T) {
 	loadedConfig, err := loadDaemonCliConfig(opts)
 	assert.NilError(t, err)
 	assert.Assert(t, loadedConfig != nil)
-	assert.Check(t, is.Equal(loadedConfig.TLS, true))
+	assert.Check(t, is.Equal(*loadedConfig.TLS, true))
 }
 
 func TestLoadDaemonCliConfigWithExplicitTLSVerifyFalse(t *testing.T) {
@@ -125,7 +125,7 @@ func TestLoadDaemonCliConfigWithExplicitTLSVerifyFalse(t *testing.T) {
 	loadedConfig, err := loadDaemonCliConfig(opts)
 	assert.NilError(t, err)
 	assert.Assert(t, loadedConfig != nil)
-	assert.Check(t, loadedConfig.TLS)
+	assert.Check(t, *loadedConfig.TLS)
 }
 
 func TestLoadDaemonCliConfigWithoutTLSVerify(t *testing.T) {
@@ -138,7 +138,7 @@ func TestLoadDaemonCliConfigWithoutTLSVerify(t *testing.T) {
 	loadedConfig, err := loadDaemonCliConfig(opts)
 	assert.NilError(t, err)
 	assert.Assert(t, loadedConfig != nil)
-	assert.Check(t, !loadedConfig.TLS)
+	assert.Check(t, loadedConfig.TLS == nil)
 }
 
 func TestLoadDaemonCliConfigWithLogLevel(t *testing.T) {

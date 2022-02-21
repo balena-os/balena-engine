@@ -36,19 +36,18 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
+	"github.com/containerd/containerd/sys"
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/directory"
 	"github.com/docker/docker/pkg/idtools"
-	"github.com/docker/docker/pkg/locker"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/pkg/system"
-	rsystem "github.com/opencontainers/runc/libcontainer/system"
+	"github.com/moby/locker"
+	"github.com/moby/sys/mount"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -140,18 +139,24 @@ func Init(root string, options []string, uidMaps, gidMaps []idtools.IDMap) (grap
 		syncDiffs: syncDiffs,
 	}
 
-	rootUID, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
+	currentID := idtools.CurrentIdentity()
+	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
 	if err != nil {
 		return nil, err
 	}
+	dirID := idtools.Identity{
+		UID: currentID.UID,
+		GID: rootGID,
+	}
+
 	// Create the root aufs driver dir
-	if err := idtools.MkdirAllAndChown(root, 0700, idtools.Identity{UID: rootUID, GID: rootGID}); err != nil {
+	if err := idtools.MkdirAllAndChown(root, 0710, dirID); err != nil {
 		return nil, err
 	}
 
 	// Populate the dir structure
 	for _, p := range paths {
-		if err := idtools.MkdirAllAndChown(path.Join(root, p), 0700, idtools.Identity{UID: rootUID, GID: rootGID}); err != nil {
+		if err := idtools.MkdirAllAndChown(path.Join(root, p), 0710, dirID); err != nil {
 			return nil, err
 		}
 	}
@@ -210,7 +215,7 @@ func supportsAufs() error {
 	// proc/filesystems for when aufs is supported
 	exec.Command("modprobe", "aufs").Run()
 
-	if rsystem.RunningInUserNS() {
+	if sys.RunningInUserNS() {
 		return ErrAufsNested
 	}
 
@@ -339,36 +344,9 @@ func (a *Driver) Remove(id string) error {
 		mountpoint = a.getMountpoint(id)
 	}
 
-	logger := logger.WithField("layer", id)
-
-	var retries int
-	for {
-		mounted, err := a.mounted(mountpoint)
-		if err != nil {
-			if os.IsNotExist(err) {
-				break
-			}
-			return err
-		}
-		if !mounted {
-			break
-		}
-
-		err = a.unmount(mountpoint)
-		if err == nil {
-			break
-		}
-
-		if errors.Cause(err) != unix.EBUSY {
-			return errors.Wrap(err, "aufs: unmount error")
-		}
-		if retries >= 5 {
-			return errors.Wrap(err, "aufs: unmount error after retries")
-		}
-		// If unmount returns EBUSY, it could be a transient error. Sleep and retry.
-		retries++
-		logger.Warnf("unmount failed due to EBUSY: retry count: %d", retries)
-		time.Sleep(100 * time.Millisecond)
+	if err := a.unmount(mountpoint); err != nil {
+		logger.WithError(err).WithField("method", "Remove()").Warn()
+		return err
 	}
 
 	// Remove the layers file for the id
@@ -384,7 +362,7 @@ func (a *Driver) Remove(id string) error {
 	// way (so that docker doesn't find it anymore) before doing removal of
 	// the whole tree.
 	if err := atomicRemove(mountpoint); err != nil {
-		if errors.Cause(err) == unix.EBUSY {
+		if errors.Is(err, unix.EBUSY) {
 			logger.WithField("dir", mountpoint).WithError(err).Warn("error performing atomic remove due to EBUSY")
 		}
 		return errors.Wrapf(err, "could not remove mountpoint for id %s", id)

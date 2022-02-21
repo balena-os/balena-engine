@@ -4,8 +4,8 @@ import (
 	"syscall"
 	"testing"
 
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 func TestParseSignal(t *testing.T) {
@@ -28,7 +28,7 @@ func TestValidSignalForPlatform(t *testing.T) {
 	assert.Check(t, is.Equal(false, isValidSignal))
 
 	for _, sigN := range SignalMap {
-		isValidSignal = ValidSignalForPlatform(syscall.Signal(sigN))
+		isValidSignal = ValidSignalForPlatform(sigN)
 		assert.Check(t, is.Equal(true, isValidSignal))
 	}
 }

@@ -38,8 +38,36 @@ func (e invalidIsolationError) Error() string {
 func (e invalidIsolationError) InvalidParameter() {}
 
 func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBuildOptions, error) {
+	options := &types.ImageBuildOptions{
+		Version:        types.BuilderV1, // Builder V1 is the default, but can be overridden
+		Dockerfile:     r.FormValue("dockerfile"),
+		SuppressOutput: httputils.BoolValue(r, "q"),
+		NoCache:        httputils.BoolValue(r, "nocache"),
+		ForceRemove:    httputils.BoolValue(r, "forcerm"),
+		MemorySwap:     httputils.Int64ValueOrZero(r, "memswap"),
+		Memory:         httputils.Int64ValueOrZero(r, "memory"),
+		CPUShares:      httputils.Int64ValueOrZero(r, "cpushares"),
+		CPUPeriod:      httputils.Int64ValueOrZero(r, "cpuperiod"),
+		CPUQuota:       httputils.Int64ValueOrZero(r, "cpuquota"),
+		CPUSetCPUs:     r.FormValue("cpusetcpus"),
+		CPUSetMems:     r.FormValue("cpusetmems"),
+		CgroupParent:   r.FormValue("cgroupparent"),
+		NetworkMode:    r.FormValue("networkmode"),
+		Tags:           r.Form["t"],
+		ExtraHosts:     r.Form["extrahosts"],
+		SecurityOpt:    r.Form["securityopt"],
+		Squash:         httputils.BoolValue(r, "squash"),
+		Target:         r.FormValue("target"),
+		RemoteContext:  r.FormValue("remote"),
+		SessionID:      r.FormValue("session"),
+		BuildID:        r.FormValue("buildid"),
+	}
+
+	if runtime.GOOS != "windows" && options.SecurityOpt != nil {
+		return nil, errdefs.InvalidParameter(errors.New("The daemon on this platform does not support setting security options on build"))
+	}
+
 	version := httputils.VersionFromContext(ctx)
-	options := &types.ImageBuildOptions{}
 	if httputils.BoolValue(r, "forcerm") && versions.GreaterThanOrEqualTo(version, "1.12") {
 		options.Remove = true
 	} else if r.FormValue("rm") == "" && versions.GreaterThanOrEqualTo(version, "1.12") {
@@ -50,52 +78,37 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 	if httputils.BoolValue(r, "pull") && versions.GreaterThanOrEqualTo(version, "1.16") {
 		options.PullParent = true
 	}
-
-	options.Dockerfile = r.FormValue("dockerfile")
-	options.SuppressOutput = httputils.BoolValue(r, "q")
-	options.NoCache = httputils.BoolValue(r, "nocache")
-	options.ForceRemove = httputils.BoolValue(r, "forcerm")
-	options.MemorySwap = httputils.Int64ValueOrZero(r, "memswap")
-	options.Memory = httputils.Int64ValueOrZero(r, "memory")
-	options.CPUShares = httputils.Int64ValueOrZero(r, "cpushares")
-	options.CPUPeriod = httputils.Int64ValueOrZero(r, "cpuperiod")
-	options.CPUQuota = httputils.Int64ValueOrZero(r, "cpuquota")
-	options.CPUSetCPUs = r.FormValue("cpusetcpus")
-	options.CPUSetMems = r.FormValue("cpusetmems")
-	options.CgroupParent = r.FormValue("cgroupparent")
-	options.NetworkMode = r.FormValue("networkmode")
-	options.Tags = r.Form["t"]
-	options.ExtraHosts = r.Form["extrahosts"]
-	options.SecurityOpt = r.Form["securityopt"]
-	options.Squash = httputils.BoolValue(r, "squash")
-	options.Target = r.FormValue("target")
-	options.RemoteContext = r.FormValue("remote")
 	if versions.GreaterThanOrEqualTo(version, "1.32") {
 		options.Platform = r.FormValue("platform")
 	}
+	if versions.GreaterThanOrEqualTo(version, "1.40") {
+		outputsJSON := r.FormValue("outputs")
+		if outputsJSON != "" {
+			var outputs []types.ImageBuildOutput
+			if err := json.Unmarshal([]byte(outputsJSON), &outputs); err != nil {
+				return nil, err
+			}
+			options.Outputs = outputs
+		}
+	}
 
-	if r.Form.Get("shmsize") != "" {
-		shmSize, err := strconv.ParseInt(r.Form.Get("shmsize"), 10, 64)
+	if s := r.Form.Get("shmsize"); s != "" {
+		shmSize, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
 			return nil, err
 		}
 		options.ShmSize = shmSize
 	}
 
-	if i := container.Isolation(r.FormValue("isolation")); i != "" {
-		if !container.Isolation.IsValid(i) {
-			return nil, invalidIsolationError(i)
+	if i := r.FormValue("isolation"); i != "" {
+		options.Isolation = container.Isolation(i)
+		if !options.Isolation.IsValid() {
+			return nil, invalidIsolationError(options.Isolation)
 		}
-		options.Isolation = i
 	}
 
-	if runtime.GOOS != "windows" && options.SecurityOpt != nil {
-		return nil, errdefs.InvalidParameter(errors.New("The daemon on this platform does not support setting security options on build"))
-	}
-
-	var buildUlimits = []*units.Ulimit{}
-	ulimitsJSON := r.FormValue("ulimits")
-	if ulimitsJSON != "" {
+	if ulimitsJSON := r.FormValue("ulimits"); ulimitsJSON != "" {
+		var buildUlimits = []*units.Ulimit{}
 		if err := json.Unmarshal([]byte(ulimitsJSON), &buildUlimits); err != nil {
 			return nil, errors.Wrap(errdefs.InvalidParameter(err), "error reading ulimit settings")
 		}
@@ -114,8 +127,7 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 	// the fact they mentioned it, we need to pass that along to the builder
 	// so that it can print a warning about "foo" being unused if there is
 	// no "ARG foo" in the Dockerfile.
-	buildArgsJSON := r.FormValue("buildargs")
-	if buildArgsJSON != "" {
+	if buildArgsJSON := r.FormValue("buildargs"); buildArgsJSON != "" {
 		var buildArgs = map[string]*string{}
 		if err := json.Unmarshal([]byte(buildArgsJSON), &buildArgs); err != nil {
 			return nil, errors.Wrap(errdefs.InvalidParameter(err), "error reading build args")
@@ -123,8 +135,7 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 		options.BuildArgs = buildArgs
 	}
 
-	labelsJSON := r.FormValue("labels")
-	if labelsJSON != "" {
+	if labelsJSON := r.FormValue("labels"); labelsJSON != "" {
 		var labels = map[string]string{}
 		if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
 			return nil, errors.Wrap(errdefs.InvalidParameter(err), "error reading labels")
@@ -132,31 +143,20 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 		options.Labels = labels
 	}
 
-	cacheFromJSON := r.FormValue("cachefrom")
-	if cacheFromJSON != "" {
+	if cacheFromJSON := r.FormValue("cachefrom"); cacheFromJSON != "" {
 		var cacheFrom = []string{}
 		if err := json.Unmarshal([]byte(cacheFromJSON), &cacheFrom); err != nil {
 			return nil, err
 		}
 		options.CacheFrom = cacheFrom
 	}
-	options.SessionID = r.FormValue("session")
-	options.BuildID = r.FormValue("buildid")
-	builderVersion, err := parseVersion(r.FormValue("version"))
-	if err != nil {
-		return nil, err
-	}
-	options.Version = builderVersion
 
-	if versions.GreaterThanOrEqualTo(version, "1.40") {
-		outputsJSON := r.FormValue("outputs")
-		if outputsJSON != "" {
-			var outputs []types.ImageBuildOutput
-			if err := json.Unmarshal([]byte(outputsJSON), &outputs); err != nil {
-				return nil, err
-			}
-			options.Outputs = outputs
+	if bv := r.FormValue("version"); bv != "" {
+		v, err := parseVersion(bv)
+		if err != nil {
+			return nil, err
 		}
+		options.Version = v
 	}
 
 	var volumes = []string{}
@@ -172,20 +172,21 @@ func newImageBuildOptions(ctx context.Context, r *http.Request) (*types.ImageBui
 }
 
 func parseVersion(s string) (types.BuilderVersion, error) {
-	if s == "" || s == string(types.BuilderV1) {
+	switch types.BuilderVersion(s) {
+	case types.BuilderV1:
 		return types.BuilderV1, nil
-	}
-	if s == string(types.BuilderBuildKit) {
+	case types.BuilderBuildKit:
 		return types.BuilderBuildKit, nil
+	default:
+		return "", errors.Errorf("invalid version %q", s)
 	}
-	return "", errors.Errorf("invalid version %s", s)
 }
 
 func (br *buildRouter) postPrune(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	if err := httputils.ParseForm(r); err != nil {
 		return err
 	}
-	filters, err := filters.FromJSON(r.Form.Get("filters"))
+	fltrs, err := filters.FromJSON(r.Form.Get("filters"))
 	if err != nil {
 		return errors.Wrap(err, "could not parse filters")
 	}
@@ -200,7 +201,7 @@ func (br *buildRouter) postPrune(ctx context.Context, w http.ResponseWriter, r *
 
 	opts := types.BuildCachePruneOptions{
 		All:         httputils.BoolValue(r, "all"),
-		Filters:     filters,
+		Filters:     fltrs,
 		KeepStorage: int64(ks),
 	}
 
@@ -243,12 +244,12 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 	}
 
 	output := ioutils.NewWriteFlusher(ww)
-	defer output.Close()
+	defer func() { _ = output.Close() }()
 
 	errf := func(err error) error {
 
 		if httputils.BoolValue(r, "q") && notVerboseBuffer.Len() > 0 {
-			output.Write(notVerboseBuffer.Bytes())
+			_, _ = output.Write(notVerboseBuffer.Bytes())
 		}
 
 		// Do not write the error in the http output if it's still empty.
@@ -299,7 +300,7 @@ func (br *buildRouter) postBuild(ctx context.Context, w http.ResponseWriter, r *
 	// Everything worked so if -q was provided the output from the daemon
 	// should be just the image ID and we'll print that to stdout.
 	if buildOptions.SuppressOutput {
-		fmt.Fprintln(streamformatter.NewStdoutWriter(output), imgID)
+		_, _ = fmt.Fprintln(streamformatter.NewStdoutWriter(output), imgID)
 	}
 	return nil
 }
@@ -315,7 +316,7 @@ func getAuthConfigs(header http.Header) map[string]types.AuthConfig {
 	authConfigsJSON := base64.NewDecoder(base64.URLEncoding, strings.NewReader(authConfigsEncoded))
 	// Pulling an image does not error when no auth is provided so to remain
 	// consistent with the existing api decode errors are ignored
-	json.NewDecoder(authConfigsJSON).Decode(&authConfigs)
+	_ = json.NewDecoder(authConfigsJSON).Decode(&authConfigs)
 	return authConfigs
 }
 
@@ -437,7 +438,7 @@ func (w *wcf) notify() {
 	w.mu.Lock()
 	if !w.ready {
 		if w.buf.Len() > 0 {
-			io.Copy(w.Writer, w.buf)
+			_, _ = io.Copy(w.Writer, w.buf)
 		}
 		if w.flushed {
 			w.flusher.Flush()

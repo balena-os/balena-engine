@@ -17,9 +17,9 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/icmd"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/icmd"
 )
 
 func (s *DockerSuite) TestExec(c *testing.T) {
@@ -53,7 +53,7 @@ func (s *DockerSuite) TestExecInteractive(c *testing.T) {
 	assert.Equal(c, line, "test")
 	err = stdin.Close()
 	assert.NilError(c, err)
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	go func() {
 		errChan <- execCmd.Wait()
 		close(errChan)
@@ -64,7 +64,6 @@ func (s *DockerSuite) TestExecInteractive(c *testing.T) {
 	case <-time.After(1 * time.Second):
 		c.Fatal("balena-engine exec failed to exit on stdin close")
 	}
-
 }
 
 func (s *DockerSuite) TestExecAfterContainerRestart(c *testing.T) {
@@ -172,7 +171,7 @@ func (s *DockerSuite) TestExecTTYWithoutStdin(c *testing.T) {
 	id := strings.TrimSpace(out)
 	assert.NilError(c, waitRun(id))
 
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	go func() {
 		defer close(errChan)
 
@@ -232,7 +231,7 @@ func (s *DockerSuite) TestExecStopNotHanging(c *testing.T) {
 		out string
 		err error
 	}
-	ch := make(chan dstop)
+	ch := make(chan dstop, 1)
 	go func() {
 		result := icmd.RunCommand(dockerBinary, "stop", "testing")
 		ch <- dstop{result.Combined(), result.Error}
@@ -258,11 +257,12 @@ func (s *DockerSuite) TestExecCgroup(c *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var execCgroups []sort.StringSlice
-	errChan := make(chan error)
+	errChan := make(chan error, 5)
 	// exec a few times concurrently to get consistent failure
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			out, _, err := dockerCmdWithError("exec", "testing", "cat", "/proc/self/cgroup")
 			if err != nil {
 				errChan <- err
@@ -273,7 +273,6 @@ func (s *DockerSuite) TestExecCgroup(c *testing.T) {
 			mu.Lock()
 			execCgroups = append(execCgroups, cg)
 			mu.Unlock()
-			wg.Done()
 		}()
 	}
 	wg.Wait()

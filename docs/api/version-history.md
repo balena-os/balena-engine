@@ -13,6 +13,78 @@ keywords: "API, Docker, rcli, REST, documentation"
      will be rejected.
 -->
 
+## v1.41 API changes
+
+[Docker Engine API v1.41](https://docs.docker.com/engine/api/v1.41/) documentation
+
+* `GET /events` now returns `prune` events after pruning resources have completed.
+  Prune events are returned for `container`, `network`, `volume`, `image`, and
+  `builder`, and have a `reclaimed` attribute, indicating the amount of space
+  reclaimed (in bytes).
+* `GET /info` now returns a `CgroupVersion` field, containing the cgroup version.
+* `GET /info` now returns a `DefaultAddressPools` field, containing a list of
+  custom default address pools for local networks, which can be specified in the
+  `daemon.json` file or `--default-address-pool` dockerd option.
+* `POST /services/create` and `POST /services/{id}/update` now supports `BindOptions.NonRecursive`.
+* The `ClusterStore` and `ClusterAdvertise` fields in `GET /info` are deprecated
+  and are now omitted if they contain an empty value. This change is not versioned,
+  and affects all API versions if the daemon has this patch.
+* The `filter` (singular) query parameter, which was deprecated in favor of the
+  `filters` option in Docker 1.13, has now been removed from the `GET /images/json`
+  endpoint. The parameter remains available when using API version 1.40 or below.
+* `GET /services` now returns `CappAdd` and `CapDrop` as part of the `ContainerSpec`.
+* `GET /services/{id}` now returns `CapAdd` and `CapDrop` as part of the `ContainerSpec`.
+* `POST /services/create` now accepts `CapAdd` and `CapDrop` as part of the `ContainerSpec`.
+* `POST /services/{id}/update` now accepts `CapAdd` and `CapDrop` as part of the `ContainerSpec`.
+* `GET /tasks` now  returns `CapAdd` and `CapDrop` as part of the `ContainerSpec`.
+* `GET /tasks/{id}` now  returns `CapAdd` and `CapDrop` as part of the `ContainerSpec`.
+* `GET /services` now returns `Pids` in `TaskTemplate.Resources.Limits`.
+* `GET /services/{id}` now returns `Pids` in `TaskTemplate.Resources.Limits`.
+* `POST /services/create` now accepts `Pids` in `TaskTemplate.Resources.Limits`.
+* `POST /services/{id}/update` now accepts `Pids` in `TaskTemplate.Resources.Limits`
+  to limit the maximum number of PIDs.
+* `GET /tasks` now  returns `Pids` in `TaskTemplate.Resources.Limits`.
+* `GET /tasks/{id}` now  returns `Pids` in `TaskTemplate.Resources.Limits`.
+* `POST /containers/create` on Linux now accepts the `HostConfig.CgroupnsMode` property.
+  Set the property to `host` to create the container in the daemon's cgroup namespace, or
+  `private` to create the container in its own private cgroup namespace.  The per-daemon
+  default is `host`, and can be changed by using the`CgroupNamespaceMode` daemon configuration
+  parameter.
+* `GET /info` now  returns an `OSVersion` field, containing the operating system's
+  version. This change is not versioned, and affects all API versions if the daemon
+  has this patch.
+* `GET /info` no longer returns the `SystemStatus` field if it does not have a
+  value set. This change is not versioned, and affects all API versions if the
+  daemon has this patch.
+* `GET /services` now accepts query parameter `status`. When set `true`,
+  services returned will include `ServiceStatus`, which provides Desired,
+  Running, and Completed task counts for the service.
+* `GET /services` may now include `ReplicatedJob` or `GlobalJob` as the `Mode`
+  in a `ServiceSpec`.
+* `GET /services/{id}` may now include `ReplicatedJob` or `GlobalJob` as the
+  `Mode` in a `ServiceSpec`.
+* `POST /services/create` now accepts `ReplicatedJob or `GlobalJob` as the `Mode`
+  in the `ServiceSpec.
+* `POST /services/{id}/update` accepts updating the fields of the
+  `ReplicatedJob` object in the `ServiceSpec.Mode`. The service mode still
+  cannot be changed, however.
+* `GET /services` now includes `JobStatus` on Services with mode
+  `ReplicatedJob` or `GlobalJob`.
+* `GET /services/{id}` now includes `JobStatus` on Services with mode
+  `ReplicatedJob` or `GlobalJob`.
+* `GET /tasks` now includes `JobIteration` on Tasks spawned from a job-mode
+  service.
+* `GET /tasks/{id}` now includes `JobIteration` on the task if spawned from a
+  job-mode service.
+* `GET /containers/{id}/stats` now accepts a query param (`one-shot`) which, when used with `stream=false` fetches a
+  single set of stats instead of waiting for two collection cycles to have 2 CPU stats over a 1 second period.
+* The `KernelMemory` field in `HostConfig.Resources` is now deprecated.
+* The `KernelMemory` field in `Info` is now deprecated.
+* `GET /services` now returns `Ulimits` as part of `ContainerSpec`.
+* `GET /services/{id}` now returns `Ulimits` as part of `ContainerSpec`.
+* `POST /services/create` now accepts `Ulimits` as part of `ContainerSpec`.
+* `POST /services/{id}/update` now accepts `Ulimits` as part of `ContainerSpec`.
+
 ## v1.40 API changes
 
 [Docker Engine API v1.40](https://docs.docker.com/engine/api/v1.40/) documentation
@@ -43,6 +115,17 @@ keywords: "API, Docker, rcli, REST, documentation"
   on the node.label. The format of the label filter is `node.label=<key>`/`node.label=<key>=<value>`
   to return those with the specified labels, or `node.label!=<key>`/`node.label!=<key>=<value>`
   to return those without the specified labels.
+* `POST /containers/create` now accepts a `fluentd-async` option in `HostConfig.LogConfig.Config`
+  when using the Fluentd logging driver. This option deprecates the `fluentd-async-connect`
+  option, which remains funtional, but will be removed in a future release. Users
+  are encouraged to use the `fluentd-async` option going forward. This change is
+  not versioned, and affects all API versions if the daemon has this patch.
+* `POST /containers/create` now accepts a `fluentd-request-ack` option in
+  `HostConfig.LogConfig.Config` when using the Fluentd logging driver. If enabled,
+  the Fluentd logging driver sends the chunk option with a unique ID. The server
+  will respond with an acknowledgement. This option improves the reliability of
+  the message transmission. This change is not versioned, and affects all API
+  versions if the daemon has this patch.
 * `POST /containers/create`, `GET /containers/{id}/json`, and `GET /containers/json` now supports
   `BindOptions.NonRecursive`.
 * `POST /swarm/init` now accepts a `DataPathPort` property to set data path port number.
@@ -62,11 +145,6 @@ keywords: "API, Docker, rcli, REST, documentation"
 * `GET /service/{id}` now  returns `MaxReplicas` as part of the `Placement`.
 * `POST /service/create` and `POST /services/(id or name)/update` now take the field `MaxReplicas`
   as part of the service `Placement`, allowing to specify maximum replicas per node for the service.
-* `GET /containers` now returns `Capabilities` field as part of the `HostConfig`.
-* `GET /containers/{id}/json` now returns a `Capabilities` field as part of the `HostConfig`.
-* `POST /containers/create` now takes a `Capabilities` field to set the list of
-  kernel capabilities to be available for the container (this overrides the default
-  set).
 * `POST /containers/create` on Linux now creates a container with `HostConfig.IpcMode=private`
   by default, if IpcMode is not explicitly specified. The per-daemon default can be changed
   back to `shareable` by using `DefaultIpcMode` daemon configuration parameter.
@@ -254,7 +332,7 @@ keywords: "API, Docker, rcli, REST, documentation"
 * `POST /services/create` and `POST /services/(id or name)/update` now accept a `rollback` value for `FailureAction`.
 * `POST /services/create` and `POST /services/(id or name)/update` now accept an optional `RollbackConfig` object which specifies rollback options.
 * `GET /services` now supports a `mode` filter to filter services based on the service mode (either `global` or `replicated`).
-* `POST /containers/(name)/update` now supports updating `NanoCPUs` that represents CPU quota in units of 10<sup>-9</sup> CPUs.
+* `POST /containers/(name)/update` now supports updating `NanoCpus` that represents CPU quota in units of 10<sup>-9</sup> CPUs.
 
 ## v1.27 API changes
 
@@ -310,7 +388,7 @@ keywords: "API, Docker, rcli, REST, documentation"
 * The `hostConfig` option now accepts the fields `CpuRealtimePeriod` and `CpuRtRuntime` to allocate cpu runtime to rt tasks when `CONFIG_RT_GROUP_SCHED` is enabled in the kernel.
 * The `SecurityOptions` field within the `GET /info` response now includes `userns` if user namespaces are enabled in the daemon.
 * `GET /nodes` and `GET /node/(id or name)` now return `Addr` as part of a node's `Status`, which is the address that that node connects to the manager from.
-* The `HostConfig` field now includes `NanoCPUs` that represents CPU quota in units of 10<sup>-9</sup> CPUs.
+* The `HostConfig` field now includes `NanoCpus` that represents CPU quota in units of 10<sup>-9</sup> CPUs.
 * `GET /info` now returns more structured information about security options.
 * The `HostConfig` field now includes `CpuCount` that represents the number of CPUs available for execution by the container. Windows daemon only.
 * `POST /services/create` and `POST /services/(id or name)/update` now accept the `TTY` parameter, which allocate a pseudo-TTY in container.

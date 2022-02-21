@@ -20,7 +20,7 @@ import (
 	refstore "github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/docker/libtrust"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -85,8 +85,8 @@ type ImagePushConfig struct {
 // by digest. Allows getting an image configurations rootfs from the
 // configuration.
 type ImageConfigStore interface {
-	Put([]byte) (digest.Digest, error)
-	Get(digest.Digest) ([]byte, error)
+	Put(context.Context, []byte) (digest.Digest, error)
+	Get(context.Context, digest.Digest) ([]byte, error)
 	RootFSFromConfig([]byte) (*image.RootFS, error)
 	PlatformFromConfig([]byte) (*specs.Platform, error)
 	GetTarSeekStream(digest.Digest) (ioutils.ReadSeekCloser, error)
@@ -132,12 +132,12 @@ func NewImageConfigStoreFromStore(is, deltaImageStore image.Store) ImageConfigSt
 	}
 }
 
-func (s *imageConfigStore) Put(c []byte) (digest.Digest, error) {
+func (s *imageConfigStore) Put(_ context.Context, c []byte) (digest.Digest, error) {
 	id, err := s.Store.Create(c)
 	return digest.Digest(id), err
 }
 
-func (s *imageConfigStore) Get(d digest.Digest) ([]byte, error) {
+func (s *imageConfigStore) Get(_ context.Context, d digest.Digest) ([]byte, error) {
 	img, err := s.Store.Get(image.IDFromDigest(d))
 	if err != nil {
 		return nil, err
@@ -182,7 +182,7 @@ func (s *imageConfigStore) PlatformFromConfig(c []byte) (*specs.Platform, error)
 	if !system.IsOSSupported(os) {
 		return nil, system.ErrNotSupportedOperatingSystem
 	}
-	return &specs.Platform{OS: os, Architecture: unmarshalledConfig.Architecture, OSVersion: unmarshalledConfig.OSVersion}, nil
+	return &specs.Platform{OS: os, Architecture: unmarshalledConfig.Architecture, Variant: unmarshalledConfig.Variant, OSVersion: unmarshalledConfig.OSVersion}, nil
 }
 
 type storeLayerProvider struct {

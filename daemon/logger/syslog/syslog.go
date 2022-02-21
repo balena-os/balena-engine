@@ -132,6 +132,10 @@ func New(info logger.Info) (logger.Logger, error) {
 }
 
 func (s *syslogger) Log(msg *logger.Message) error {
+	if len(msg.Line) == 0 {
+		return nil
+	}
+
 	line := string(msg.Line)
 	source := msg.Source
 	logger.PutMessage(msg)
@@ -189,6 +193,7 @@ func ValidateLogOpt(cfg map[string]string) error {
 		case "env":
 		case "env-regex":
 		case "labels":
+		case "labels-regex":
 		case "syslog-address":
 		case "syslog-facility":
 		case "syslog-tls-ca-cert":

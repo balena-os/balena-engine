@@ -18,14 +18,15 @@ import (
 const (
 	name = "gcplogs"
 
-	projectOptKey  = "gcp-project"
-	logLabelsKey   = "labels"
-	logEnvKey      = "env"
-	logEnvRegexKey = "env-regex"
-	logCmdKey      = "gcp-log-cmd"
-	logZoneKey     = "gcp-meta-zone"
-	logNameKey     = "gcp-meta-name"
-	logIDKey       = "gcp-meta-id"
+	projectOptKey     = "gcp-project"
+	logLabelsKey      = "labels"
+	logLabelsRegexKey = "labels-regex"
+	logEnvKey         = "env"
+	logEnvRegexKey    = "env-regex"
+	logCmdKey         = "gcp-log-cmd"
+	logZoneKey        = "gcp-meta-zone"
+	logNameKey        = "gcp-meta-name"
+	logIDKey          = "gcp-meta-id"
 )
 
 var (
@@ -53,6 +54,7 @@ func init() {
 }
 
 type gcplogs struct {
+	client    *logging.Client
 	logger    *logging.Logger
 	instance  *instanceInfo
 	container *containerInfo
@@ -169,6 +171,7 @@ func New(info logger.Info) (logger.Logger, error) {
 	}
 
 	l := &gcplogs{
+		client: c,
 		logger: lg,
 		container: &containerInfo{
 			Name:      info.ContainerName,
@@ -210,7 +213,7 @@ func New(info logger.Info) (logger.Logger, error) {
 func ValidateLogOpts(cfg map[string]string) error {
 	for k := range cfg {
 		switch k {
-		case projectOptKey, logLabelsKey, logEnvKey, logEnvRegexKey, logCmdKey, logZoneKey, logNameKey, logIDKey:
+		case projectOptKey, logLabelsKey, logLabelsRegexKey, logEnvKey, logEnvRegexKey, logCmdKey, logZoneKey, logNameKey, logIDKey:
 		default:
 			return fmt.Errorf("%q is not a valid option for the gcplogs driver", k)
 		}
@@ -236,7 +239,7 @@ func (l *gcplogs) Log(m *logger.Message) error {
 
 func (l *gcplogs) Close() error {
 	l.logger.Flush()
-	return nil
+	return l.client.Close()
 }
 
 func (l *gcplogs) Name() string {

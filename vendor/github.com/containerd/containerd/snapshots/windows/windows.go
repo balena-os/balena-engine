@@ -23,10 +23,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"syscall"
-	"unsafe"
 
+	winfs "github.com/Microsoft/go-winio/pkg/fs"
 	"github.com/Microsoft/go-winio/vhd"
 	"github.com/Microsoft/hcsshim"
 	"github.com/containerd/containerd/errdefs"
@@ -37,7 +37,6 @@ import (
 	"github.com/containerd/containerd/snapshots/storage"
 	"github.com/containerd/continuity/fs"
 	"github.com/pkg/errors"
-	"golang.org/x/sys/windows"
 )
 
 func init() {
@@ -50,6 +49,10 @@ func init() {
 	})
 }
 
+const (
+	rootfsSizeLabel = "containerd.io/snapshot/io.microsoft.container.storage.rootfs.size-gb"
+)
+
 type snapshotter struct {
 	root string
 	info hcsshim.DriverInfo
@@ -58,7 +61,7 @@ type snapshotter struct {
 
 // NewSnapshotter returns a new windows snapshotter
 func NewSnapshotter(root string) (snapshots.Snapshotter, error) {
-	fsType, err := getFileSystemType(root)
+	fsType, err := winfs.GetFileSystemType(root)
 	if err != nil {
 		return nil, err
 	}
@@ -127,17 +130,20 @@ func (s *snapshotter) Usage(ctx context.Context, key string) (snapshots.Usage, e
 	if err != nil {
 		return snapshots.Usage{}, err
 	}
-	defer t.Rollback()
+	id, info, usage, err := storage.GetInfo(ctx, key)
+	t.Rollback() // transaction no longer needed at this point.
 
-	_, info, usage, err := storage.GetInfo(ctx, key)
 	if err != nil {
 		return snapshots.Usage{}, err
 	}
 
 	if info.Kind == snapshots.KindActive {
-		du := fs.Usage{
-			Size: 0,
+		path := s.getSnapshotDir(id)
+		du, err := fs.DiskUsage(ctx, path)
+		if err != nil {
+			return snapshots.Usage{}, err
 		}
+
 		usage = snapshots.Usage(du)
 	}
 
@@ -175,20 +181,30 @@ func (s *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	if err != nil {
 		return err
 	}
-	defer t.Rollback()
 
-	usage := fs.Usage{
-		Size: 0,
+	defer func() {
+		if err != nil {
+			if rerr := t.Rollback(); rerr != nil {
+				log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
+			}
+		}
+	}()
+
+	// grab the existing id
+	id, _, _, err := storage.GetInfo(ctx, key)
+	if err != nil {
+		return err
+	}
+
+	usage, err := fs.DiskUsage(ctx, s.getSnapshotDir(id))
+	if err != nil {
+		return err
 	}
 
 	if _, err = storage.CommitActive(ctx, key, name, snapshots.Usage(usage), opts...); err != nil {
 		return errors.Wrap(err, "failed to commit snapshot")
 	}
-
-	if err := t.Commit(); err != nil {
-		return err
-	}
-	return nil
+	return t.Commit()
 }
 
 // Remove abandons the transaction identified by key. All resources
@@ -240,14 +256,14 @@ func (s *snapshotter) Remove(ctx context.Context, key string) error {
 }
 
 // Walk the committed snapshots.
-func (s *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapshots.Info) error) error {
+func (s *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...string) error {
 	ctx, t, err := s.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return err
 	}
 	defer t.Rollback()
 
-	return storage.WalkInfo(ctx, fn)
+	return storage.WalkInfo(ctx, fn, fs...)
 }
 
 // Close closes the snapshotter
@@ -321,7 +337,26 @@ func (s *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 			return nil, errors.Wrap(err, "failed to create sandbox layer")
 		}
 
-		// TODO(darrenstahlmsft): Allow changing sandbox size
+		var snapshotInfo snapshots.Info
+		for _, o := range opts {
+			o(&snapshotInfo)
+		}
+
+		var sizeGB int
+		if sizeGBstr, ok := snapshotInfo.Labels[rootfsSizeLabel]; ok {
+			i32, err := strconv.ParseInt(sizeGBstr, 10, 32)
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to parse annotation %q=%q", rootfsSizeLabel, sizeGBstr)
+			}
+			sizeGB = int(i32)
+		}
+
+		if sizeGB > 0 {
+			const gbToByte = 1024 * 1024 * 1024
+			if err := hcsshim.ExpandSandboxSize(s.info, newSnapshot.ID, uint64(gbToByte*sizeGB)); err != nil {
+				return nil, errors.Wrapf(err, "failed to expand scratch size to %d GB", sizeGB)
+			}
+		}
 	}
 
 	if err := t.Commit(); err != nil {
@@ -337,36 +372,4 @@ func (s *snapshotter) parentIDsToParentPaths(parentIDs []string) []string {
 		parentLayerPaths = append(parentLayerPaths, s.getSnapshotDir(ID))
 	}
 	return parentLayerPaths
-}
-
-// getFileSystemType obtains the type of a file system through GetVolumeInformation
-// https://msdn.microsoft.com/en-us/library/windows/desktop/aa364993(v=vs.85).aspx
-func getFileSystemType(path string) (fsType string, hr error) {
-	drive := filepath.VolumeName(path)
-	if len(drive) != 2 {
-		return "", errors.New("getFileSystemType path must start with a drive letter")
-	}
-
-	var (
-		modkernel32              = windows.NewLazySystemDLL("kernel32.dll")
-		procGetVolumeInformation = modkernel32.NewProc("GetVolumeInformationW")
-		buf                      = make([]uint16, 255)
-		size                     = windows.MAX_PATH + 1
-	)
-	drive += `\`
-	n := uintptr(unsafe.Pointer(nil))
-	r0, _, _ := syscall.Syscall9(procGetVolumeInformation.Addr(), 8, uintptr(unsafe.Pointer(windows.StringToUTF16Ptr(drive))), n, n, n, n, n, uintptr(unsafe.Pointer(&buf[0])), uintptr(size), 0)
-	if int32(r0) < 0 {
-		hr = syscall.Errno(win32FromHresult(r0))
-	}
-	fsType = windows.UTF16ToString(buf)
-	return
-}
-
-// win32FromHresult is a helper function to get the win32 error code from an HRESULT
-func win32FromHresult(hr uintptr) uintptr {
-	if hr&0x1fff0000 == 0x00070000 {
-		return hr & 0xffff
-	}
-	return hr
 }

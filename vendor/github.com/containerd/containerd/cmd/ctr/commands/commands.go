@@ -21,10 +21,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
-	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/defaults"
 	"github.com/urfave/cli"
 )
 
@@ -34,7 +33,6 @@ var (
 		cli.StringFlag{
 			Name:   "snapshotter",
 			Usage:  "snapshotter name. Empty value stands for the default value.",
-			Value:  containerd.DefaultSnapshotter,
 			EnvVar: "CONTAINERD_SNAPSHOTTER",
 		},
 	}
@@ -63,6 +61,23 @@ var (
 			Name:  "refresh",
 			Usage: "refresh token for authorization server",
 		},
+		cli.StringFlag{
+			Name: "hosts-dir",
+			// compatible with "/etc/docker/certs.d"
+			Usage: "Custom hosts configuration directory",
+		},
+		cli.StringFlag{
+			Name:  "tlscacert",
+			Usage: "path to TLS root CA",
+		},
+		cli.StringFlag{
+			Name:  "tlscert",
+			Usage: "path to TLS client certificate",
+		},
+		cli.StringFlag{
+			Name:  "tlskey",
+			Usage: "path to TLS client key",
+		},
 	}
 
 	// ContainerFlags are cli flags specifying container options
@@ -78,6 +93,10 @@ var (
 		cli.StringSliceFlag{
 			Name:  "env",
 			Usage: "specify additional container environment variables (i.e. FOO=bar)",
+		},
+		cli.StringFlag{
+			Name:  "env-file",
+			Usage: "specify additional container environment variables in a file(i.e. FOO=bar, one per line)",
 		},
 		cli.StringSliceFlag{
 			Name:  "label",
@@ -102,7 +121,11 @@ var (
 		cli.StringFlag{
 			Name:  "runtime",
 			Usage: "runtime name",
-			Value: fmt.Sprintf("io.containerd.runtime.v1.%s", runtime.GOOS),
+			Value: defaults.DefaultRuntime,
+		},
+		cli.StringFlag{
+			Name:  "runtime-config-path",
+			Usage: "optional runtime config path",
 		},
 		cli.BoolFlag{
 			Name:  "tty,t",
@@ -127,6 +150,26 @@ var (
 		cli.Uint64Flag{
 			Name:  "memory-limit",
 			Usage: "memory limit (in bytes) for the container",
+		},
+		cli.StringSliceFlag{
+			Name:  "device",
+			Usage: "add a device to a container",
+		},
+		cli.BoolFlag{
+			Name:  "seccomp",
+			Usage: "enable the default seccomp profile",
+		},
+		cli.StringFlag{
+			Name:  "seccomp-profile",
+			Usage: "file path to custom seccomp profile. seccomp must be set to true, before using seccomp-profile",
+		},
+		cli.StringFlag{
+			Name:  "apparmor-default-profile",
+			Usage: "enable AppArmor with the default profile with the specified name, e.g. \"cri-containerd.apparmor.d\"",
+		},
+		cli.StringFlag{
+			Name:  "apparmor-profile",
+			Usage: "enable AppArmor with an existing custom profile",
 		},
 	}
 )

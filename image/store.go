@@ -1,7 +1,6 @@
 package image // import "github.com/docker/docker/image"
 
 import (
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -10,7 +9,7 @@ import (
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/system"
-	"github.com/opencontainers/go-digest"
+	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -120,8 +119,8 @@ func (is *store) restore() error {
 }
 
 func (is *store) Create(config []byte) (ID, error) {
-	var img Image
-	err := json.Unmarshal(config, &img)
+	var img *Image
+	img, err := NewFromJSON(config)
 	if err != nil {
 		return "", err
 	}

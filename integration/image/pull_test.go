@@ -8,10 +8,10 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/errdefs"
-	"github.com/docker/docker/internal/test/daemon"
+	"github.com/docker/docker/testutil/daemon"
 
-	"gotest.tools/assert"
-	"gotest.tools/skip"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/skip"
 )
 
 func TestImagePullPlatformInvalid(t *testing.T) {

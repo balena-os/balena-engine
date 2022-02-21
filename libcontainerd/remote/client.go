@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Microsoft/hcsshim/cmd/containerd-shim-runhcs-v1/options"
 	"github.com/containerd/containerd"
 	apievents "github.com/containerd/containerd/api/events"
 	"github.com/containerd/containerd/api/types"
@@ -24,11 +23,11 @@ import (
 	"github.com/containerd/containerd/events"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/runtime/linux/runctypes"
+	v2runcoptions "github.com/containerd/containerd/runtime/v2/runc/options"
 	"github.com/containerd/typeurl"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/libcontainerd/queue"
 	libcontainerdtypes "github.com/docker/docker/libcontainerd/types"
-
 	"github.com/docker/docker/pkg/ioutils"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -47,21 +46,25 @@ type client struct {
 	logger   *logrus.Entry
 	ns       string
 
-	backend libcontainerdtypes.Backend
-	eventQ  queue.Queue
-	oomMu   sync.Mutex
-	oom     map[string]bool
+	backend         libcontainerdtypes.Backend
+	eventQ          queue.Queue
+	oomMu           sync.Mutex
+	oom             map[string]bool
+	v2runcoptionsMu sync.Mutex
+	// v2runcoptions is used for copying options specified on Create() to Start()
+	v2runcoptions map[string]v2runcoptions.Options
 }
 
 // NewClient creates a new libcontainerd client from a containerd client
 func NewClient(ctx context.Context, cli *containerd.Client, stateDir, ns string, b libcontainerdtypes.Backend) (libcontainerdtypes.Client, error) {
 	c := &client{
-		client:   cli,
-		stateDir: stateDir,
-		logger:   logrus.WithField("module", "libcontainerd").WithField("namespace", ns),
-		ns:       ns,
-		backend:  b,
-		oom:      make(map[string]bool),
+		client:        cli,
+		stateDir:      stateDir,
+		logger:        logrus.WithField("module", "libcontainerd").WithField("namespace", ns),
+		ns:            ns,
+		backend:       b,
+		oom:           make(map[string]bool),
+		v2runcoptions: make(map[string]v2runcoptions.Options),
 	}
 
 	go c.processEventStream(ctx, ns)
@@ -124,20 +127,28 @@ func (c *client) Restore(ctx context.Context, id string, attachStdio libcontaine
 	}, nil
 }
 
-func (c *client) Create(ctx context.Context, id string, ociSpec *specs.Spec, runtimeOptions interface{}) error {
+func (c *client) Create(ctx context.Context, id string, ociSpec *specs.Spec, shim string, runtimeOptions interface{}, opts ...containerd.NewContainerOpts) error {
 	bdir := c.bundleDir(id)
 	c.logger.WithField("bundle", bdir).WithField("root", ociSpec.Root.Path).Debug("bundle dir created")
 
-	_, err := c.client.NewContainer(ctx, id,
+	newOpts := []containerd.NewContainerOpts{
 		containerd.WithSpec(ociSpec),
-		containerd.WithRuntime(runtimeName, runtimeOptions),
+		containerd.WithRuntime(shim, runtimeOptions),
 		WithBundle(bdir, ociSpec),
-	)
+	}
+	opts = append(opts, newOpts...)
+
+	_, err := c.client.NewContainer(ctx, id, opts...)
 	if err != nil {
 		if containerderrors.IsAlreadyExists(err) {
 			return errors.WithStack(errdefs.Conflict(errors.New("id already in use")))
 		}
 		return wrapError(err)
+	}
+	if x, ok := runtimeOptions.(*v2runcoptions.Options); ok {
+		c.v2runcoptionsMu.Lock()
+		c.v2runcoptions[id] = *x
+		c.v2runcoptionsMu.Unlock()
 	}
 	return nil
 }
@@ -185,10 +196,40 @@ func (c *client) Start(ctx context.Context, id, checkpointDir string, withStdin 
 	}
 	labels, err := ctr.Labels(ctx)
 	if err != nil {
-		return -1, errors.Wrap(err, "failed to retreive labels")
+		return -1, errors.Wrap(err, "failed to retrieve labels")
 	}
 	bundle := labels[DockerContainerBundlePath]
 	uid, gid := getSpecUser(spec)
+
+	taskOpts := []containerd.NewTaskOpts{
+		func(_ context.Context, _ *containerd.Client, info *containerd.TaskInfo) error {
+			info.Checkpoint = cp
+			return nil
+		},
+	}
+
+	if runtime.GOOS != "windows" {
+		taskOpts = append(taskOpts, func(_ context.Context, _ *containerd.Client, info *containerd.TaskInfo) error {
+			c.v2runcoptionsMu.Lock()
+			opts, ok := c.v2runcoptions[id]
+			c.v2runcoptionsMu.Unlock()
+			if ok {
+				opts.IoUid = uint32(uid)
+				opts.IoGid = uint32(gid)
+				info.Options = &opts
+			} else {
+				info.Options = &runctypes.CreateOptions{
+					IoUid:       uint32(uid),
+					IoGid:       uint32(gid),
+					NoPivotRoot: os.Getenv("DOCKER_RAMDISK") != "",
+				}
+			}
+			return nil
+		})
+	} else {
+		taskOpts = append(taskOpts, withLogLevel(c.logger.Level))
+	}
+
 	t, err = ctr.NewTask(ctx,
 		func(id string) (cio.IO, error) {
 			fifos := newFIFOSet(bundle, libcontainerdtypes.InitProcessName, withStdin, spec.Process.Terminal)
@@ -196,22 +237,8 @@ func (c *client) Start(ctx context.Context, id, checkpointDir string, withStdin 
 			rio, err = c.createIO(fifos, id, libcontainerdtypes.InitProcessName, stdinCloseSync, attachStdio)
 			return rio, err
 		},
-		func(_ context.Context, _ *containerd.Client, info *containerd.TaskInfo) error {
-			info.Checkpoint = cp
-			if runtime.GOOS != "windows" {
-				info.Options = &runctypes.CreateOptions{
-					IoUid:       uint32(uid),
-					IoGid:       uint32(gid),
-					NoPivotRoot: os.Getenv("DOCKER_RAMDISK") != "",
-				}
-			} else {
-				// Make sure we set the runhcs options to debug if we are at debug level.
-				if c.logger.Level == logrus.DebugLevel {
-					info.Options = &options.Options{Debug: true}
-				}
-			}
-			return nil
-		})
+		taskOpts...,
+	)
 	if err != nil {
 		close(stdinCloseSync)
 		if rio != nil {
@@ -458,6 +485,9 @@ func (c *client) Delete(ctx context.Context, containerID string) error {
 	c.oomMu.Lock()
 	delete(c.oom, containerID)
 	c.oomMu.Unlock()
+	c.v2runcoptionsMu.Lock()
+	delete(c.v2runcoptions, containerID)
+	c.v2runcoptionsMu.Unlock()
 	if os.Getenv("LIBCONTAINERD_NOCLEAN") != "1" {
 		if err := os.RemoveAll(bundle); err != nil {
 			c.logger.WithError(err).WithFields(logrus.Fields{
@@ -481,26 +511,39 @@ func (c *client) Status(ctx context.Context, containerID string) (containerd.Pro
 	return s.Status, nil
 }
 
+func (c *client) getCheckpointOptions(id string, exit bool) containerd.CheckpointTaskOpts {
+	return func(r *containerd.CheckpointTaskInfo) error {
+		if r.Options == nil {
+			c.v2runcoptionsMu.Lock()
+			_, isV2 := c.v2runcoptions[id]
+			c.v2runcoptionsMu.Unlock()
+
+			if isV2 {
+				r.Options = &v2runcoptions.CheckpointOptions{Exit: exit}
+			} else {
+				r.Options = &runctypes.CheckpointOptions{Exit: exit}
+			}
+			return nil
+		}
+
+		switch opts := r.Options.(type) {
+		case *v2runcoptions.CheckpointOptions:
+			opts.Exit = exit
+		case *runctypes.CheckpointOptions:
+			opts.Exit = exit
+		}
+
+		return nil
+	}
+}
+
 func (c *client) CreateCheckpoint(ctx context.Context, containerID, checkpointDir string, exit bool) error {
 	p, err := c.getProcess(ctx, containerID, libcontainerdtypes.InitProcessName)
 	if err != nil {
 		return err
 	}
 
-	opts := []containerd.CheckpointTaskOpts{}
-	if exit {
-		opts = append(opts, func(r *containerd.CheckpointTaskInfo) error {
-			if r.Options == nil {
-				r.Options = &runctypes.CheckpointOptions{
-					Exit: true,
-				}
-			} else {
-				opts, _ := r.Options.(*runctypes.CheckpointOptions)
-				opts.Exit = true
-			}
-			return nil
-		})
-	}
+	opts := []containerd.CheckpointTaskOpts{c.getCheckpointOptions(containerID, exit)}
 	img, err := p.(containerd.Task).Checkpoint(ctx, opts...)
 	if err != nil {
 		return wrapError(err)
@@ -681,6 +724,38 @@ func (c *client) processEvent(ctx context.Context, et libcontainerdtypes.EventTy
 	})
 }
 
+func (c *client) waitServe(ctx context.Context) bool {
+	t := 100 * time.Millisecond
+	delay := time.NewTimer(t)
+	if !delay.Stop() {
+		<-delay.C
+	}
+	defer delay.Stop()
+
+	// `IsServing` will actually block until the service is ready.
+	// However it can return early, so we'll loop with a delay to handle it.
+	for {
+		serving, err := c.client.IsServing(ctx)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return false
+			}
+			logrus.WithError(err).Warn("Error while testing if containerd API is ready")
+		}
+
+		if serving {
+			return true
+		}
+
+		delay.Reset(t)
+		select {
+		case <-ctx.Done():
+			return false
+		case <-delay.C:
+		}
+	}
+}
+
 func (c *client) processEventStream(ctx context.Context, ns string) {
 	var (
 		err error
@@ -689,9 +764,16 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
 		ei  libcontainerdtypes.EventInfo
 	)
 
+	// Create a new context specifically for this subscription.
+	// The context must be cancelled to cancel the subscription.
+	// In cases where we have to restart event stream processing,
+	//   we'll need the original context b/c this one will be cancelled
+	subCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	// Filter on both namespace *and* topic. To create an "and" filter,
 	// this must be a single, comma-separated string
-	eventStream, errC := c.client.EventService().Subscribe(ctx, "namespace=="+ns+",topic~=|^/tasks/|")
+	eventStream, errC := c.client.EventService().Subscribe(subCtx, "namespace=="+ns+",topic~=|^/tasks/|")
 
 	c.logger.Debug("processing event stream")
 
@@ -702,14 +784,11 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
 			if err != nil {
 				errStatus, ok := status.FromError(err)
 				if !ok || errStatus.Code() != codes.Canceled {
-					c.logger.WithError(err).Error("failed to get event")
-
-					// rate limit
-					select {
-					case <-time.After(time.Second):
+					c.logger.WithError(err).Error("Failed to get event")
+					c.logger.Info("Waiting for containerd to be ready to restart event processing")
+					if c.waitServe(ctx) {
 						go c.processEventStream(ctx, ns)
 						return
-					case <-ctx.Done():
 					}
 				}
 				c.logger.WithError(ctx.Err()).Info("stopping event stream following graceful shutdown")
@@ -783,6 +862,13 @@ func (c *client) processEventStream(ctx context.Context, ns string) {
 				ei = libcontainerdtypes.EventInfo{
 					ContainerID: t.ContainerID,
 				}
+			case *apievents.TaskDelete:
+				c.logger.WithFields(logrus.Fields{
+					"topic":     ev.Topic,
+					"type":      reflect.TypeOf(t),
+					"container": t.ContainerID},
+				).Info("ignoring event")
+				continue
 			default:
 				c.logger.WithFields(logrus.Fields{
 					"topic": ev.Topic,

@@ -165,7 +165,8 @@ FROM microsoft/windowsservercore
 # Use PowerShell as the default shell
 SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
 
-ARG GO_VERSION=1.12.17
+ARG GO_VERSION=1.16.10
+ARG GOTESTSUM_COMMIT=v0.5.3
 
 # Environment variable notes:
 #  - GO_VERSION must be consistent with 'Dockerfile' used by Linux.
@@ -173,7 +174,9 @@ ARG GO_VERSION=1.12.17
 ENV GO_VERSION=${GO_VERSION} `
     GIT_VERSION=2.11.1 `
     GOPATH=C:\gopath `
-    FROM_DOCKERFILE=1
+    GO111MODULE=off `
+    FROM_DOCKERFILE=1 `
+    GOTESTSUM_COMMIT=${GOTESTSUM_COMMIT}
 
 RUN `
   Function Test-Nano() { `
@@ -202,6 +205,7 @@ RUN `
       Throw ("Failed to download " + $source) `
       }`
     } else { `
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; `
       $webClient = New-Object System.Net.WebClient; `
       $webClient.DownloadFile($source, $target); `
     } `
@@ -248,13 +252,30 @@ RUN `
   Remove-Item C:\binutils.zip; `
   Remove-Item C:\gitsetup.zip; `
   `
-  Write-Host INFO: Creating source directory...; `
-  New-Item -ItemType Directory -Path ${GOPATH}\src\github.com\docker\docker | Out-Null; `
+  # Ensure all directories exist that we will require below....
+  $srcDir = """$Env:GOPATH`\src\github.com\docker\docker\bundles"""; `
+  Write-Host INFO: Ensuring existence of directory $srcDir...; `
+  New-Item -Force -ItemType Directory -Path $srcDir | Out-Null; `
   `
   Write-Host INFO: Configuring git core.autocrlf...; `
-  C:\git\cmd\git config --global core.autocrlf true; `
+  C:\git\cmd\git config --global core.autocrlf true;
+
+RUN `
+  Function Build-GoTestSum() { `
+    Write-Host "INFO: Building gotestsum version $Env:GOTESTSUM_COMMIT in $Env:GOPATH"; `
+    $Env:GO111MODULE = 'on'; `
+    $tmpGobin = "${Env:GOBIN_TMP}"; `
+    $Env:GOBIN = """${Env:GOPATH}`\bin"""; `
+    &go get -buildmode=exe "gotest.tools/gotestsum@${Env:GOTESTSUM_COMMIT}"; `
+    $Env:GOBIN = "${tmpGobin}"; `
+    $Env:GO111MODULE = 'off'; `
+    if ($LASTEXITCODE -ne 0) {  `
+      Throw '"gotestsum build failed..."'; `
+    } `
+    Write-Host "INFO:     Build done for gotestsum..."; `
+  } `
   `
-  Write-Host INFO: Completed
+  Build-GoTestSum
 
 # Make PowerShell the default entrypoint
 ENTRYPOINT ["powershell.exe"]

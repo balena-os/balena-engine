@@ -8,10 +8,10 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
-	"github.com/docker/docker/internal/test/request"
+	"github.com/docker/docker/testutil/request"
 
-	"gotest.tools/assert"
-	"gotest.tools/skip"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/skip"
 )
 
 func TestBareRuntime(t *testing.T) {
@@ -26,6 +26,7 @@ func TestBareRuntime(t *testing.T) {
 		&container.Config{Image: "busybox:latest"},
 		&container.HostConfig{Runtime: "bare"},
 		&network.NetworkingConfig{},
+		nil,
 		"",
 	)
 	assert.NilError(t, err)

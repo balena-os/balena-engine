@@ -1,8 +1,9 @@
 [Unit]
 Description=Docker Socket for the API
-PartOf=balena-engine.service
 
 [Socket]
+# If /var/run is not implemented as a symlink to /run, you may need to
+# specify ListenStream=/var/run/docker.sock instead.
 ListenStream=/var/run/balena-engine.sock
 SocketMode=0660
 SocketUser=root

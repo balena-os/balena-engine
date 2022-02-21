@@ -1,6 +1,7 @@
 package plugin // import "github.com/docker/docker/plugin"
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"io/ioutil"
@@ -12,19 +13,18 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/content/local"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/image"
-	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/authorization"
 	"github.com/docker/docker/pkg/ioutils"
-	"github.com/docker/docker/pkg/mount"
 	"github.com/docker/docker/pkg/pubsub"
 	"github.com/docker/docker/pkg/system"
-	"github.com/docker/docker/plugin/v2"
+	v2 "github.com/docker/docker/plugin/v2"
 	"github.com/docker/docker/registry"
-	"github.com/opencontainers/go-digest"
-	"github.com/opencontainers/runtime-spec/specs-go"
+	digest "github.com/opencontainers/go-digest"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -72,7 +72,7 @@ type Manager struct {
 	mu        sync.RWMutex // protects cMap
 	muGC      sync.RWMutex // protects blobstore deletions
 	cMap      map[*v2.Plugin]*controller
-	blobStore *basicBlobStore
+	blobStore content.Store
 	publisher *pubsub.Publisher
 	executor  Executor
 }
@@ -117,9 +117,9 @@ func NewManager(config ManagerConfig) (*Manager, error) {
 		return nil, err
 	}
 
-	manager.blobStore, err = newBasicBlobStore(filepath.Join(manager.config.Root, "storage/blobs"))
+	manager.blobStore, err = local.NewStore(filepath.Join(manager.config.Root, "storage"))
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "error creating plugin blob store")
 	}
 
 	manager.cMap = make(map[*v2.Plugin]*controller)
@@ -143,7 +143,7 @@ func (pm *Manager) HandleExitEvent(id string) error {
 		return err
 	}
 
-	if err := os.RemoveAll(filepath.Join(pm.config.ExecRoot, id)); err != nil && !os.IsNotExist(err) {
+	if err := os.RemoveAll(filepath.Join(pm.config.ExecRoot, id)); err != nil {
 		logrus.WithError(err).WithField("id", id).Error("Could not remove plugin bundle dir")
 	}
 
@@ -158,10 +158,8 @@ func (pm *Manager) HandleExitEvent(id string) error {
 
 	if restart {
 		pm.enable(p, c, true)
-	} else {
-		if err := mount.RecursiveUnmount(filepath.Join(pm.config.Root, id)); err != nil {
-			return errors.Wrap(err, "error cleaning up plugin mounts")
-		}
+	} else if err := recursiveUnmount(filepath.Join(pm.config.Root, id)); err != nil {
+		return errors.Wrap(err, "error cleaning up plugin mounts")
 	}
 	return nil
 }
@@ -171,7 +169,7 @@ func handleLoadError(err error, id string) {
 		return
 	}
 	logger := logrus.WithError(err).WithField("id", id)
-	if os.IsNotExist(errors.Cause(err)) {
+	if errors.Is(err, os.ErrNotExist) {
 		// Likely some error while removing on an older version of docker
 		logger.Warn("missing plugin config, skipping: this may be caused due to a failed remove and requires manual cleanup.")
 		return
@@ -297,15 +295,23 @@ func (pm *Manager) GC() {
 	pm.muGC.Lock()
 	defer pm.muGC.Unlock()
 
-	whitelist := make(map[digest.Digest]struct{})
+	used := make(map[digest.Digest]struct{})
 	for _, p := range pm.config.Store.GetAll() {
-		whitelist[p.Config] = struct{}{}
+		used[p.Config] = struct{}{}
 		for _, b := range p.Blobsums {
-			whitelist[b] = struct{}{}
+			used[b] = struct{}{}
 		}
 	}
 
-	pm.blobStore.gc(whitelist)
+	ctx := context.TODO()
+	pm.blobStore.Walk(ctx, func(info content.Info) error {
+		_, ok := used[info.Digest]
+		if ok {
+			return nil
+		}
+
+		return pm.blobStore.Delete(ctx, info.Digest)
+	})
 }
 
 type logHook struct{ id string }
@@ -356,29 +362,4 @@ func isEqualPrivilege(a, b types.PluginPrivilege) bool {
 	}
 
 	return reflect.DeepEqual(a.Value, b.Value)
-}
-
-func configToRootFS(c []byte) (*image.RootFS, error) {
-	var pluginConfig types.PluginConfig
-	if err := json.Unmarshal(c, &pluginConfig); err != nil {
-		return nil, err
-	}
-	// validation for empty rootfs is in distribution code
-	if pluginConfig.Rootfs == nil {
-		return nil, nil
-	}
-
-	return rootFSFromPlugin(pluginConfig.Rootfs), nil
-}
-
-func rootFSFromPlugin(pluginfs *types.PluginConfigRootfs) *image.RootFS {
-	rootFS := image.RootFS{
-		Type:    pluginfs.Type,
-		DiffIDs: make([]layer.DiffID, len(pluginfs.DiffIds)),
-	}
-	for i := range pluginfs.DiffIds {
-		rootFS.DiffIDs[i] = layer.DiffID(pluginfs.DiffIds[i])
-	}
-
-	return &rootFS
 }

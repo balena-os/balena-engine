@@ -6,15 +6,14 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration/internal/container"
 	net "github.com/docker/docker/integration/internal/network"
 	n "github.com/docker/docker/integration/network"
-	"github.com/docker/docker/internal/test/daemon"
-	"gotest.tools/assert"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/daemon"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/skip"
 )
 
 func TestDockerNetworkMacvlanPersistance(t *testing.T) {
@@ -22,6 +21,7 @@ func TestDockerNetworkMacvlanPersistance(t *testing.T) {
 
 	// verify the driver automatically provisions the 802.1q link (dm-dummy0.60)
 	skip.If(t, testEnv.IsRemoteDaemon)
+	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
 
 	d := daemon.New(t)
 	d.StartWithBusybox(t)
@@ -46,6 +46,7 @@ func TestDockerNetworkMacvlan(t *testing.T) {
 	t.Skip("macvlan insn't supported")
 
 	skip.If(t, testEnv.IsRemoteDaemon)
+	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
 
 	for _, tc := range []struct {
 		name string
@@ -63,6 +64,9 @@ func TestDockerNetworkMacvlan(t *testing.T) {
 		}, {
 			name: "InternalMode",
 			test: testMacvlanInternalMode,
+		}, {
+			name: "MultiSubnet",
+			test: testMacvlanMultiSubnet,
 		}, {
 			name: "Addressing",
 			test: testMacvlanAddressing,
@@ -165,14 +169,10 @@ func testMacvlanInternalMode(client client.APIClient) func(*testing.T) {
 		id1 := container.Run(ctx, t, client, container.WithNetworkMode(netName))
 		id2 := container.Run(ctx, t, client, container.WithNetworkMode(netName))
 
-		timeoutCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		_, err := container.Exec(timeoutCtx, client, id1, []string{"ping", "-c", "1", "-w", "1", "8.8.8.8"})
-		// FIXME(vdemeester) check the time of error ?
-		assert.Check(t, err != nil)
-		assert.Check(t, timeoutCtx.Err() == context.DeadlineExceeded)
+		result, _ := container.Exec(ctx, client, id1, []string{"ping", "-c", "1", "8.8.8.8"})
+		assert.Check(t, strings.Contains(result.Combined(), "Network is unreachable"))
 
-		_, err = container.Exec(ctx, client, id2, []string{"ping", "-c", "1", id1})
+		_, err := container.Exec(ctx, client, id2, []string{"ping", "-c", "1", id1})
 		assert.Check(t, err == nil)
 	}
 }
@@ -241,7 +241,7 @@ func testMacvlanMultiSubnet(client client.APIClient) func(*testing.T) {
 		// Inspect the v4 gateway to ensure the proper explicitly assigned default GW was assigned
 		assert.Equal(t, c3.NetworkSettings.Networks["dualstackbridge"].Gateway, "172.28.102.254")
 		// Inspect the v6 gateway to ensure the proper explicitly assigned default GW was assigned
-		assert.Equal(t, c3.NetworkSettings.Networks["dualstackbridge"].IPv6Gateway, "2001:db8.abc4::254")
+		assert.Equal(t, c3.NetworkSettings.Networks["dualstackbridge"].IPv6Gateway, "2001:db8:abc4::254")
 	}
 }
 

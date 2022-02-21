@@ -34,16 +34,17 @@ func mapUserToChowner(user *copy.User, idmap *idtools.IdentityMapping) (copy.Cho
 					return nil, nil
 				}
 				old = &copy.User{} // root
-			}
-			if idmap != nil {
-				identity, err := idmap.ToHost(idtools.Identity{
-					UID: old.Uid,
-					GID: old.Gid,
-				})
-				if err != nil {
-					return nil, err
+				// non-nil old is already mapped
+				if idmap != nil {
+					identity, err := idmap.ToHost(idtools.Identity{
+						UID: old.UID,
+						GID: old.GID,
+					})
+					if err != nil {
+						return nil, err
+					}
+					return &copy.User{UID: identity.UID, GID: identity.GID}, nil
 				}
-				return &copy.User{Uid: identity.UID, Gid: identity.GID}, nil
 			}
 			return old, nil
 		}, nil
@@ -51,14 +52,14 @@ func mapUserToChowner(user *copy.User, idmap *idtools.IdentityMapping) (copy.Cho
 	u := *user
 	if idmap != nil {
 		identity, err := idmap.ToHost(idtools.Identity{
-			UID: user.Uid,
-			GID: user.Gid,
+			UID: user.UID,
+			GID: user.GID,
 		})
 		if err != nil {
 			return nil, err
 		}
-		u.Uid = identity.UID
-		u.Gid = identity.GID
+		u.UID = identity.UID
+		u.GID = identity.GID
 	}
 	return func(*copy.User) (*copy.User, error) {
 		return &u, nil
@@ -82,7 +83,7 @@ func mkdir(ctx context.Context, d string, action pb.FileActionMkDir, user *copy.
 		}
 	} else {
 		if err := os.Mkdir(p, os.FileMode(action.Mode)&0777); err != nil {
-			if os.IsExist(err) {
+			if errors.Is(err, os.ErrExist) {
 				return nil
 			}
 			return err
@@ -125,13 +126,33 @@ func mkfile(ctx context.Context, d string, action pb.FileActionMkFile, user *cop
 }
 
 func rm(ctx context.Context, d string, action pb.FileActionRm) error {
-	p, err := fs.RootPath(d, filepath.Join(filepath.Join("/", action.Path)))
+	if action.AllowWildcard {
+		src := cleanPath(action.Path)
+		m, err := copy.ResolveWildcards(d, src, false)
+		if err != nil {
+			return err
+		}
+
+		for _, s := range m {
+			if err := rmPath(d, s, action.AllowNotFound); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	return rmPath(d, action.Path, action.AllowNotFound)
+}
+
+func rmPath(root, src string, allowNotFound bool) error {
+	p, err := fs.RootPath(root, filepath.Join(filepath.Join("/", src)))
 	if err != nil {
 		return err
 	}
 
 	if err := os.RemoveAll(p); err != nil {
-		if os.IsNotExist(errors.Cause(err)) && action.AllowNotFound {
+		if errors.Is(err, os.ErrNotExist) && allowNotFound {
 			return nil
 		}
 		return err
@@ -273,6 +294,7 @@ func (fb *Backend) Mkfile(ctx context.Context, m, user, group fileoptypes.Mount,
 
 	return mkfile(ctx, dir, action, u, mnt.m.IdentityMapping())
 }
+
 func (fb *Backend) Rm(ctx context.Context, m fileoptypes.Mount, action pb.FileActionRm) error {
 	mnt, ok := m.(*Mount)
 	if !ok {
@@ -288,6 +310,7 @@ func (fb *Backend) Rm(ctx context.Context, m fileoptypes.Mount, action pb.FileAc
 
 	return rm(ctx, dir, action)
 }
+
 func (fb *Backend) Copy(ctx context.Context, m1, m2, user, group fileoptypes.Mount, action pb.FileActionCopy) error {
 	mnt1, ok := m1.(*Mount)
 	if !ok {

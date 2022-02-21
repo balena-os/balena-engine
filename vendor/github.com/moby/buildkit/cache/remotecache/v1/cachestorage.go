@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/moby/buildkit/identity"
+	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/solver"
 	"github.com/moby/buildkit/worker"
 	digest "github.com/opencontainers/go-digest"
@@ -220,6 +221,7 @@ func (cs *cacheResultStorage) LoadWithParents(ctx context.Context, res solver.Ca
 
 	m := map[string]solver.Result{}
 
+	visited := make(map[*item]struct{})
 	if err := v.walkAllResults(func(i *item) error {
 		if i.result == nil {
 			return nil
@@ -236,7 +238,7 @@ func (cs *cacheResultStorage) LoadWithParents(ctx context.Context, res solver.Ca
 			m[id] = worker.NewWorkerRefResult(ref, cs.w)
 		}
 		return nil
-	}); err != nil {
+	}, visited); err != nil {
 		for _, v := range m {
 			v.Release(context.TODO())
 		}
@@ -259,7 +261,7 @@ func (cs *cacheResultStorage) Load(ctx context.Context, res solver.CacheResult) 
 	return worker.NewWorkerRefResult(ref, cs.w), nil
 }
 
-func (cs *cacheResultStorage) LoadRemote(ctx context.Context, res solver.CacheResult) (*solver.Remote, error) {
+func (cs *cacheResultStorage) LoadRemote(ctx context.Context, res solver.CacheResult, _ session.Group) (*solver.Remote, error) {
 	if r := cs.byResultID(res.ID); r != nil && r.result != nil {
 		return r.result, nil
 	}

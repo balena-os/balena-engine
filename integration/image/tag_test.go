@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/docker/docker/internal/testutil"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 // tagging a named image in a new unprefixed repo should work
@@ -95,7 +94,6 @@ func TestTagExistedNameWithoutForce(t *testing.T) {
 // ensure tagging using official names works
 // ensure all tags result in the same name
 func TestTagOfficialNames(t *testing.T) {
-	skip.If(t, testEnv.OSType == "windows")
 	defer setupTest(t)()
 	client := testEnv.APIClient()
 	ctx := context.Background()

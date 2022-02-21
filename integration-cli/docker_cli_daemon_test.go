@@ -31,16 +31,16 @@ import (
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
 	"github.com/docker/docker/integration-cli/daemon"
-	testdaemon "github.com/docker/docker/internal/test/daemon"
 	"github.com/docker/docker/opts"
-	"github.com/docker/docker/pkg/mount"
-	"github.com/docker/go-units"
+	testdaemon "github.com/docker/docker/testutil/daemon"
+	units "github.com/docker/go-units"
 	"github.com/docker/libnetwork/iptables"
 	"github.com/docker/libtrust"
+	"github.com/moby/sys/mount"
 	"golang.org/x/sys/unix"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
-	"gotest.tools/poll"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
+	"gotest.tools/v3/poll"
 )
 
 const containerdSocket = "/var/run/balena/containerd/balena-containerd.sock"
@@ -177,7 +177,6 @@ func (s *DockerDaemonSuite) TestDaemonRestartUnlessStopped(c *testing.T) {
 
 	// both running
 	testRun(map[string]bool{"top1": true, "top2": true, "exit": true}, "After second daemon restart: ")
-
 }
 
 func (s *DockerDaemonSuite) TestDaemonRestartOnFailure(c *testing.T) {
@@ -223,7 +222,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithInvalidBasesize(c *testing.T) {
 	s.d.Start(c)
 
 	oldBasesizeBytes := getBaseDeviceSize(c, s.d)
-	var newBasesizeBytes int64 = 1073741824 //1GB in bytes
+	var newBasesizeBytes int64 = 1073741824 // 1GB in bytes
 
 	if newBasesizeBytes < oldBasesizeBytes {
 		err := s.d.RestartWithError("--storage-opt", fmt.Sprintf("dm.basesize=%d", newBasesizeBytes))
@@ -244,7 +243,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithIncreasedBasesize(c *testing.T)
 
 	oldBasesizeBytes := getBaseDeviceSize(c, s.d)
 
-	var newBasesizeBytes int64 = 53687091200 //50GB in bytes
+	var newBasesizeBytes int64 = 53687091200 // 50GB in bytes
 
 	if newBasesizeBytes < oldBasesizeBytes {
 		c.Skip(fmt.Sprintf("New base device size (%v) must be greater than (%s)", units.HumanSize(float64(newBasesizeBytes)), units.HumanSize(float64(oldBasesizeBytes))))
@@ -445,7 +444,7 @@ func (s *DockerDaemonSuite) TestDaemonIPv6FixedCIDR(c *testing.T) {
 
 	s.d.StartWithBusybox(c, "--ipv6", "--fixed-cidr-v6=2001:db8:2::/64", "--default-gateway-v6=2001:db8:2::100")
 
-	out, err := s.d.Cmd("run", "-itd", "--name=ipv6test", "busybox:latest")
+	out, err := s.d.Cmd("run", "-d", "--name=ipv6test", "busybox:latest", "top")
 	assert.NilError(c, err, "Could not run container: %s, %v", out, err)
 
 	out, err = s.d.Cmd("inspect", "--format", "{{.NetworkSettings.Networks.bridge.GlobalIPv6Address}}", "ipv6test")
@@ -474,7 +473,7 @@ func (s *DockerDaemonSuite) TestDaemonIPv6FixedCIDRAndMac(c *testing.T) {
 
 	s.d.StartWithBusybox(c, "--ipv6", "--fixed-cidr-v6=2001:db8:1::/64")
 
-	out, err := s.d.Cmd("run", "-itd", "--name=ipv6test", "--mac-address", "AA:BB:CC:DD:EE:FF", "busybox")
+	out, err := s.d.Cmd("run", "-d", "--name=ipv6test", "--mac-address", "AA:BB:CC:DD:EE:FF", "busybox", "top")
 	assert.NilError(c, err, out)
 
 	out, err = s.d.Cmd("inspect", "--format", "{{.NetworkSettings.Networks.bridge.GlobalIPv6Address}}", "ipv6test")
@@ -491,7 +490,7 @@ func (s *DockerDaemonSuite) TestDaemonIPv6HostMode(c *testing.T) {
 	deleteInterface(c, "balena0")
 
 	s.d.StartWithBusybox(c, "--ipv6", "--fixed-cidr-v6=2001:db8:2::/64")
-	out, err := s.d.Cmd("run", "-itd", "--name=hostcnt", "--network=host", "busybox:latest")
+	out, err := s.d.Cmd("run", "-d", "--name=hostcnt", "--network=host", "busybox:latest", "top")
 	assert.NilError(c, err, "Could not run container: %s, %v", out, err)
 
 	out, err = s.d.Cmd("exec", "hostcnt", "ip", "-6", "addr", "show", "balena0")
@@ -562,21 +561,26 @@ func (s *DockerDaemonSuite) TestDaemonFlagDebugLogLevelFatal(c *testing.T) {
 func (s *DockerDaemonSuite) TestDaemonAllocatesListeningPort(c *testing.T) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 
-	listeningPorts := [][]string{
+	type listener struct {
+		daemon string
+		client string
+		port   string
+	}
+	listeningPorts := []listener{
 		{"0.0.0.0", "0.0.0.0", "5678"},
 		{"127.0.0.1", "127.0.0.1", "1234"},
 		{"localhost", "127.0.0.1", "1235"},
 	}
 
 	cmdArgs := make([]string, 0, len(listeningPorts)*2)
-	for _, hostDirective := range listeningPorts {
-		cmdArgs = append(cmdArgs, "--host", fmt.Sprintf("tcp://%s:%s", hostDirective[0], hostDirective[2]))
+	for _, l := range listeningPorts {
+		cmdArgs = append(cmdArgs, "--tls=false", "--host", fmt.Sprintf("tcp://%s:%s", l.daemon, l.port))
 	}
 
 	s.d.StartWithBusybox(c, cmdArgs...)
 
-	for _, hostDirective := range listeningPorts {
-		output, err := s.d.Cmd("run", "-p", fmt.Sprintf("%s:%s:80", hostDirective[1], hostDirective[2]), "busybox", "true")
+	for _, l := range listeningPorts {
+		output, err := s.d.Cmd("run", "-p", fmt.Sprintf("%s:%s:80", l.client, l.port), "busybox", "true")
 		if err == nil {
 			c.Fatalf("Container should not start, expected port already allocated error: %q", output)
 		} else if !strings.Contains(output, "port is already allocated") {
@@ -589,11 +593,11 @@ func (s *DockerDaemonSuite) TestDaemonKeyGeneration(c *testing.T) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 
 	// TODO: skip or update for Windows daemon
-	os.Remove("/etc/balena-engine/key.json")
+	os.Remove("/etc/docker/key.json")
 	s.d.Start(c)
 	s.d.Stop(c)
 
-	k, err := libtrust.LoadKeyFile("/etc/balena-engine/key.json")
+	k, err := libtrust.LoadKeyFile("/etc/docker/key.json")
 	if err != nil {
 		c.Fatalf("Error opening key file")
 	}
@@ -608,16 +612,16 @@ func (s *DockerDaemonSuite) TestDaemonKeyGeneration(c *testing.T) {
 // Note that this explicitly tests the conflict of {-b,--bridge} and {--bip} options as the means
 // to get a daemon init failure; no other tests for -b/--bip conflict are therefore required
 func (s *DockerDaemonSuite) TestDaemonExitOnFailure(c *testing.T) {
-	//attempt to start daemon with incorrect flags (we know -b and --bip conflict)
+	// attempt to start daemon with incorrect flags (we know -b and --bip conflict)
 	if err := s.d.StartWithError("--bridge", "nosuchbridge", "--bip", "1.1.1.1"); err != nil {
-		//verify we got the right error
-		if !strings.Contains(err.Error(), "Daemon exited") {
+		// verify we got the right error
+		if !strings.Contains(err.Error(), "daemon exited") {
 			c.Fatalf("Expected daemon not to start, got %v", err)
 		}
 		// look in the log and make sure we got the message that daemon is shutting down
 		icmd.RunCommand("grep", "failed to start daemon", s.d.LogFileName()).Assert(c, icmd.Success)
 	} else {
-		//if we didn't get an error and the daemon is running, this is a failure
+		// if we didn't get an error and the daemon is running, this is a failure
 		c.Fatal("Conflicting options should cause the daemon to error out with a failure")
 	}
 }
@@ -741,7 +745,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithBridgeIPChange(c *testing.T) {
 
 	s.d.Start(c, "--bip", bridgeIP)
 
-	//check if the iptables contains new bridgeIP MASQUERADE rule
+	// check if the iptables contains new bridgeIP MASQUERADE rule
 	ipTablesSearchString := bridgeIPNet.String()
 	icmd.RunCommand("iptables", "-t", "nat", "-nvL").Assert(c, icmd.Expected{
 		Out: ipTablesSearchString,
@@ -1003,12 +1007,13 @@ func (s *DockerDaemonSuite) TestDaemonLinksIpTablesRulesWhenLinkAndUnlink(c *tes
 
 	sourceRule := []string{"-i", bridgeName, "-o", bridgeName, "-p", "tcp", "-s", childIP, "--sport", "80", "-d", parentIP, "-j", "ACCEPT"}
 	destinationRule := []string{"-i", bridgeName, "-o", bridgeName, "-p", "tcp", "-s", parentIP, "--dport", "80", "-d", childIP, "-j", "ACCEPT"}
-	if !iptables.Exists("filter", "DOCKER", sourceRule...) || !iptables.Exists("filter", "DOCKER", destinationRule...) {
+	iptable := iptables.GetIptable(iptables.IPv4)
+	if !iptable.Exists("filter", "DOCKER", sourceRule...) || !iptable.Exists("filter", "DOCKER", destinationRule...) {
 		c.Fatal("Iptables rules not found")
 	}
 
 	s.d.Cmd("rm", "--link", "parent/http")
-	if iptables.Exists("filter", "DOCKER", sourceRule...) || iptables.Exists("filter", "DOCKER", destinationRule...) {
+	if iptable.Exists("filter", "DOCKER", sourceRule...) || iptable.Exists("filter", "DOCKER", destinationRule...) {
 		c.Fatal("Iptables rules should be removed when unlink")
 	}
 
@@ -1021,7 +1026,7 @@ func (s *DockerDaemonSuite) TestDaemonUlimitDefaults(c *testing.T) {
 
 	s.d.StartWithBusybox(c, "--default-ulimit", "nofile=42:42", "--default-ulimit", "nproc=1024:1024")
 
-	out, err := s.d.Cmd("run", "--ulimit", "nproc=2048", "--name=test", "busybox", "/bin/sh", "-c", "echo $(ulimit -n); echo $(ulimit -p)")
+	out, err := s.d.Cmd("run", "--ulimit", "nproc=2048", "--name=test", "busybox", "/bin/sh", "-c", "echo $(ulimit -n); echo $(ulimit -u)")
 	if err != nil {
 		c.Fatal(err, out)
 	}
@@ -1037,7 +1042,7 @@ func (s *DockerDaemonSuite) TestDaemonUlimitDefaults(c *testing.T) {
 		c.Fatalf("expected `ulimit -n` to be `42`, got: %s", nofile)
 	}
 	if nproc != "2048" {
-		c.Fatalf("expected `ulimit -p` to be 2048, got: %s", nproc)
+		c.Fatalf("expected `ulimit -u` to be 2048, got: %s", nproc)
 	}
 
 	// Now restart daemon with a new default
@@ -1059,7 +1064,7 @@ func (s *DockerDaemonSuite) TestDaemonUlimitDefaults(c *testing.T) {
 		c.Fatalf("expected `ulimit -n` to be `43`, got: %s", nofile)
 	}
 	if nproc != "2048" {
-		c.Fatalf("expected `ulimit -p` to be 2048, got: %s", nproc)
+		c.Fatalf("expected `ulimit -u` to be 2048, got: %s", nproc)
 	}
 }
 
@@ -1285,7 +1290,7 @@ func (s *DockerDaemonSuite) TestDaemonWithWrongkey(c *testing.T) {
 		c.Fatalf("Error Unmarshal: %s", err)
 	}
 
-	//replace config.Kid with the fake value
+	// replace config.Kid with the fake value
 	config.Kid = "VSAJ:FUYR:X3H2:B2VZ:KZ6U:CJD5:K7BX:ZXHY:UZXT:P4FT:MJWG:HRJ4"
 
 	// NEW Data-Struct to byte[]
@@ -1330,7 +1335,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartKillWait(c *testing.T) {
 
 	s.d.Restart(c)
 
-	errchan := make(chan error)
+	errchan := make(chan error, 1)
 	go func() {
 		if out, err := s.d.Cmd("wait", containerID); err != nil {
 			errchan <- fmt.Errorf("%v:\n%s", err, out)
@@ -1709,15 +1714,17 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithPausedContainer(c *testing.T) {
 	}
 	s.d.Restart(c)
 
-	errchan := make(chan error)
+	errchan := make(chan error, 1)
 	go func() {
 		out, err := s.d.Cmd("start", "test")
 		if err != nil {
 			errchan <- fmt.Errorf("%v:\n%s", err, out)
+			return
 		}
 		name := strings.TrimSpace(out)
 		if name != "test" {
 			errchan <- fmt.Errorf("Paused container start error on docker daemon restart, expected 'test' but got '%s'", name)
+			return
 		}
 		close(errchan)
 	}()
@@ -1874,7 +1881,7 @@ func (s *DockerDaemonSuite) TestBridgeIPIsExcludedFromAllocatorPool(c *testing.T
 			break
 		}
 		ip, err := s.d.Cmd("inspect", "--format", "'{{.NetworkSettings.IPAddress}}'", contName)
-		assert.Assert(c, err == nil, "%s", ip)
+		assert.Assert(c, err == nil, ip)
 
 		assert.Assert(c, ip != bridgeIP)
 		cont++
@@ -1894,7 +1901,7 @@ func (s *DockerDaemonSuite) TestDaemonNoSpaceLeftOnDeviceError(c *testing.T) {
 	defer mount.Unmount(testDir)
 
 	// create a 3MiB image (with a 2MiB ext4 fs) and mount it as graph root
-	// Why in a container? Because `mount` sometimes behaves weirdly and often fails outright on this test in debian:jessie (which is what the test suite runs under if run from the Makefile)
+	// Why in a container? Because `mount` sometimes behaves weirdly and often fails outright on this test in debian:bullseye (which is what the test suite runs under if run from the Makefile)
 	dockerCmd(c, "run", "--rm", "-v", testDir+":/test", "busybox", "sh", "-c", "dd of=/test/testfs.img bs=1M seek=3 count=0")
 	icmd.RunCommand("mkfs.ext4", "-F", filepath.Join(testDir, "testfs.img")).Assert(c, icmd.Success)
 
@@ -1905,8 +1912,8 @@ func (s *DockerDaemonSuite) TestDaemonNoSpaceLeftOnDeviceError(c *testing.T) {
 	defer s.d.Stop(c)
 
 	// pull a repository large enough to overfill the mounted filesystem
-	pullOut, err := s.d.Cmd("pull", "debian:stretch")
-	assert.Assert(c, err != nil, "%s", pullOut)
+	pullOut, err := s.d.Cmd("pull", "debian:bullseye")
+	assert.Assert(c, err != nil, pullOut)
 	assert.Assert(c, strings.Contains(pullOut, "no space left on device"))
 }
 
@@ -2022,7 +2029,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithLinks(c *testing.T) {
 	assert.NilError(c, err, out)
 	out, err = s.d.Cmd("start", "-a", "test2")
 	assert.NilError(c, err, out)
-	assert.Equal(c, strings.Contains(out, "1 packets transmitted, 1 packets received"), true, fmt.Sprintf("%s", out))
+	assert.Equal(c, strings.Contains(out, "1 packets transmitted, 1 packets received"), true, out)
 }
 
 func (s *DockerDaemonSuite) TestDaemonRestartWithNames(c *testing.T) {
@@ -2121,7 +2128,6 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithKilledRunningContainer(t *testi
 	if out != "143" {
 		t.Fatalf("Expected exit code '%s' got '%s' for container '%s'\n", "143", out, cid)
 	}
-
 }
 
 // os.Kill should kill daemon ungracefully, leaving behind live containers.
@@ -2361,7 +2367,7 @@ func (s *DockerDaemonSuite) TestDaemonDiscoveryBackendConfigReload(c *testing.T)
 
 	err = configFile.Truncate(0)
 	assert.NilError(c, err)
-	_, err = configFile.Seek(0, os.SEEK_SET)
+	_, err = configFile.Seek(0, io.SeekStart)
 	assert.NilError(c, err)
 
 	_, err = configFile.Write([]byte(daemonConfig))
@@ -2875,7 +2881,7 @@ func (s *DockerDaemonSuite) TestExecWithUserAfterLiveRestore(c *testing.T) {
 	testRequires(c, DaemonIsLinux)
 	s.d.StartWithBusybox(c, "--live-restore")
 
-	out, err := s.d.Cmd("run", "-d", "--name=top", "busybox", "sh", "-c", "addgroup -S test && adduser -S -G test test -D -s /bin/sh && touch /adduser_end && top")
+	out, err := s.d.Cmd("run", "--init", "-d", "--name=top", "busybox", "sh", "-c", "addgroup -S test && adduser -S -G test test -D -s /bin/sh && touch /adduser_end && exec top")
 	assert.NilError(c, err, "Output: %s", out)
 
 	s.d.WaitRun("top")

@@ -19,12 +19,12 @@ import (
 	"github.com/docker/docker/daemon/graphdriver/vfs"
 	"github.com/docker/docker/integration/internal/container"
 	"github.com/docker/docker/integration/internal/requirement"
-	"github.com/docker/docker/internal/test/daemon"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/plugins"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/daemon"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/skip"
 )
 
 type graphEventsCounter struct {
@@ -50,13 +50,14 @@ func TestExternalGraphDriver(t *testing.T) {
 	skip.If(t, runtime.GOOS == "windows")
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, !requirement.HasHubConnectivity(t))
+	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support external graph driver")
 
 	// Setup plugin(s)
 	ec := make(map[string]*graphEventsCounter)
 	sserver := setupPluginViaSpecFile(t, ec)
 	jserver := setupPluginViaJSONFile(t, ec)
 	// Create daemon
-	d := daemon.New(t, daemon.WithExperimental)
+	d := daemon.New(t, daemon.WithExperimental())
 	c := d.NewClientT(t)
 
 	for _, tc := range []struct {
@@ -396,12 +397,12 @@ func testGraphDriverPull(c client.APIClient, d *daemon.Daemon) func(*testing.T) 
 		defer d.Stop(t)
 		ctx := context.Background()
 
-		r, err := c.ImagePull(ctx, "busybox:latest@sha256:bbc3a03235220b170ba48a157dd097dd1379299370e1ed99ce976df0355d24f0", types.ImagePullOptions{})
+		r, err := c.ImagePull(ctx, "busybox:latest@sha256:95cf004f559831017cdf4628aaf1bb30133677be8702a8c5f2994629f637a209", types.ImagePullOptions{})
 		assert.NilError(t, err)
 		_, err = io.Copy(ioutil.Discard, r)
 		assert.NilError(t, err)
 
-		container.Run(ctx, t, c, container.WithImage("busybox:latest@sha256:bbc3a03235220b170ba48a157dd097dd1379299370e1ed99ce976df0355d24f0"))
+		container.Run(ctx, t, c, container.WithImage("busybox:latest@sha256:95cf004f559831017cdf4628aaf1bb30133677be8702a8c5f2994629f637a209"))
 	}
 }
 
@@ -414,7 +415,7 @@ func TestGraphdriverPluginV2(t *testing.T) {
 	skip.If(t, os.Getenv("DOCKER_ENGINE_GOARCH") != "amd64")
 	skip.If(t, !requirement.Overlay2Supported(testEnv.DaemonInfo.KernelVersion))
 
-	d := daemon.New(t, daemon.WithExperimental)
+	d := daemon.New(t, daemon.WithExperimental())
 	d.Start(t)
 	defer d.Stop(t)
 
@@ -428,8 +429,8 @@ func TestGraphdriverPluginV2(t *testing.T) {
 		RemoteRef:            plugin,
 		AcceptAllPermissions: true,
 	})
-	defer responseReader.Close()
 	assert.NilError(t, err)
+	defer responseReader.Close()
 	// ensure it's done by waiting for EOF on the response
 	_, err = io.Copy(ioutil.Discard, responseReader)
 	assert.NilError(t, err)

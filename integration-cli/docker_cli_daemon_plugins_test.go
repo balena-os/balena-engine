@@ -6,10 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/pkg/mount"
 	"golang.org/x/sys/unix"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
 )
 
 // TestDaemonRestartWithPluginEnabled tests state restore for an enabled plugin
@@ -273,19 +272,6 @@ func (s *DockerDaemonSuite) TestPluginVolumeRemoveOnRestart(c *testing.T) {
 
 	out, err = s.d.Cmd("plugin", "rm", pName)
 	assert.NilError(c, err, out)
-}
-
-func existsMountpointWithPrefix(mountpointPrefix string) (bool, error) {
-	mounts, err := mount.GetMounts(nil)
-	if err != nil {
-		return false, err
-	}
-	for _, mnt := range mounts {
-		if strings.HasPrefix(mnt.Mountpoint, mountpointPrefix) {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 func (s *DockerDaemonSuite) TestPluginListFilterEnabled(c *testing.T) {

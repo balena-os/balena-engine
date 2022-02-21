@@ -74,7 +74,6 @@ var (
 	DmTaskSetCookie           = dmTaskSetCookieFct
 	DmTaskSetMessage          = dmTaskSetMessageFct
 	DmTaskSetName             = dmTaskSetNameFct
-	DmTaskSetRo               = dmTaskSetRoFct
 	DmTaskSetSector           = dmTaskSetSectorFct
 	DmUdevWait                = dmUdevWaitFct
 	DmUdevSetSyncSupport      = dmUdevSetSyncSupportFct
@@ -132,10 +131,6 @@ func dmTaskSetAddNodeFct(task *cdmTask, addNode AddNodeType) int {
 	return int(C.dm_task_set_add_node((*C.struct_dm_task)(task), C.dm_add_node_t(addNode)))
 }
 
-func dmTaskSetRoFct(task *cdmTask) int {
-	return int(C.dm_task_set_ro((*C.struct_dm_task)(task)))
-}
-
 func dmTaskAddTargetFct(task *cdmTask,
 	start, size uint64, ttype, params string) int {
 
@@ -155,12 +150,11 @@ func dmTaskGetDepsFct(task *cdmTask) *Deps {
 	}
 
 	// golang issue: https://github.com/golang/go/issues/11925
-	hdr := reflect.SliceHeader{
-		Data: uintptr(unsafe.Pointer(uintptr(unsafe.Pointer(Cdeps)) + unsafe.Sizeof(*Cdeps))),
-		Len:  int(Cdeps.count),
-		Cap:  int(Cdeps.count),
-	}
-	devices := *(*[]C.uint64_t)(unsafe.Pointer(&hdr))
+	var devices []C.uint64_t
+	devicesHdr := (*reflect.SliceHeader)(unsafe.Pointer(&devices))
+	devicesHdr.Data = uintptr(unsafe.Pointer(uintptr(unsafe.Pointer(Cdeps)) + unsafe.Sizeof(*Cdeps)))
+	devicesHdr.Len = int(Cdeps.count)
+	devicesHdr.Cap = int(Cdeps.count)
 
 	deps := &Deps{
 		Count:  uint32(Cdeps.count),
@@ -211,6 +205,7 @@ func dmGetNextTargetFct(task *cdmTask, next unsafe.Pointer, start, length *uint6
 		*params = C.GoString(Cparams)
 	}()
 
+	//lint:ignore SA4000 false positive on (identical expressions on the left and right side of the '==' operator) (staticcheck)
 	nextp := C.dm_get_next_target((*C.struct_dm_task)(task), next, &Cstart, &Clength, &CtargetType, &Cparams)
 	return nextp
 }

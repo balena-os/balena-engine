@@ -23,11 +23,10 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	introspection "github.com/containerd/containerd/api/services/introspection/v1"
 	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/containerd/containerd/platforms"
-	"github.com/opencontainers/image-spec/specs-go/v1"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/urfave/cli"
 	"google.golang.org/grpc/codes"
 )
@@ -67,9 +66,7 @@ var listCommand = cli.Command{
 		}
 		defer cancel()
 		ps := client.IntrospectionService()
-		response, err := ps.Plugins(ctx, &introspection.PluginsRequest{
-			Filters: context.Args(),
-		})
+		response, err := ps.Plugins(ctx, context.Args())
 		if err != nil {
 			return err
 		}

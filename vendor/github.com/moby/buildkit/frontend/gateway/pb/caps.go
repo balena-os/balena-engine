@@ -1,4 +1,4 @@
-package moby_buildkit_v1_frontend
+package moby_buildkit_v1_frontend //nolint:golint
 
 import "github.com/moby/buildkit/util/apicaps"
 
@@ -19,6 +19,34 @@ const (
 	CapReadDir                 apicaps.CapID = "readdir"
 	CapStatFile                apicaps.CapID = "statfile"
 	CapImportCaches            apicaps.CapID = "importcaches"
+
+	// CapProtoRefArray is a capability to return arrays of refs instead of single
+	// refs. This capability is only for the wire format change and shouldn't be
+	// used in frontends for feature detection.
+	CapProtoRefArray apicaps.CapID = "proto.refarray"
+
+	// CapReferenceOutput is a capability to use a reference of a solved result as
+	// an llb.Output.
+	CapReferenceOutput apicaps.CapID = "reference.output"
+
+	// CapFrontendInputs is a capability to request frontend inputs from the
+	// LLBBridge GRPC server.
+	CapFrontendInputs apicaps.CapID = "frontend.inputs"
+
+	// CapGatewaySolveMetadata can be used to check if solve calls from gateway reliably return metadata
+	CapGatewaySolveMetadata apicaps.CapID = "gateway.solve.metadata"
+
+	// CapGatewayExec is the capability to create and interact with new
+	// containers directly through the gateway
+	CapGatewayExec apicaps.CapID = "gateway.exec"
+
+	// CapFrontendCaps can be used to check that frontends define support for certain capabilities
+	CapFrontendCaps apicaps.CapID = "frontend.caps"
+
+	// CapGatewayEvaluateSolve is a capability to immediately unlazy solve
+	// results. This is generally used by the client to return and handle solve
+	// errors.
+	CapGatewayEvaluateSolve apicaps.CapID = "gateway.solve.evaluate"
 )
 
 func init() {
@@ -89,6 +117,55 @@ func init() {
 	Caps.Init(apicaps.Cap{
 		ID:      CapImportCaches,
 		Name:    "import caches",
+		Enabled: true,
+		Status:  apicaps.CapStatusExperimental,
+	})
+
+	Caps.Init(apicaps.Cap{
+		ID:      CapProtoRefArray,
+		Name:    "wire format ref arrays",
+		Enabled: true,
+		Status:  apicaps.CapStatusExperimental,
+	})
+
+	Caps.Init(apicaps.Cap{
+		ID:      CapReferenceOutput,
+		Name:    "reference output",
+		Enabled: true,
+		Status:  apicaps.CapStatusExperimental,
+	})
+
+	Caps.Init(apicaps.Cap{
+		ID:      CapFrontendInputs,
+		Name:    "frontend inputs",
+		Enabled: true,
+		Status:  apicaps.CapStatusExperimental,
+	})
+
+	Caps.Init(apicaps.Cap{
+		ID:      CapGatewaySolveMetadata,
+		Name:    "gateway metadata",
+		Enabled: true,
+		Status:  apicaps.CapStatusExperimental,
+	})
+
+	Caps.Init(apicaps.Cap{
+		ID:      CapGatewayExec,
+		Name:    "gateway exec",
+		Enabled: true,
+		Status:  apicaps.CapStatusExperimental,
+	})
+
+	Caps.Init(apicaps.Cap{
+		ID:      CapFrontendCaps,
+		Name:    "frontend capabilities",
+		Enabled: true,
+		Status:  apicaps.CapStatusExperimental,
+	})
+
+	Caps.Init(apicaps.Cap{
+		ID:      CapGatewayEvaluateSolve,
+		Name:    "gateway evaluate solve",
 		Enabled: true,
 		Status:  apicaps.CapStatusExperimental,
 	})

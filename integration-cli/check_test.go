@@ -18,14 +18,14 @@ import (
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/daemon"
 	"github.com/docker/docker/integration-cli/environment"
-	testdaemon "github.com/docker/docker/internal/test/daemon"
-	ienv "github.com/docker/docker/internal/test/environment"
-	"github.com/docker/docker/internal/test/fakestorage"
-	"github.com/docker/docker/internal/test/fixtures/plugin"
-	"github.com/docker/docker/internal/test/registry"
 	"github.com/docker/docker/internal/test/suite"
 	"github.com/docker/docker/pkg/reexec"
-	"gotest.tools/assert"
+	testdaemon "github.com/docker/docker/testutil/daemon"
+	ienv "github.com/docker/docker/testutil/environment"
+	"github.com/docker/docker/testutil/fakestorage"
+	"github.com/docker/docker/testutil/fixtures/plugin"
+	"github.com/docker/docker/testutil/registry"
+	"gotest.tools/v3/assert"
 )
 
 const (
@@ -111,12 +111,6 @@ func TestDockerRegistryAuthTokenSuite(t *testing.T) {
 func TestDockerDaemonSuite(t *testing.T) {
 	ensureTestEnvSetup(t)
 	suite.Run(t, &DockerDaemonSuite{ds: &DockerSuite{}})
-}
-
-func TestDockerSwarmSuite(t *testing.T) {
-	t.Skip("Skipping docker swarm test suite")
-	ensureTestEnvSetup(t)
-	suite.Run(t, &DockerSwarmSuite{ds: &DockerSuite{}})
 }
 
 func TestDockerPluginSuite(t *testing.T) {
@@ -350,6 +344,7 @@ func (s *DockerSwarmSuite) SetUpTest(c *testing.T) {
 }
 
 func (s *DockerSwarmSuite) AddDaemon(c *testing.T, joinSwarm, manager bool) *daemon.Daemon {
+	c.Helper()
 	d := daemon.New(c, dockerBinary, dockerdBinary,
 		testdaemon.WithEnvironment(testEnv.Execution),
 		testdaemon.WithSwarmPort(defaultSwarmPort+s.portIndex),

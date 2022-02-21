@@ -53,13 +53,13 @@ func TestParseHost(t *testing.T) {
 func TestParseDockerDaemonHost(t *testing.T) {
 	invalids := map[string]string{
 
-		"tcp:a.b.c.d":                          "",
-		"tcp:a.b.c.d/path":                     "",
-		"udp://127.0.0.1":                      "Invalid bind address format: udp://127.0.0.1",
-		"udp://127.0.0.1:2375":                 "Invalid bind address format: udp://127.0.0.1:2375",
+		"tcp:a.b.c.d":                   "",
+		"tcp:a.b.c.d/path":              "",
+		"udp://127.0.0.1":               "Invalid bind address format: udp://127.0.0.1",
+		"udp://127.0.0.1:2375":          "Invalid bind address format: udp://127.0.0.1:2375",
 		"tcp://unix:///run/balena-engine.sock": "Invalid proto, expected tcp: unix:///run/balena-engine.sock",
-		" tcp://:7777/path ":                   "Invalid bind address format:  tcp://:7777/path ",
-		"":                                     "Invalid bind address format: ",
+		" tcp://:7777/path ":            "Invalid bind address format:  tcp://:7777/path ",
+		"":                              "Invalid bind address format: ",
 	}
 	valids := map[string]string{
 		"0.0.0.1:":                       "tcp://0.0.0.1:2375",

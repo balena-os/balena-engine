@@ -4,9 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -17,8 +17,8 @@ import (
 	"strings"
 	"testing"
 
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 type testLayer struct {

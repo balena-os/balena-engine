@@ -3,7 +3,6 @@ package dockerd
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -28,8 +27,8 @@ func getDaemonConfDir(root string) (string, error) {
 	return filepath.Join(root, `\config`), nil
 }
 
-// preNotifySystem sends a message to the host when the API is active, but before the daemon is
-func preNotifySystem() {
+// preNotifyReady sends a message to the host when the API is active, but before the daemon is
+func preNotifyReady() {
 	// start the service now to prevent timeouts waiting for daemon to start
 	// but still (eventually) complete all requests that are sent after this
 	if service != nil {
@@ -40,8 +39,12 @@ func preNotifySystem() {
 	}
 }
 
-// notifySystem sends a message to the host when the server is ready to be used
-func notifySystem() {
+// notifyReady sends a message to the host when the server is ready to be used
+func notifyReady() {
+}
+
+// notifyStopping sends a message to the host when the server is shutting down
+func notifyStopping() {
 }
 
 // notifyShutdown is called after the daemon shuts down but before the process exits.
@@ -84,10 +87,6 @@ func (cli *DaemonCli) getSwarmRunRoot() string {
 
 func allocateDaemonPort(addr string) error {
 	return nil
-}
-
-func wrapListeners(proto string, ls []net.Listener) []net.Listener {
-	return ls
 }
 
 func newCgroupParent(config *config.Config) string {

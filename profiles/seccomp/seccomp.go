@@ -1,191 +1,102 @@
-// +build linux,seccomp
-
 package seccomp // import "github.com/docker/docker/profiles/seccomp"
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/pkg/parsers/kernel"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
-	libseccomp "github.com/seccomp/libseccomp-golang"
+	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
-//go:generate go run -tags 'seccomp' generate.go
-
-// GetDefaultProfile returns the default seccomp profile.
-func GetDefaultProfile(rs *specs.Spec) (*specs.LinuxSeccomp, error) {
-	return setupSeccomp(DefaultProfile(), rs)
+// Seccomp represents the config for a seccomp profile for syscall restriction.
+type Seccomp struct {
+	DefaultAction specs.LinuxSeccompAction `json:"defaultAction"`
+	// Architectures is kept to maintain backward compatibility with the old
+	// seccomp profile.
+	Architectures []specs.Arch   `json:"architectures,omitempty"`
+	ArchMap       []Architecture `json:"archMap,omitempty"`
+	Syscalls      []*Syscall     `json:"syscalls"`
 }
 
-// LoadProfile takes a json string and decodes the seccomp profile.
-func LoadProfile(body string, rs *specs.Spec) (*specs.LinuxSeccomp, error) {
-	var config types.Seccomp
-	if err := json.Unmarshal([]byte(body), &config); err != nil {
-		return nil, fmt.Errorf("Decoding seccomp profile failed: %v", err)
-	}
-	return setupSeccomp(&config, rs)
+// Architecture is used to represent a specific architecture
+// and its sub-architectures
+type Architecture struct {
+	Arch      specs.Arch   `json:"architecture"`
+	SubArches []specs.Arch `json:"subArchitectures"`
 }
 
-var nativeToSeccomp = map[string]types.Arch{
-	"amd64":       types.ArchX86_64,
-	"arm64":       types.ArchAARCH64,
-	"mips64":      types.ArchMIPS64,
-	"mips64n32":   types.ArchMIPS64N32,
-	"mipsel64":    types.ArchMIPSEL64,
-	"mipsel64n32": types.ArchMIPSEL64N32,
-	"s390x":       types.ArchS390X,
+// Filter is used to conditionally apply Seccomp rules
+type Filter struct {
+	Caps   []string `json:"caps,omitempty"`
+	Arches []string `json:"arches,omitempty"`
+
+	// MinKernel describes the minimum kernel version the rule must be applied
+	// on, in the format "<kernel version>.<major revision>" (e.g. "3.12").
+	//
+	// When matching the kernel version of the host, minor revisions, and distro-
+	// specific suffixes are ignored, which means that "3.12.25-gentoo", "3.12-1-amd64",
+	// "3.12", and "3.12-rc5" are considered equal (kernel 3, major revision 12).
+	MinKernel *KernelVersion `json:"minKernel,omitempty"`
 }
 
-// inSlice tests whether a string is contained in a slice of strings or not.
-// Comparison is case sensitive
-func inSlice(slice []string, s string) bool {
-	for _, ss := range slice {
-		if s == ss {
-			return true
-		}
-	}
-	return false
+// Syscall is used to match a group of syscalls in Seccomp
+type Syscall struct {
+	Name     string                   `json:"name,omitempty"`
+	Names    []string                 `json:"names,omitempty"`
+	Action   specs.LinuxSeccompAction `json:"action"`
+	ErrnoRet *uint                    `json:"errnoRet,omitempty"`
+	Args     []*specs.LinuxSeccompArg `json:"args"`
+	Comment  string                   `json:"comment"`
+	Includes Filter                   `json:"includes"`
+	Excludes Filter                   `json:"excludes"`
 }
 
-func setupSeccomp(config *types.Seccomp, rs *specs.Spec) (*specs.LinuxSeccomp, error) {
-	if config == nil {
-		return nil, nil
-	}
-
-	// No default action specified, no syscalls listed, assume seccomp disabled
-	if config.DefaultAction == "" && len(config.Syscalls) == 0 {
-		return nil, nil
-	}
-
-	newConfig := &specs.LinuxSeccomp{}
-
-	var arch string
-	var native, err = libseccomp.GetNativeArch()
-	if err == nil {
-		arch = native.String()
-	}
-
-	if len(config.Architectures) != 0 && len(config.ArchMap) != 0 {
-		return nil, errors.New("'architectures' and 'archMap' were specified in the seccomp profile, use either 'architectures' or 'archMap'")
-	}
-
-	// if config.Architectures == 0 then libseccomp will figure out the architecture to use
-	if len(config.Architectures) != 0 {
-		for _, a := range config.Architectures {
-			newConfig.Architectures = append(newConfig.Architectures, specs.Arch(a))
-		}
-	}
-
-	if len(config.ArchMap) != 0 {
-		for _, a := range config.ArchMap {
-			seccompArch, ok := nativeToSeccomp[arch]
-			if ok {
-				if a.Arch == seccompArch {
-					newConfig.Architectures = append(newConfig.Architectures, specs.Arch(a.Arch))
-					for _, sa := range a.SubArches {
-						newConfig.Architectures = append(newConfig.Architectures, specs.Arch(sa))
-					}
-					break
-				}
-			}
-		}
-	}
-
-	newConfig.DefaultAction = specs.LinuxSeccompAction(config.DefaultAction)
-
-Loop:
-	// Loop through all syscall blocks and convert them to libcontainer format after filtering them
-	for _, call := range config.Syscalls {
-		if len(call.Excludes.Arches) > 0 {
-			if inSlice(call.Excludes.Arches, arch) {
-				continue Loop
-			}
-		}
-		if len(call.Excludes.Caps) > 0 {
-			for _, c := range call.Excludes.Caps {
-				if inSlice(rs.Process.Capabilities.Bounding, c) {
-					continue Loop
-				}
-			}
-		}
-		if call.Excludes.MinKernel != "" {
-			if ok, err := kernelGreaterEqualThan(call.Excludes.MinKernel); err != nil {
-				return nil, err
-			} else if ok {
-				continue Loop
-			}
-		}
-		if len(call.Includes.Arches) > 0 {
-			if !inSlice(call.Includes.Arches, arch) {
-				continue Loop
-			}
-		}
-		if len(call.Includes.Caps) > 0 {
-			for _, c := range call.Includes.Caps {
-				if !inSlice(rs.Process.Capabilities.Bounding, c) {
-					continue Loop
-				}
-			}
-		}
-		if call.Includes.MinKernel != "" {
-			if ok, err := kernelGreaterEqualThan(call.Includes.MinKernel); err != nil {
-				return nil, err
-			} else if !ok {
-				continue Loop
-			}
-		}
-
-		if call.Name != "" && len(call.Names) != 0 {
-			return nil, errors.New("'name' and 'names' were specified in the seccomp profile, use either 'name' or 'names'")
-		}
-
-		if call.Name != "" {
-			newConfig.Syscalls = append(newConfig.Syscalls, createSpecsSyscall(call.Name, call.Action, call.Args))
-		}
-
-		for _, n := range call.Names {
-			newConfig.Syscalls = append(newConfig.Syscalls, createSpecsSyscall(n, call.Action, call.Args))
-		}
-	}
-
-	return newConfig, nil
+// KernelVersion holds information about the kernel.
+type KernelVersion struct {
+	Kernel uint64 // Version of the Kernel (i.e., the "4" in "4.1.2-generic")
+	Major  uint64 // Major revision of the Kernel (i.e., the "1" in "4.1.2-generic")
 }
 
-func createSpecsSyscall(name string, action types.Action, args []*types.Arg) specs.LinuxSyscall {
-	newCall := specs.LinuxSyscall{
-		Names:  []string{name},
-		Action: specs.LinuxSeccompAction(action),
+// String implements fmt.Stringer for KernelVersion
+func (k *KernelVersion) String() string {
+	if k.Kernel > 0 || k.Major > 0 {
+		return fmt.Sprintf("%d.%d", k.Kernel, k.Major)
 	}
-
-	// Loop through all the arguments of the syscall and convert them
-	for _, arg := range args {
-		newArg := specs.LinuxSeccompArg{
-			Index:    arg.Index,
-			Value:    arg.Value,
-			ValueTwo: arg.ValueTwo,
-			Op:       specs.LinuxSeccompOperator(arg.Op),
-		}
-
-		newCall.Args = append(newCall.Args, newArg)
-	}
-	return newCall
+	return ""
 }
 
-var currentKernelVersion *kernel.VersionInfo
+// MarshalJSON implements json.Unmarshaler for KernelVersion
+func (k *KernelVersion) MarshalJSON() ([]byte, error) {
+	return json.Marshal(k.String())
+}
 
-func kernelGreaterEqualThan(v string) (bool, error) {
-	version, err := kernel.ParseRelease(v)
-	if err != nil {
-		return false, err
+// UnmarshalJSON implements json.Marshaler for KernelVersion
+func (k *KernelVersion) UnmarshalJSON(version []byte) error {
+	var (
+		ver string
+		err error
+	)
+
+	// make sure we have a string
+	if err = json.Unmarshal(version, &ver); err != nil {
+		return fmt.Errorf(`invalid kernel version: %s, expected "<kernel>.<major>": %v`, string(version), err)
 	}
-	if currentKernelVersion == nil {
-		currentKernelVersion, err = kernel.GetKernelVersion()
-		if err != nil {
-			return false, err
-		}
+	if ver == "" {
+		return nil
 	}
-	return kernel.CompareKernelVersion(*version, *currentKernelVersion) <= 0, nil
+	parts := strings.SplitN(ver, ".", 3)
+	if len(parts) != 2 {
+		return fmt.Errorf(`invalid kernel version: %s, expected "<kernel>.<major>"`, string(version))
+	}
+	if k.Kernel, err = strconv.ParseUint(parts[0], 10, 8); err != nil {
+		return fmt.Errorf(`invalid kernel version: %s, expected "<kernel>.<major>": %v`, string(version), err)
+	}
+	if k.Major, err = strconv.ParseUint(parts[1], 10, 8); err != nil {
+		return fmt.Errorf(`invalid kernel version: %s, expected "<kernel>.<major>": %v`, string(version), err)
+	}
+	if k.Kernel == 0 && k.Major == 0 {
+		return fmt.Errorf(`invalid kernel version: %s, expected "<kernel>.<major>": version cannot be 0.0`, string(version))
+	}
+	return nil
 }

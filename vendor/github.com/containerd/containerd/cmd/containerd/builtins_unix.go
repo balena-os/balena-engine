@@ -19,5 +19,5 @@
 package containerd
 
 import (
-	_ "github.com/containerd/containerd/snapshots/native"
+	_ "github.com/containerd/containerd/snapshots/native/plugin"
 )

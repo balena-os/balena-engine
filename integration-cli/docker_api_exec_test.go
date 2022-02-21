@@ -16,9 +16,9 @@ import (
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration-cli/checker"
-	"github.com/docker/docker/internal/test/request"
-	"gotest.tools/assert"
-	"gotest.tools/poll"
+	"github.com/docker/docker/testutil/request"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/poll"
 )
 
 // Regression test for #9414
@@ -214,7 +214,7 @@ func (s *DockerSuite) TestExecStateCleanup(c *testing.T) {
 	cid, _ := dockerCmd(c, "run", "-d", "-t", "--name", name, "busybox", "/bin/sh")
 	cid = strings.TrimSpace(cid)
 
-	stateDir := "/var/run/balena-engine/containerd/" + cid
+	stateDir := "/var/run/docker/containerd/" + cid
 
 	checkReadDir := func(c *testing.T) (interface{}, string) {
 		fi, err := ioutil.ReadDir(stateDir)
@@ -297,7 +297,7 @@ func waitForExec(c *testing.T, id string) {
 }
 
 func inspectContainer(c *testing.T, id string, out interface{}) {
-	resp, body, err := request.Get(fmt.Sprintf("/containers/%s/json", id))
+	resp, body, err := request.Get("/containers/" + id + "/json")
 	assert.NilError(c, err)
 	defer body.Close()
 	assert.Equal(c, resp.StatusCode, http.StatusOK)

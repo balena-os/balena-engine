@@ -18,10 +18,13 @@ package cio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/containerd/containerd/defaults"
@@ -242,17 +245,36 @@ func LogURI(uri *url.URL) Creator {
 // BinaryIO forwards container STDOUT|STDERR directly to a logging binary
 func BinaryIO(binary string, args map[string]string) Creator {
 	return func(_ string) (IO, error) {
-		uri := &url.URL{
-			Scheme: "binary",
-			Host:   binary,
+		uri, err := LogURIGenerator("binary", binary, args)
+		if err != nil {
+			return nil, err
 		}
-		for k, v := range args {
-			uri.Query().Set(k, v)
-		}
+
+		res := uri.String()
 		return &logURI{
 			config: Config{
-				Stdout: uri.String(),
-				Stderr: uri.String(),
+				Stdout: res,
+				Stderr: res,
+			},
+		}, nil
+	}
+}
+
+// TerminalBinaryIO forwards container STDOUT|STDERR directly to a logging binary
+// It also sets the terminal option to true
+func TerminalBinaryIO(binary string, args map[string]string) Creator {
+	return func(_ string) (IO, error) {
+		uri, err := LogURIGenerator("binary", binary, args)
+		if err != nil {
+			return nil, err
+		}
+
+		res := uri.String()
+		return &logURI{
+			config: Config{
+				Stdout:   res,
+				Stderr:   res,
+				Terminal: true,
 			},
 		}, nil
 	}
@@ -262,17 +284,43 @@ func BinaryIO(binary string, args map[string]string) Creator {
 // If the log file already exists, the logs will be appended to the file.
 func LogFile(path string) Creator {
 	return func(_ string) (IO, error) {
-		uri := &url.URL{
-			Scheme: "file",
-			Host:   path,
+		uri, err := LogURIGenerator("file", path, nil)
+		if err != nil {
+			return nil, err
 		}
+
+		res := uri.String()
 		return &logURI{
 			config: Config{
-				Stdout: uri.String(),
-				Stderr: uri.String(),
+				Stdout: res,
+				Stderr: res,
 			},
 		}, nil
 	}
+}
+
+// LogURIGenerator is the helper to generate log uri with specific scheme.
+func LogURIGenerator(scheme string, path string, args map[string]string) (*url.URL, error) {
+	path = filepath.Clean(path)
+	if !strings.HasPrefix(path, "/") {
+		return nil, errors.New("absolute path needed")
+	}
+
+	uri := &url.URL{
+		Scheme: scheme,
+		Path:   path,
+	}
+
+	if len(args) == 0 {
+		return uri, nil
+	}
+
+	q := uri.Query()
+	for k, v := range args {
+		q.Set(k, v)
+	}
+	uri.RawQuery = q.Encode()
+	return uri, nil
 }
 
 type logURI struct {

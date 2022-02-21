@@ -12,9 +12,10 @@ import (
 	"testing"
 
 	"github.com/docker/distribution/reference"
+	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
 )
 
 // Pushing an image to a private registry.
@@ -80,15 +81,21 @@ func testPushMultipleTags(c *testing.T) {
 	repoTag2 := fmt.Sprintf("%v/dockercli/busybox:t2", privateRegistryURL)
 	// tag the image and upload it to the private registry
 	dockerCmd(c, "tag", "busybox", repoTag1)
-
 	dockerCmd(c, "tag", "busybox", repoTag2)
 
-	dockerCmd(c, "push", repoName)
+	args := []string{"push"}
+	if versions.GreaterThanOrEqualTo(DockerCLIVersion(c), "20.10.0") {
+		// 20.10 CLI removed implicit push all tags and requires the "--all" flag
+		args = append(args, "--all-tags")
+	}
+	args = append(args, repoName)
 
-	// Ensure layer list is equivalent for repoTag1 and repoTag2
-	out1, _ := dockerCmd(c, "pull", repoTag1)
+	dockerCmd(c, args...)
 
 	imageAlreadyExists := ": Image already exists"
+
+	// Ensure layer list is equivalent for repoTag1 and repoTag2
+	out1, _ := dockerCmd(c, "push", repoTag1)
 	var out1Lines []string
 	for _, outputLine := range strings.Split(out1, "\n") {
 		if strings.Contains(outputLine, imageAlreadyExists) {
@@ -96,19 +103,14 @@ func testPushMultipleTags(c *testing.T) {
 		}
 	}
 
-	out2, _ := dockerCmd(c, "pull", repoTag2)
-
+	out2, _ := dockerCmd(c, "push", repoTag2)
 	var out2Lines []string
 	for _, outputLine := range strings.Split(out2, "\n") {
 		if strings.Contains(outputLine, imageAlreadyExists) {
-			out1Lines = append(out1Lines, outputLine)
+			out2Lines = append(out2Lines, outputLine)
 		}
 	}
-	assert.Equal(c, len(out2Lines), len(out1Lines))
-
-	for i := range out1Lines {
-		assert.Equal(c, out1Lines[i], out2Lines[i])
-	}
+	assert.DeepEqual(c, out1Lines, out2Lines)
 }
 
 func (s *DockerRegistrySuite) TestPushMultipleTags(c *testing.T) {
@@ -169,7 +171,7 @@ func testConcurrentPush(c *testing.T) {
 	}
 
 	// Push tags, in parallel
-	results := make(chan error)
+	results := make(chan error, len(repos))
 
 	for _, repo := range repos {
 		go func(repo string) {

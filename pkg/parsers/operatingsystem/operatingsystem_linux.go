@@ -9,8 +9,6 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
-
-	"github.com/mattn/go-shellwords"
 )
 
 var (
@@ -26,6 +24,24 @@ var (
 
 // GetOperatingSystem gets the name of the current operating system.
 func GetOperatingSystem() (string, error) {
+	if prettyName, err := getValueFromOsRelease("PRETTY_NAME"); err != nil {
+		return "", err
+	} else if prettyName != "" {
+		return prettyName, nil
+	}
+
+	// If not set, defaults to PRETTY_NAME="Linux"
+	// c.f. http://www.freedesktop.org/software/systemd/man/os-release.html
+	return "Linux", nil
+}
+
+// GetOperatingSystemVersion gets the version of the current operating system, as a string.
+func GetOperatingSystemVersion() (string, error) {
+	return getValueFromOsRelease("VERSION_ID")
+}
+
+// parses the os-release file and returns the value associated with `key`
+func getValueFromOsRelease(key string) (string, error) {
 	osReleaseFile, err := os.Open(etcOsRelease)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -38,28 +54,18 @@ func GetOperatingSystem() (string, error) {
 	}
 	defer osReleaseFile.Close()
 
-	var prettyName string
+	var value string
+	keyWithTrailingEqual := key + "="
 	scanner := bufio.NewScanner(osReleaseFile)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "PRETTY_NAME=") {
+		if strings.HasPrefix(line, keyWithTrailingEqual) {
 			data := strings.SplitN(line, "=", 2)
-			prettyNames, err := shellwords.Parse(data[1])
-			if err != nil {
-				return "", fmt.Errorf("PRETTY_NAME is invalid: %s", err.Error())
-			}
-			if len(prettyNames) != 1 {
-				return "", fmt.Errorf("PRETTY_NAME needs to be enclosed by quotes if they have spaces: %s", data[1])
-			}
-			prettyName = prettyNames[0]
+			value = strings.Trim(data[1], `"' `) // remove leading/trailing quotes and whitespace
 		}
 	}
-	if prettyName != "" {
-		return prettyName, nil
-	}
-	// If not set, defaults to PRETTY_NAME="Linux"
-	// c.f. http://www.freedesktop.org/software/systemd/man/os-release.html
-	return "Linux", nil
+
+	return value, nil
 }
 
 // IsContainerized returns true if we are running inside a container.
@@ -69,7 +75,7 @@ func IsContainerized() (bool, error) {
 		return false, err
 	}
 	for _, line := range bytes.Split(b, []byte{'\n'}) {
-		if len(line) > 0 && !bytes.HasSuffix(line, []byte{'/'}) && !bytes.HasSuffix(line, []byte("init.scope")) {
+		if len(line) > 0 && !bytes.HasSuffix(line, []byte(":/")) && !bytes.HasSuffix(line, []byte(":/init.scope")) {
 			return true, nil
 		}
 	}

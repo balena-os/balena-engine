@@ -26,30 +26,17 @@ import (
 	"strings"
 
 	"github.com/containerd/btrfs"
+	"github.com/containerd/continuity/fs"
+
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/storage"
-	"github.com/containerd/continuity/fs"
 
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
-
-func init() {
-	plugin.Register(&plugin.Registration{
-		ID:   "btrfs",
-		Type: plugin.SnapshotPlugin,
-		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			ic.Meta.Platforms = []ocispec.Platform{platforms.DefaultSpec()}
-			ic.Meta.Exports = map[string]string{"root": ic.Root}
-			return NewSnapshotter(ic.Root)
-		},
-	})
-}
 
 type snapshotter struct {
 	device string // device of the root
@@ -77,7 +64,7 @@ func NewSnapshotter(root string) (snapshots.Snapshotter, error) {
 		return nil, err
 	}
 	if mnt.FSType != "btrfs" {
-		return nil, errors.Wrapf(plugin.ErrSkipPlugin, "path %s must be a btrfs filesystem to be used with the btrfs snapshotter", root)
+		return nil, errors.Wrapf(plugin.ErrSkipPlugin, "path %s (%s) must be a btrfs filesystem to be used with the btrfs snapshotter", root, mnt.FSType)
 	}
 	var (
 		active    = filepath.Join(root, "active")
@@ -186,13 +173,13 @@ func (b *snapshotter) usage(ctx context.Context, key string) (snapshots.Usage, e
 }
 
 // Walk the committed snapshots.
-func (b *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapshots.Info) error) error {
+func (b *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...string) error {
 	ctx, t, err := b.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return err
 	}
 	defer t.Rollback()
-	return storage.WalkInfo(ctx, fn)
+	return storage.WalkInfo(ctx, fn, fs...)
 }
 
 func (b *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {

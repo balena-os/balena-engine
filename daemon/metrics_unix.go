@@ -6,12 +6,13 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/plugins"
 	"github.com/docker/docker/plugin"
-	"github.com/docker/go-metrics"
-	"github.com/opencontainers/runtime-spec/specs-go"
+	metrics "github.com/docker/go-metrics"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -28,7 +29,10 @@ func (daemon *Daemon) listenMetricsSock() (string, error) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metrics.Handler())
 	go func() {
-		http.Serve(l, mux)
+		logrus.Debugf("metrics API listening on %s", l.Addr())
+		if err := http.Serve(l, mux); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+			logrus.WithError(err).Error("error serving metrics API")
+		}
 	}()
 	daemon.metricsPluginListener = l
 	return path, nil

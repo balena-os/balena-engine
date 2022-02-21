@@ -15,12 +15,12 @@ import (
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/integration/internal/container"
-	"github.com/docker/docker/internal/test/request"
-	req "github.com/docker/docker/internal/test/request"
 	"github.com/docker/docker/pkg/jsonmessage"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/request"
+	req "github.com/docker/docker/testutil/request"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/skip"
 )
 
 func TestEventsExecDie(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/moby/buildkit/client"
 	"github.com/moby/buildkit/session"
+	"github.com/moby/buildkit/solver/errdefs"
 	"github.com/moby/buildkit/util/flightcontrol"
 	"github.com/moby/buildkit/util/progress"
 	"github.com/moby/buildkit/util/tracing"
@@ -22,7 +23,7 @@ type ResolveOpFunc func(Vertex, Builder) (Op, error)
 
 type Builder interface {
 	Build(ctx context.Context, e Edge) (CachedResult, error)
-	Context(ctx context.Context) context.Context
+	InContext(ctx context.Context, f func(ctx context.Context, g session.Group) error) error
 	EachValue(ctx context.Context, key string, fn func(interface{}) error) error
 }
 
@@ -53,6 +54,7 @@ type state struct {
 
 	vtx          Vertex
 	clientVertex client.Vertex
+	origDigest   digest.Digest // original LLB digest. TODO: probably better to use string ID so this isn't needed
 
 	mu    sync.Mutex
 	op    *sharedOp
@@ -65,32 +67,69 @@ type state struct {
 	solver    *Solver
 }
 
-func (s *state) getSessionID() string {
-	// TODO: connect with sessionmanager to avoid getting dropped sessions
-	s.mu.Lock()
-	for j := range s.jobs {
-		if j.SessionID != "" {
-			s.mu.Unlock()
-			return j.SessionID
-		}
-	}
-	parents := map[digest.Digest]struct{}{}
-	for p := range s.parents {
-		parents[p] = struct{}{}
-	}
-	s.mu.Unlock()
+func (s *state) SessionIterator() session.Iterator {
+	return s.sessionIterator()
+}
 
-	for p := range parents {
-		s.solver.mu.Lock()
-		pst, ok := s.solver.actives[p]
-		s.solver.mu.Unlock()
-		if ok {
-			if sessionID := pst.getSessionID(); sessionID != "" {
-				return sessionID
+func (s *state) sessionIterator() *sessionGroup {
+	return &sessionGroup{state: s, visited: map[string]struct{}{}}
+}
+
+type sessionGroup struct {
+	*state
+	visited map[string]struct{}
+	parents []session.Iterator
+	mode    int
+}
+
+func (g *sessionGroup) NextSession() string {
+	if g.mode == 0 {
+		g.mu.Lock()
+		for j := range g.jobs {
+			if j.SessionID != "" {
+				if _, ok := g.visited[j.SessionID]; ok {
+					continue
+				}
+				g.visited[j.SessionID] = struct{}{}
+				g.mu.Unlock()
+				return j.SessionID
 			}
 		}
+		g.mu.Unlock()
+		g.mode = 1
 	}
-	return ""
+	if g.mode == 1 {
+		parents := map[digest.Digest]struct{}{}
+		g.mu.Lock()
+		for p := range g.state.parents {
+			parents[p] = struct{}{}
+		}
+		g.mu.Unlock()
+
+		for p := range parents {
+			g.solver.mu.Lock()
+			pst, ok := g.solver.actives[p]
+			g.solver.mu.Unlock()
+			if ok {
+				gg := pst.sessionIterator()
+				gg.visited = g.visited
+				g.parents = append(g.parents, gg)
+			}
+		}
+		g.mode = 2
+	}
+
+	for {
+		if len(g.parents) == 0 {
+			return ""
+		}
+		p := g.parents[0]
+		id := p.NextSession()
+		if id != "" {
+			return id
+		}
+		g.parents = g.parents[1:]
+	}
 }
 
 func (s *state) builder() *subBuilder {
@@ -170,9 +209,8 @@ func (sb *subBuilder) Build(ctx context.Context, e Edge) (CachedResult, error) {
 	return res, nil
 }
 
-func (sb *subBuilder) Context(ctx context.Context) context.Context {
-	ctx = session.NewContext(ctx, sb.state.getSessionID())
-	return opentracing.ContextWithSpan(progress.WithProgress(ctx, sb.mpw), sb.mspan)
+func (sb *subBuilder) InContext(ctx context.Context, f func(context.Context, session.Group) error) error {
+	return f(opentracing.ContextWithSpan(progress.WithProgress(ctx, sb.mpw), sb.mspan), sb.state)
 }
 
 func (sb *subBuilder) EachValue(ctx context.Context, key string, fn func(interface{}) error) error {
@@ -192,6 +230,7 @@ type Job struct {
 	pw     progress.Writer
 	span   opentracing.Span
 	values sync.Map
+	id     string
 
 	progressCloser func()
 	SessionID      string
@@ -227,6 +266,17 @@ func (jl *Solver) setEdge(e Edge, newEdge *edge) {
 	}
 
 	st.setEdge(e.Index, newEdge)
+}
+
+func (jl *Solver) getState(e Edge) *state {
+	jl.mu.RLock()
+	defer jl.mu.RUnlock()
+
+	st, ok := jl.actives[e.Vertex.Digest()]
+	if !ok {
+		return nil
+	}
+	return st
 }
 
 func (jl *Solver) getEdge(e Edge) *edge {
@@ -318,6 +368,7 @@ func (jl *Solver) loadUnlocked(v, parent Vertex, j *Job, cache map[Vertex]Vertex
 			mainCache:    jl.opts.DefaultCache,
 			cache:        map[string]CacheManager{},
 			solver:       jl,
+			origDigest:   origVtx.Digest(),
 		}
 		jl.actives[dgst] = st
 	}
@@ -390,6 +441,7 @@ func (jl *Solver) NewJob(id string) (*Job, error) {
 		pw:             pw,
 		progressCloser: progressCloser,
 		span:           (&opentracing.NoopTracer{}).StartSpan(""),
+		id:             id,
 	}
 	jl.jobs[id] = j
 
@@ -474,12 +526,19 @@ func (j *Job) Discard() error {
 		}
 		st.mu.Unlock()
 	}
+
+	go func() {
+		// don't clear job right away. there might still be a status request coming to read progress
+		time.Sleep(10 * time.Second)
+		j.list.mu.Lock()
+		defer j.list.mu.Unlock()
+		delete(j.list.jobs, j.id)
+	}()
 	return nil
 }
 
-func (j *Job) Context(ctx context.Context) context.Context {
-	ctx = session.NewContext(ctx, j.SessionID)
-	return progress.WithProgress(ctx, j.pw)
+func (j *Job) InContext(ctx context.Context, f func(context.Context, session.Group) error) error {
+	return f(progress.WithProgress(ctx, j.pw), session.NewGroup(j.SessionID))
 }
 
 func (j *Job) SetValue(key string, v interface{}) {
@@ -505,7 +564,7 @@ type activeOp interface {
 	Exec(ctx context.Context, inputs []Result) (outputs []Result, exporters []ExportableCacheKey, err error)
 	IgnoreCache() bool
 	Cache() CacheManager
-	CalcSlowCache(context.Context, Index, ResultBasedCacheFunc, Result) (digest.Digest, error)
+	CalcSlowCache(context.Context, Index, PreprocessFunc, ResultBasedCacheFunc, Result) (digest.Digest, error)
 }
 
 func newSharedOp(resolver ResolveOpFunc, cacheManager CacheManager, st *state) *sharedOp {
@@ -558,17 +617,24 @@ func (s *sharedOp) LoadCache(ctx context.Context, rec *CacheRecord) (Result, err
 	// no cache hit. start evaluating the node
 	span, ctx := tracing.StartSpan(ctx, "load cache: "+s.st.vtx.Name())
 	notifyStarted(ctx, &s.st.clientVertex, true)
-	res, err := s.Cache().Load(ctx, rec)
+	res, err := s.Cache().Load(withAncestorCacheOpts(ctx, s.st), rec)
 	tracing.FinishWithError(span, err)
 	notifyCompleted(ctx, &s.st.clientVertex, err, true)
 	return res, err
 }
 
-func (s *sharedOp) CalcSlowCache(ctx context.Context, index Index, f ResultBasedCacheFunc, res Result) (digest.Digest, error) {
+// CalcSlowCache computes the digest of an input that is ready and has been
+// evaluated, hence "slow" cache.
+func (s *sharedOp) CalcSlowCache(ctx context.Context, index Index, p PreprocessFunc, f ResultBasedCacheFunc, res Result) (dgst digest.Digest, err error) {
+	defer func() {
+		err = WrapSlowCache(err, index, NewSharedResult(res).Clone())
+		err = errdefs.WithOp(err, s.st.vtx.Sys())
+		err = errdefs.WrapVertex(err, s.st.origDigest)
+	}()
 	key, err := s.g.Do(ctx, fmt.Sprintf("slow-compute-%d", index), func(ctx context.Context) (interface{}, error) {
 		s.slowMu.Lock()
 		// TODO: add helpers for these stored values
-		if res := s.slowCacheRes[index]; res != "" {
+		if res, ok := s.slowCacheRes[index]; ok {
 			s.slowMu.Unlock()
 			return res, nil
 		}
@@ -577,14 +643,29 @@ func (s *sharedOp) CalcSlowCache(ctx context.Context, index Index, f ResultBased
 			return err, nil
 		}
 		s.slowMu.Unlock()
-		ctx = opentracing.ContextWithSpan(progress.WithProgress(ctx, s.st.mpw), s.st.mspan)
-		key, err := f(ctx, res)
+
 		complete := true
+		if p != nil {
+			st := s.st.solver.getState(s.st.vtx.Inputs()[index])
+			ctx2 := opentracing.ContextWithSpan(progress.WithProgress(ctx, st.mpw), st.mspan)
+			err = p(ctx2, res, st)
+			if err != nil {
+				f = nil
+				ctx = ctx2
+			}
+		}
+
+		var key digest.Digest
+		if f != nil {
+			ctx = opentracing.ContextWithSpan(progress.WithProgress(ctx, s.st.mpw), s.st.mspan)
+			key, err = f(withAncestorCacheOpts(ctx, s.st), res, s.st)
+		}
 		if err != nil {
 			select {
 			case <-ctx.Done():
 				if strings.Contains(err.Error(), context.Canceled.Error()) {
 					complete = false
+					releaseError(err)
 					err = errors.Wrap(ctx.Err(), err.Error())
 				}
 			default:
@@ -609,7 +690,11 @@ func (s *sharedOp) CalcSlowCache(ctx context.Context, index Index, f ResultBased
 	return key.(digest.Digest), nil
 }
 
-func (s *sharedOp) CacheMap(ctx context.Context, index int) (*cacheMapResp, error) {
+func (s *sharedOp) CacheMap(ctx context.Context, index int) (resp *cacheMapResp, err error) {
+	defer func() {
+		err = errdefs.WithOp(err, s.st.vtx.Sys())
+		err = errdefs.WrapVertex(err, s.st.origDigest)
+	}()
 	op, err := s.getOp()
 	if err != nil {
 		return nil, err
@@ -622,7 +707,7 @@ func (s *sharedOp) CacheMap(ctx context.Context, index int) (*cacheMapResp, erro
 			return nil, s.cacheErr
 		}
 		ctx = opentracing.ContextWithSpan(progress.WithProgress(ctx, s.st.mpw), s.st.mspan)
-		ctx = session.NewContext(ctx, s.st.getSessionID())
+		ctx = withAncestorCacheOpts(ctx, s.st)
 		if len(s.st.vtx.Inputs()) == 0 {
 			// no cache hit. start evaluating the node
 			span, ctx := tracing.StartSpan(ctx, "cache request: "+s.st.vtx.Name())
@@ -632,13 +717,14 @@ func (s *sharedOp) CacheMap(ctx context.Context, index int) (*cacheMapResp, erro
 				notifyCompleted(ctx, &s.st.clientVertex, retErr, false)
 			}()
 		}
-		res, done, err := op.CacheMap(ctx, len(s.cacheRes))
+		res, done, err := op.CacheMap(ctx, s.st, len(s.cacheRes))
 		complete := true
 		if err != nil {
 			select {
 			case <-ctx.Done():
 				if strings.Contains(err.Error(), context.Canceled.Error()) {
 					complete = false
+					releaseError(err)
 					err = errors.Wrap(ctx.Err(), err.Error())
 				}
 			default:
@@ -665,6 +751,10 @@ func (s *sharedOp) CacheMap(ctx context.Context, index int) (*cacheMapResp, erro
 }
 
 func (s *sharedOp) Exec(ctx context.Context, inputs []Result) (outputs []Result, exporters []ExportableCacheKey, err error) {
+	defer func() {
+		err = errdefs.WithOp(err, s.st.vtx.Sys())
+		err = errdefs.WrapVertex(err, s.st.origDigest)
+	}()
 	op, err := s.getOp()
 	if err != nil {
 		return nil, nil, err
@@ -675,7 +765,7 @@ func (s *sharedOp) Exec(ctx context.Context, inputs []Result) (outputs []Result,
 		}
 
 		ctx = opentracing.ContextWithSpan(progress.WithProgress(ctx, s.st.mpw), s.st.mspan)
-		ctx = session.NewContext(ctx, s.st.getSessionID())
+		ctx = withAncestorCacheOpts(ctx, s.st)
 
 		// no cache hit. start evaluating the node
 		span, ctx := tracing.StartSpan(ctx, s.st.vtx.Name())
@@ -685,13 +775,14 @@ func (s *sharedOp) Exec(ctx context.Context, inputs []Result) (outputs []Result,
 			notifyCompleted(ctx, &s.st.clientVertex, retErr, false)
 		}()
 
-		res, err := op.Exec(ctx, inputs)
+		res, err := op.Exec(ctx, s.st, inputs)
 		complete := true
 		if err != nil {
 			select {
 			case <-ctx.Done():
 				if strings.Contains(err.Error(), context.Canceled.Error()) {
 					complete = false
+					releaseError(err)
 					err = errors.Wrap(ctx.Err(), err.Error())
 				}
 			default:
@@ -803,4 +894,41 @@ func notifyCompleted(ctx context.Context, v *client.Vertex, err error, cached bo
 		v.Error = err.Error()
 	}
 	pw.Write(v.Digest.String(), *v)
+}
+
+type SlowCacheError struct {
+	error
+	Index  Index
+	Result Result
+}
+
+func (e *SlowCacheError) Unwrap() error {
+	return e.error
+}
+
+func (e *SlowCacheError) ToSubject() errdefs.IsSolve_Subject {
+	return &errdefs.Solve_Cache{
+		Cache: &errdefs.ContentCache{
+			Index: int64(e.Index),
+		},
+	}
+}
+
+func WrapSlowCache(err error, index Index, res Result) error {
+	if err == nil {
+		return nil
+	}
+	return &SlowCacheError{Index: index, Result: res, error: err}
+}
+
+func releaseError(err error) {
+	if err == nil {
+		return
+	}
+	if re, ok := err.(interface {
+		Release() error
+	}); ok {
+		re.Release()
+	}
+	releaseError(errors.Unwrap(err))
 }

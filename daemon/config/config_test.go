@@ -8,11 +8,12 @@ import (
 
 	"github.com/docker/docker/daemon/discovery"
 	"github.com/docker/docker/opts"
+	"github.com/docker/libnetwork/ipamutils"
 	"github.com/spf13/pflag"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/fs"
-	"gotest.tools/skip"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/fs"
+	"gotest.tools/v3/skip"
 )
 
 func TestDaemonConfigurationNotFound(t *testing.T) {
@@ -153,6 +154,48 @@ func TestDaemonConfigurationMergeConflictsWithInnerStructs(t *testing.T) {
 	}
 }
 
+// Test for #40711
+func TestDaemonConfigurationMergeDefaultAddressPools(t *testing.T) {
+	emptyConfigFile := fs.NewFile(t, "config", fs.WithContent(`{}`))
+	defer emptyConfigFile.Remove()
+	configFile := fs.NewFile(t, "config", fs.WithContent(`{"default-address-pools":[{"base": "10.123.0.0/16", "size": 24 }]}`))
+	defer configFile.Remove()
+
+	expected := []*ipamutils.NetworkToSplit{{Base: "10.123.0.0/16", Size: 24}}
+
+	t.Run("empty config file", func(t *testing.T) {
+		var conf = Config{}
+		flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		flags.Var(&conf.NetworkConfig.DefaultAddressPools, "default-address-pool", "")
+		flags.Set("default-address-pool", "base=10.123.0.0/16,size=24")
+
+		config, err := MergeDaemonConfigurations(&conf, flags, emptyConfigFile.Path())
+		assert.NilError(t, err)
+		assert.DeepEqual(t, config.DefaultAddressPools.Value(), expected)
+	})
+
+	t.Run("config file", func(t *testing.T) {
+		var conf = Config{}
+		flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		flags.Var(&conf.NetworkConfig.DefaultAddressPools, "default-address-pool", "")
+
+		config, err := MergeDaemonConfigurations(&conf, flags, configFile.Path())
+		assert.NilError(t, err)
+		assert.DeepEqual(t, config.DefaultAddressPools.Value(), expected)
+	})
+
+	t.Run("with conflicting options", func(t *testing.T) {
+		var conf = Config{}
+		flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+		flags.Var(&conf.NetworkConfig.DefaultAddressPools, "default-address-pool", "")
+		flags.Set("default-address-pool", "base=10.123.0.0/16,size=24")
+
+		_, err := MergeDaemonConfigurations(&conf, flags, configFile.Path())
+		assert.ErrorContains(t, err, "the following directives are specified both as a flag and in the configuration file")
+		assert.ErrorContains(t, err, "default-address-pools")
+	})
+}
+
 func TestFindConfigurationConflictsWithUnknownKeys(t *testing.T) {
 	config := map[string]interface{}{"tls-verify": "true"}
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
@@ -188,60 +231,34 @@ func TestFindConfigurationConflictsWithMergedValues(t *testing.T) {
 	}
 }
 
-func TestValidateReservedNamespaceLabels(t *testing.T) {
-	for _, validLabels := range [][]string{
-		nil, // no error if there are no labels
-		{ // no error if there aren't any reserved namespace labels
-			"hello=world",
-			"label=me",
-		},
-		{ // only reserved namespaces that end with a dot are invalid
-			"com.dockerpsychnotreserved.label=value",
-			"io.dockerproject.not=reserved",
-			"org.docker.not=reserved",
-		},
-	} {
-		assert.Check(t, ValidateReservedNamespaceLabels(validLabels))
-	}
-
-	for _, invalidLabel := range []string{
-		"com.docker.feature=enabled",
-		"io.docker.configuration=0",
-		"org.dockerproject.setting=on",
-		// casing doesn't matter
-		"COM.docker.feature=enabled",
-		"io.DOCKER.CONFIGURATION=0",
-		"Org.Dockerproject.Setting=on",
-	} {
-		err := ValidateReservedNamespaceLabels([]string{
-			"valid=label",
-			invalidLabel,
-			"another=valid",
-		})
-		assert.Check(t, is.ErrorContains(err, invalidLabel))
-	}
-}
-
 func TestValidateConfigurationErrors(t *testing.T) {
-	minusNumber := -10
+	intPtr := func(i int) *int { return &i }
+
 	testCases := []struct {
-		config *Config
+		name        string
+		config      *Config
+		expectedErr string
 	}{
 		{
+			name: "single label without value",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					Labels: []string{"one"},
 				},
 			},
+			expectedErr: "bad attribute format: one",
 		},
 		{
+			name: "multiple label without value",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					Labels: []string{"foo=bar", "one"},
 				},
 			},
+			expectedErr: "bad attribute format: one",
 		},
 		{
+			name: "single DNS, invalid IP-address",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					DNSConfig: DNSConfig{
@@ -249,8 +266,10 @@ func TestValidateConfigurationErrors(t *testing.T) {
 					},
 				},
 			},
+			expectedErr: "1.1.1.1o is not an ip address",
 		},
 		{
+			name: "multiple DNS, invalid IP-address",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					DNSConfig: DNSConfig{
@@ -258,8 +277,10 @@ func TestValidateConfigurationErrors(t *testing.T) {
 					},
 				},
 			},
+			expectedErr: "1.1.1.1o is not an ip address",
 		},
 		{
+			name: "single DNSSearch",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					DNSConfig: DNSConfig{
@@ -267,8 +288,10 @@ func TestValidateConfigurationErrors(t *testing.T) {
 					},
 				},
 			},
+			expectedErr: "123456 is not a valid domain",
 		},
 		{
+			name: "multiple DNSSearch",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					DNSConfig: DNSConfig{
@@ -276,58 +299,63 @@ func TestValidateConfigurationErrors(t *testing.T) {
 					},
 				},
 			},
+			expectedErr: "123456 is not a valid domain",
 		},
 		{
+			name: "negative max-concurrent-downloads",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxConcurrentDownloads: &minusNumber,
-					// This is weird...
-					ValuesSet: map[string]interface{}{
-						"max-concurrent-downloads": -1,
-					},
+					MaxConcurrentDownloads: intPtr(-10),
 				},
 			},
+			expectedErr: "invalid max concurrent downloads: -10",
 		},
 		{
+			name: "negative max-concurrent-uploads",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxConcurrentUploads: &minusNumber,
-					// This is weird...
-					ValuesSet: map[string]interface{}{
-						"max-concurrent-uploads": -1,
-					},
+					MaxConcurrentUploads: intPtr(-10),
 				},
 			},
+			expectedErr: "invalid max concurrent uploads: -10",
 		},
 		{
+			name: "negative max-download-attempts",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo"},
+					MaxDownloadAttempts: intPtr(-10),
 				},
 			},
+			expectedErr: "invalid max download attempts: -10",
 		},
 		{
+			name: "zero max-download-attempts",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=bar", "foo=1"},
+					MaxDownloadAttempts: intPtr(0),
 				},
 			},
+			expectedErr: "invalid max download attempts: 0",
 		},
+		// remove swarm-specific test cases
 	}
 	for _, tc := range testCases {
-		err := Validate(tc.config)
-		if err == nil {
-			t.Fatalf("expected error, got nil for config %v", tc.config)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(tc.config)
+			assert.Error(t, err, tc.expectedErr)
+		})
 	}
 }
 
 func TestValidateConfiguration(t *testing.T) {
-	minusNumber := 4
+	intPtr := func(i int) *int { return &i }
+
 	testCases := []struct {
+		name   string
 		config *Config
 	}{
 		{
+			name: "with label",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					Labels: []string{"one=two"},
@@ -335,6 +363,7 @@ func TestValidateConfiguration(t *testing.T) {
 			},
 		},
 		{
+			name: "with dns",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					DNSConfig: DNSConfig{
@@ -344,6 +373,7 @@ func TestValidateConfiguration(t *testing.T) {
 			},
 		},
 		{
+			name: "with dns-search",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					DNSConfig: DNSConfig{
@@ -353,33 +383,44 @@ func TestValidateConfiguration(t *testing.T) {
 			},
 		},
 		{
+			name: "with max-concurrent-downloads",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxConcurrentDownloads: &minusNumber,
-					// This is weird...
-					ValuesSet: map[string]interface{}{
-						"max-concurrent-downloads": -1,
-					},
+					MaxConcurrentDownloads: intPtr(4),
 				},
 			},
 		},
 		{
+			name: "with max-concurrent-uploads",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxConcurrentUploads: &minusNumber,
-					// This is weird...
-					ValuesSet: map[string]interface{}{
-						"max-concurrent-uploads": -1,
-					},
+					MaxConcurrentUploads: intPtr(4),
+				},
+			},
+		},
+		{
+			name: "with max-download-attempts",
+			config: &Config{
+				CommonConfig: CommonConfig{
+					MaxDownloadAttempts: intPtr(4),
+				},
+			},
+		},
+		// remove swarm-specific test cases
+		{
+			name: "with max-upload-attempts",
+			config: &Config{
+				CommonConfig: CommonConfig{
+					MaxUploadAttempts: intPtr(4),
 				},
 			},
 		},
 	}
 	for _, tc := range testCases {
-		err := Validate(tc.config)
-		if err != nil {
-			t.Fatalf("expected no error, got error %v", err)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(tc.config)
+			assert.NilError(t, err)
+		})
 	}
 }
 

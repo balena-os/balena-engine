@@ -9,14 +9,14 @@ import (
 	"github.com/docker/docker/api/types/network"
 	testcontainer "github.com/docker/docker/integration/internal/container"
 
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
 )
 
 func TestContainerIDEnvOK(t *testing.T) {
 	defer setupTest(t)()
 
-	var cidEnv = "CONTAINER_ID"
+	cidEnv := "CONTAINER_ID"
 	ctx := context.Background()
 	apiclient := testEnv.APIClient()
 
@@ -30,7 +30,7 @@ func TestContainerIDEnvOK(t *testing.T) {
 		},
 		NetworkingConfig: &network.NetworkingConfig{},
 	}
-	resp, err := apiclient.ContainerCreate(ctx, config.Config, config.HostConfig, config.NetworkingConfig, config.Name)
+	resp, err := apiclient.ContainerCreate(ctx, config.Config, config.HostConfig, config.NetworkingConfig, nil, config.Name)
 	assert.NilError(t, err)
 
 	c, err := apiclient.ContainerInspect(ctx, resp.ID)
@@ -42,7 +42,7 @@ func TestContainerIDEnvOK(t *testing.T) {
 func TestContainerIDEnvVariableExists(t *testing.T) {
 	defer setupTest(t)()
 
-	var cidEnv = "PATH"
+	cidEnv := "PATH"
 	ctx := context.Background()
 	apiclient := testEnv.APIClient()
 
@@ -56,6 +56,6 @@ func TestContainerIDEnvVariableExists(t *testing.T) {
 		},
 		NetworkingConfig: &network.NetworkingConfig{},
 	}
-	_, err := apiclient.ContainerCreate(ctx, config.Config, config.HostConfig, config.NetworkingConfig, config.Name)
+	_, err := apiclient.ContainerCreate(ctx, config.Config, config.HostConfig, config.NetworkingConfig, nil, config.Name)
 	assert.ErrorContains(t, err, fmt.Sprintf("environment variable %s already defined", cidEnv))
 }

@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/internal/test/daemon"
-	"gotest.tools/assert"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/daemon"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/skip"
 )
 
 // Regression test for #35553

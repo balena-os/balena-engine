@@ -9,10 +9,10 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/cmd/mobynit/hostapp"
-	"github.com/docker/docker/internal/test/daemon"
+	"github.com/docker/docker/testutil/daemon"
 
-	"gotest.tools/assert"
-	"gotest.tools/skip"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/skip"
 )
 
 func TestMobynitMountContainer(t *testing.T) {
@@ -30,6 +30,7 @@ func TestMobynitMountContainer(t *testing.T) {
 		&container.Config{Image: "busybox:latest"},
 		&container.HostConfig{Runtime: "bare"},
 		&network.NetworkingConfig{},
+		nil,
 		"",
 	)
 	assert.NilError(t, err)

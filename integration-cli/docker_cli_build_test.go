@@ -19,17 +19,17 @@ import (
 
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"github.com/docker/docker/internal/test/fakecontext"
-	"github.com/docker/docker/internal/test/fakegit"
-	"github.com/docker/docker/internal/test/fakestorage"
-	"github.com/docker/docker/internal/testutil"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/system"
+	"github.com/docker/docker/testutil"
+	"github.com/docker/docker/testutil/fakecontext"
+	"github.com/docker/docker/testutil/fakegit"
+	"github.com/docker/docker/testutil/fakestorage"
 	"github.com/moby/buildkit/frontend/dockerfile/command"
-	"github.com/opencontainers/go-digest"
-	"gotest.tools/assert"
-	"gotest.tools/assert/cmp"
-	"gotest.tools/icmd"
+	digest "github.com/opencontainers/go-digest"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/icmd"
 )
 
 func (s *DockerSuite) TestBuildJSONEmptyRun(c *testing.T) {
@@ -390,7 +390,7 @@ func (s *DockerSuite) TestBuildCacheAdd(c *testing.T) {
 }
 
 func (s *DockerSuite) TestBuildLastModified(c *testing.T) {
-	// Temporary fix for #30890. TODO @jhowardmsft figure out what
+	// Temporary fix for #30890. TODO: figure out what
 	// has changed in the master busybox image.
 	testRequires(c, DaemonIsLinux)
 
@@ -490,7 +490,7 @@ func (s *DockerSuite) TestBuildAddSingleFileToWorkdir(c *testing.T) {
 		}))
 	defer ctx.Close()
 
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	go func() {
 		errChan <- buildImage(name, build.WithExternalBuildContext(ctx)).Error
 		close(errChan)
@@ -833,7 +833,7 @@ COPY test_file .`),
 		}))
 	defer ctx.Close()
 
-	errChan := make(chan error)
+	errChan := make(chan error, 1)
 	go func() {
 		errChan <- buildImage(name, build.WithExternalBuildContext(ctx)).Error
 		close(errChan)
@@ -998,7 +998,7 @@ func (s *DockerSuite) TestBuildAddBadLinks(c *testing.T) {
 	}
 
 	buildImageSuccessfully(c, name, build.WithExternalBuildContext(ctx))
-	if _, err := os.Stat(nonExistingFile); err == nil || err != nil && !os.IsNotExist(err) {
+	if _, err := os.Stat(nonExistingFile); err == nil || !os.IsNotExist(err) {
 		c.Fatalf("%s shouldn't have been written and it shouldn't exist", nonExistingFile)
 	}
 
@@ -1039,7 +1039,7 @@ func (s *DockerSuite) TestBuildAddBadLinksVolume(c *testing.T) {
 	}
 
 	buildImageSuccessfully(c, "test-link-absolute-volume", build.WithExternalBuildContext(ctx))
-	if _, err := os.Stat(nonExistingFile); err == nil || err != nil && !os.IsNotExist(err) {
+	if _, err := os.Stat(nonExistingFile); err == nil || !os.IsNotExist(err) {
 		c.Fatalf("%s shouldn't have been written and it shouldn't exist", nonExistingFile)
 	}
 
@@ -1347,7 +1347,7 @@ func (s *DockerSuite) TestBuildWindowsWorkdirProcessing(c *testing.T) {
 // One functional test for end-to-end
 func (s *DockerSuite) TestBuildWindowsAddCopyPathProcessing(c *testing.T) {
 	testRequires(c, DaemonIsWindows)
-	// TODO Windows (@jhowardmsft). Needs a follow-up PR to 22181 to
+	// TODO Windows. Needs a follow-up PR to 22181 to
 	// support backslash such as .\\ being equivalent to ./ and c:\\ being
 	// equivalent to c:/. This is not currently (nor ever has been) supported
 	// by docker on the Windows platform.
@@ -2189,18 +2189,13 @@ func (s *DockerSuite) TestBuildEntrypointRunCleanup(c *testing.T) {
 
 func (s *DockerSuite) TestBuildAddFileNotFound(c *testing.T) {
 	name := "testbuildaddnotfound"
-	expected := "foo: no such file or directory"
-
-	if testEnv.OSType == "windows" {
-		expected = "foo: The system cannot find the file specified"
-	}
 
 	buildImage(name, build.WithBuildContext(c,
 		build.WithFile("Dockerfile", `FROM `+minimalBaseImage()+`
         ADD foo /usr/local/bar`),
 		build.WithFile("bar", "hello"))).Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      expected,
+		Err:      "stat foo: file does not exist",
 	})
 }
 
@@ -3427,7 +3422,7 @@ func (s *DockerSuite) TestBuildLabelsCache(c *testing.T) {
 func (s *DockerSuite) TestBuildNotVerboseSuccess(c *testing.T) {
 	// This test makes sure that -q works correctly when build is successful:
 	// stdout has only the image ID (long image ID) and stderr is empty.
-	outRegexp := regexp.MustCompile("^(sha256:|)[a-z0-9]{64}\\n$")
+	outRegexp := regexp.MustCompile(`^(sha256:|)[a-z0-9]{64}\n$`)
 	buildFlags := cli.WithFlags("-q")
 
 	tt := []struct {
@@ -5610,31 +5605,6 @@ func (s *DockerSuite) TestBuildWithExtraHostInvalidFormat(c *testing.T) {
 			ExitCode: 125,
 		})
 	}
-
-}
-
-func (s *DockerSuite) TestBuildContChar(c *testing.T) {
-	name := "testbuildcontchar"
-
-	buildImage(name, build.WithDockerfile(`FROM busybox\`)).Assert(c, icmd.Expected{
-		Out: "Step 1/1 : FROM busybox",
-	})
-
-	result := buildImage(name, build.WithDockerfile(`FROM busybox
-		 RUN echo hi \`))
-	result.Assert(c, icmd.Success)
-	assert.Assert(c, strings.Contains(result.Combined(), "Step 1/2 : FROM busybox"))
-	assert.Assert(c, strings.Contains(result.Combined(), "Step 2/2 : RUN echo hi\n"))
-	result = buildImage(name, build.WithDockerfile(`FROM busybox
-		 RUN echo hi \\`))
-	result.Assert(c, icmd.Success)
-	assert.Assert(c, strings.Contains(result.Combined(), "Step 1/2 : FROM busybox"))
-	assert.Assert(c, strings.Contains(result.Combined(), "Step 2/2 : RUN echo hi \\\n"))
-	result = buildImage(name, build.WithDockerfile(`FROM busybox
-		 RUN echo hi \\\`))
-	result.Assert(c, icmd.Success)
-	assert.Assert(c, strings.Contains(result.Combined(), "Step 1/2 : FROM busybox"))
-	assert.Assert(c, strings.Contains(result.Combined(), "Step 2/2 : RUN echo hi \\\\\n"))
 }
 
 func (s *DockerSuite) TestBuildMultiStageCopyFromSyntax(c *testing.T) {
@@ -6105,7 +6075,7 @@ func (s *DockerSuite) TestBuildLineErrorOnBuild(c *testing.T) {
   ONBUILD
   `)).Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "Dockerfile parse error line 2: ONBUILD requires at least one argument",
+		Err:      "parse error line 2: ONBUILD requires at least one argument",
 	})
 }
 
@@ -6119,7 +6089,7 @@ func (s *DockerSuite) TestBuildLineErrorUnknownInstruction(c *testing.T) {
   ERROR
   `)).Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "Dockerfile parse error line 3: unknown instruction: NOINSTRUCTION",
+		Err:      "parse error line 3: unknown instruction: NOINSTRUCTION",
 	})
 }
 
@@ -6136,7 +6106,7 @@ func (s *DockerSuite) TestBuildLineErrorWithEmptyLines(c *testing.T) {
   CMD ["/bin/init"]
   `)).Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "Dockerfile parse error line 6: unknown instruction: NOINSTRUCTION",
+		Err:      "parse error line 6: unknown instruction: NOINSTRUCTION",
 	})
 }
 
@@ -6150,7 +6120,7 @@ func (s *DockerSuite) TestBuildLineErrorWithComments(c *testing.T) {
   NOINSTRUCTION echo ba
   `)).Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "Dockerfile parse error line 5: unknown instruction: NOINSTRUCTION",
+		Err:      "parse error line 5: unknown instruction: NOINSTRUCTION",
 	})
 }
 

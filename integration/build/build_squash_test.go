@@ -11,12 +11,12 @@ import (
 	"github.com/docker/docker/api/types"
 	dclient "github.com/docker/docker/client"
 	"github.com/docker/docker/integration/internal/container"
-	"github.com/docker/docker/internal/test/daemon"
-	"github.com/docker/docker/internal/test/fakecontext"
 	"github.com/docker/docker/pkg/stdcopy"
-	"gotest.tools/assert"
-	is "gotest.tools/assert/cmp"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/daemon"
+	"github.com/docker/docker/testutil/fakecontext"
+	"gotest.tools/v3/assert"
+	is "gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/skip"
 )
 
 func TestBuildSquashParent(t *testing.T) {
@@ -26,7 +26,7 @@ func TestBuildSquashParent(t *testing.T) {
 	if !testEnv.DaemonInfo.ExperimentalBuild {
 		skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 
-		d := daemon.New(t, daemon.WithExperimental)
+		d := daemon.New(t, daemon.WithExperimental())
 		d.StartWithBusybox(t)
 		defer d.Stop(t)
 		client = d.NewClientT(t)
@@ -48,7 +48,7 @@ func TestBuildSquashParent(t *testing.T) {
 	source := fakecontext.New(t, "", fakecontext.WithDockerfile(dockerfile))
 	defer source.Close()
 
-	name := "test"
+	name := strings.ToLower(t.Name())
 	resp, err := client.ImageBuild(ctx,
 		source.AsTarReader(t),
 		types.ImageBuildOptions{

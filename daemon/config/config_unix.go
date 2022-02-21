@@ -7,7 +7,7 @@ import (
 
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/opts"
-	"github.com/docker/go-units"
+	units "github.com/docker/go-units"
 )
 
 const (
@@ -37,6 +37,7 @@ type Config struct {
 	ShmSize              opts.MemBytes            `json:"default-shm-size,omitempty"`
 	NoNewPrivileges      bool                     `json:"no-new-privileges,omitempty"`
 	IpcMode              string                   `json:"default-ipc-mode,omitempty"`
+	CgroupNamespaceMode  string                   `json:"default-cgroupns-mode,omitempty"`
 	// ResolvConf is the path to the configuration of the host resolver
 	ResolvConf string `json:"resolv-conf,omitempty"`
 	Rootless   bool   `json:"rootless,omitempty"`
@@ -53,6 +54,7 @@ type BridgeConfig struct {
 	// Fields below here are platform specific.
 	EnableIPv6          bool   `json:"ipv6,omitempty"`
 	EnableIPTables      bool   `json:"iptables,omitempty"`
+	EnableIP6Tables     bool   `json:"ip6tables,omitempty"`
 	EnableIPForward     bool   `json:"ip-forward,omitempty"`
 	EnableIPMasq        bool   `json:"ip-masq,omitempty"`
 	EnableUserlandProxy bool   `json:"userland-proxy,omitempty"`
@@ -84,9 +86,22 @@ func verifyDefaultIpcMode(mode string) error {
 	return nil
 }
 
+func verifyDefaultCgroupNsMode(mode string) error {
+	cm := containertypes.CgroupnsMode(mode)
+	if !cm.Valid() {
+		return fmt.Errorf("Default cgroup namespace mode (%v) is invalid. Use \"host\" or \"private\".", cm) // nolint: golint
+	}
+
+	return nil
+}
+
 // ValidatePlatformConfig checks if any platform-specific configuration settings are invalid.
 func (conf *Config) ValidatePlatformConfig() error {
-	return verifyDefaultIpcMode(conf.IpcMode)
+	if err := verifyDefaultIpcMode(conf.IpcMode); err != nil {
+		return err
+	}
+
+	return verifyDefaultCgroupNsMode(conf.CgroupNamespaceMode)
 }
 
 // IsRootless returns conf.Rootless

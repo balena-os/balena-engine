@@ -12,11 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/internal/test/daemon"
-	"github.com/docker/docker/internal/test/environment"
 	"github.com/docker/docker/pkg/authorization"
 	"github.com/docker/docker/pkg/plugins"
-	"gotest.tools/skip"
+	"github.com/docker/docker/testutil/daemon"
+	"github.com/docker/docker/testutil/environment"
+	"gotest.tools/v3/skip"
 )
 
 var (
@@ -51,9 +51,10 @@ func TestMain(m *testing.M) {
 func setupTest(t *testing.T) func() {
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
+	skip.If(t, testEnv.IsRootless, "rootless mode has different view of localhost")
 	environment.ProtectAll(t, testEnv)
 
-	d = daemon.New(t, daemon.WithExperimental)
+	d = daemon.New(t, daemon.WithExperimental())
 
 	return func() {
 		if d != nil {

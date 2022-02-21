@@ -8,15 +8,15 @@ import (
 	"strings"
 	"testing"
 
-	"gotest.tools/fs"
+	"gotest.tools/v3/fs"
 
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/container"
 	swarmagent "github.com/docker/swarmkit/agent"
 	swarmapi "github.com/docker/swarmkit/api"
-	"github.com/opencontainers/runtime-spec/specs-go"
+	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/sys/windows/registry"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 func TestSetWindowsCredentialSpecInSpec(t *testing.T) {

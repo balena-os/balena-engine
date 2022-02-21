@@ -24,6 +24,7 @@ import (
 	"github.com/docker/docker/daemon/logger/loggerutils"
 	"github.com/docker/docker/pkg/pools"
 	"github.com/docker/docker/pkg/urlutil"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -41,9 +42,11 @@ const (
 	splunkVerifyConnectionKey     = "splunk-verify-connection"
 	splunkGzipCompressionKey      = "splunk-gzip"
 	splunkGzipCompressionLevelKey = "splunk-gzip-level"
+	splunkIndexAcknowledgment     = "splunk-index-acknowledgment"
 	envKey                        = "env"
 	envRegexKey                   = "env-regex"
 	labelsKey                     = "labels"
+	labelsRegexKey                = "labels-regex"
 	tagKey                        = "tag"
 )
 
@@ -90,6 +93,7 @@ type splunkLogger struct {
 	postMessagesFrequency time.Duration
 	postMessagesBatchSize int
 	bufferMaximum         int
+	indexAck              bool
 
 	// For synchronization between background worker and logger.
 	// We use channel to send messages to worker go routine.
@@ -216,6 +220,14 @@ func New(info logger.Info) (logger.Logger, error) {
 		}
 	}
 
+	indexAck := false
+	if indexAckStr, ok := info.Config[splunkIndexAcknowledgment]; ok {
+		indexAck, err = strconv.ParseBool(indexAckStr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 		Proxy:           http.ProxyFromEnvironment,
@@ -268,6 +280,7 @@ func New(info logger.Info) (logger.Logger, error) {
 		postMessagesFrequency: postMessagesFrequency,
 		postMessagesBatchSize: postMessagesBatchSize,
 		bufferMaximum:         bufferMaximum,
+		indexAck:              indexAck,
 	}
 
 	// By default we verify connection, but we allow use to skip that
@@ -494,7 +507,7 @@ func (l *splunkLogger) tryPostMessages(ctx context.Context, messages []*splunkMe
 			return err
 		}
 	}
-	req, err := http.NewRequest("POST", l.url, bytes.NewBuffer(buffer.Bytes()))
+	req, err := http.NewRequest(http.MethodPost, l.url, bytes.NewBuffer(buffer.Bytes()))
 	if err != nil {
 		return err
 	}
@@ -503,6 +516,14 @@ func (l *splunkLogger) tryPostMessages(ctx context.Context, messages []*splunkMe
 	// Tell if we are sending gzip compressed body
 	if l.gzipCompression {
 		req.Header.Set("Content-Encoding", "gzip")
+	}
+	// Set the correct header if index acknowledgment is enabled
+	if l.indexAck {
+		requestChannel, err := uuid.NewRandom()
+		if err != nil {
+			return err
+		}
+		req.Header.Set("X-Splunk-Request-Channel", requestChannel.String())
 	}
 	resp, err := l.client.Do(req)
 	if err != nil {
@@ -562,9 +583,11 @@ func ValidateLogOpt(cfg map[string]string) error {
 		case splunkVerifyConnectionKey:
 		case splunkGzipCompressionKey:
 		case splunkGzipCompressionLevelKey:
+		case splunkIndexAcknowledgment:
 		case envKey:
 		case envRegexKey:
 		case labelsKey:
+		case labelsRegexKey:
 		case tagKey:
 		default:
 			return fmt.Errorf("unknown log opt '%s' for %s log driver", key, driverName)

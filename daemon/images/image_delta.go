@@ -29,12 +29,12 @@ import (
 func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.ImageDeltaOptions, outStream io.Writer) error {
 	progressOutput := streamformatter.NewJSONProgressOutput(outStream, false)
 
-	srcImg, err := i.GetImage(deltaSrc)
+	srcImg, err := i.GetImage(deltaSrc, nil)
 	if err != nil {
 		return errors.Wrapf(err, "no such image: %s", deltaSrc)
 	}
 
-	dstImg, err := i.GetImage(deltaDest)
+	dstImg, err := i.GetImage(deltaDest, nil)
 	if err != nil {
 		return errors.Wrapf(err, "no such image: %s", deltaDest)
 	}

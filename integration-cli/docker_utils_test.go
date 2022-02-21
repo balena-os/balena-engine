@@ -19,10 +19,10 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/daemon"
-	"gotest.tools/assert"
-	"gotest.tools/assert/cmp"
-	"gotest.tools/icmd"
-	"gotest.tools/poll"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/icmd"
+	"gotest.tools/v3/poll"
 )
 
 func deleteImages(images ...string) error {
@@ -41,6 +41,7 @@ func dockerCmdWithError(args ...string) (string, int, error) {
 
 // Deprecated: use cli.Docker or cli.DockerCmd
 func dockerCmd(c testing.TB, args ...string) (string, int) {
+	c.Helper()
 	result := cli.DockerCmd(c, args...)
 	return result.Combined(), result.ExitCode
 }
@@ -172,20 +173,6 @@ func inspectMountPointJSON(j, destination string) (types.MountPoint, error) {
 	}
 
 	return *m, nil
-}
-
-// Deprecated: use cli.Inspect
-func inspectImage(c *testing.T, name, filter string) string {
-	c.Helper()
-	args := []string{"inspect", "--type", "image"}
-	if filter != "" {
-		format := fmt.Sprintf("{{%s}}", filter)
-		args = append(args, "-f", format)
-	}
-	args = append(args, name)
-	result := icmd.RunCommand(dockerBinary, args...)
-	result.Assert(c, icmd.Success)
-	return strings.TrimSpace(result.Combined())
 }
 
 func getIDByName(c *testing.T, name string) string {

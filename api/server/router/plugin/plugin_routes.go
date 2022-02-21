@@ -123,7 +123,7 @@ func (pr *pluginRouter) upgradePlugin(ctx context.Context, w http.ResponseWriter
 		if !output.Flushed() {
 			return err
 		}
-		output.Write(streamformatter.FormatError(err))
+		_, _ = output.Write(streamformatter.FormatError(err))
 	}
 
 	return nil
@@ -162,7 +162,7 @@ func (pr *pluginRouter) pullPlugin(ctx context.Context, w http.ResponseWriter, r
 		if !output.Flushed() {
 			return err
 		}
-		output.Write(streamformatter.FormatError(err))
+		_, _ = output.Write(streamformatter.FormatError(err))
 	}
 
 	return nil
@@ -211,7 +211,7 @@ func (pr *pluginRouter) createPlugin(ctx context.Context, w http.ResponseWriter,
 	if err := pr.backend.CreateFromContext(ctx, r.Body, options); err != nil {
 		return err
 	}
-	//TODO: send progress bar
+	// TODO: send progress bar
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -270,7 +270,7 @@ func (pr *pluginRouter) pushPlugin(ctx context.Context, w http.ResponseWriter, r
 		if !output.Flushed() {
 			return err
 		}
-		output.Write(streamformatter.FormatError(err))
+		_, _ = output.Write(streamformatter.FormatError(err))
 	}
 	return nil
 }

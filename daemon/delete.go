@@ -11,6 +11,7 @@ import (
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/system"
+	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -54,13 +55,13 @@ func (daemon *Daemon) rmLink(container *container.Container, name string) error 
 	}
 	parent, n := path.Split(name)
 	if parent == "/" {
-		return fmt.Errorf("Conflict, cannot remove the default name of the container")
+		return fmt.Errorf("Conflict, cannot remove the default link name of the container")
 	}
 
 	parent = strings.TrimSuffix(parent, "/")
 	pe, err := daemon.containersReplica.Snapshot().GetID(parent)
 	if err != nil {
-		return fmt.Errorf("Cannot get parent %s for name %s", parent, name)
+		return fmt.Errorf("Cannot get parent %s for link name %s", parent, name)
 	}
 
 	daemon.releaseName(name)
@@ -134,7 +135,7 @@ func (daemon *Daemon) cleanupContainer(container *container.Container, forceRemo
 	}
 
 	linkNames := daemon.linkIndex.delete(container)
-	selinuxFreeLxcContexts(container.ProcessLabel)
+	selinux.ReleaseLabel(container.ProcessLabel)
 	daemon.idIndex.Delete(container.ID)
 	daemon.containers.Delete(container.ID)
 	daemon.containersReplica.Delete(container)

@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/pkg/parsers/kernel"
-	"gotest.tools/assert"
-	"gotest.tools/icmd"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/icmd"
 )
 
 // Regression test for https://github.com/docker/docker/issues/7843
@@ -25,7 +26,7 @@ func (s *DockerSuite) TestStartAttachReturnsOnError(c *testing.T) {
 	// err shouldn't be nil because container test2 try to link to stopped container
 	assert.Assert(c, err != nil, "out: %s", out)
 
-	ch := make(chan error)
+	ch := make(chan error, 1)
 	go func() {
 		// Attempt to start attached to the container that won't start
 		// This should return an error immediately since the container can't be started
@@ -196,7 +197,7 @@ func (s *DockerSuite) TestStartReturnCorrectExitCode(c *testing.T) {
 		v, err := kernel.GetKernelVersion()
 		assert.NilError(c, err)
 		build, _ := strconv.Atoi(strings.Split(strings.SplitN(v.String(), " ", 3)[2][1:], ".")[0])
-		if build < 16299 {
+		if build < osversion.RS3 {
 			c.Skip("FLAKY on Windows RS1, see #38521")
 		}
 	}

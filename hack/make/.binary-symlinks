@@ -19,4 +19,4 @@ symlink_binaries() {
     done
 }
 
-symlink_binaries "$BINARY_SHORT_NAME" "$DEST"
+symlink_binaries balena-engine "$DEST"
