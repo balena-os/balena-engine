@@ -127,7 +127,7 @@ type service struct {
 	cancel func()
 }
 
-func newCommand(ctx context.Context, id, containerdBinary, containerdAddress, containerdTTRPCAddress string) (*exec.Cmd, error) {
+func newCommand(ctx context.Context, id, containerdBinary, containerdBinaryArgv0, containerdAddress, containerdTTRPCAddress string) (*exec.Cmd, error) {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return nil, err
@@ -146,6 +146,7 @@ func newCommand(ctx context.Context, id, containerdBinary, containerdAddress, co
 		"-address", containerdAddress,
 	}
 	cmd := exec.Command(self, args...)
+	cmd.Args[0] = containerdBinaryArgv0
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "GOMAXPROCS=4")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -167,8 +168,8 @@ func readSpec() (*spec, error) {
 	return &s, nil
 }
 
-func (s *service) StartShim(ctx context.Context, id, containerdBinary, containerdAddress, containerdTTRPCAddress string) (_ string, retErr error) {
-	cmd, err := newCommand(ctx, id, containerdBinary, containerdAddress, containerdTTRPCAddress)
+func (s *service) StartShim(ctx context.Context, id, containerdBinary, containerdBinaryArgv0, containerdAddress, containerdTTRPCAddress string) (_ string, retErr error) {
+	cmd, err := newCommand(ctx, id, containerdBinary, containerdBinaryArgv0, containerdAddress, containerdTTRPCAddress)
 	if err != nil {
 		return "", err
 	}

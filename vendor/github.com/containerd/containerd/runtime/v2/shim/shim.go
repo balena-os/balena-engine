@@ -109,6 +109,7 @@ func parseFlags() {
 
 	flag.StringVar(&addressFlag, "address", "", "grpc address back to main containerd")
 	flag.StringVar(&containerdBinaryFlag, "publish-binary", "containerd", "path to publish binary (used for publishing events)")
+	flag.StringVar(&containerdBinaryArgv0Flag, "publish-binary-argv0", "containerd", "argv0 to pass to publish binary (used for publishing events)")
 
 	flag.Parse()
 	action = flag.Arg(0)
@@ -220,7 +221,7 @@ func run(id string, initFunc Init, config Config) error {
 		}
 		return nil
 	case "start":
-		address, err := service.StartShim(ctx, idFlag, containerdBinaryFlag, addressFlag, ttrpcAddress)
+		address, err := service.StartShim(ctx, idFlag, containerdBinaryFlag, containerdBinaryArgv0Flag, addressFlag, ttrpcAddress)
 		if err != nil {
 			return err
 		}
