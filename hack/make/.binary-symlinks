@@ -12,6 +12,10 @@ symlink_binaries() {
         balena-engine-containerd-ctr
         balena-engine-runc
         balena-engine-proxy
+
+        containerd
+        runc
+        containerd-shim-runc-v2
     )
 
     for file in "${binaries[@]}"; do
