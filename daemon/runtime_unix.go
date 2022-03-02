@@ -37,7 +37,7 @@ func configureRuntimes(conf *config.Config) {
 	}
 	conf.Runtimes[config.LinuxV1RuntimeName] = types.Runtime{Path: defaultRuntimeName, Shim: defaultV1ShimConfig(conf, defaultRuntimeName)}
 	conf.Runtimes[config.LinuxV2RuntimeName] = types.Runtime{Path: defaultRuntimeName, Shim: defaultV2ShimConfig(conf, defaultRuntimeName)}
-	conf.Runtimes[config.StockRuntimeName] = conf.Runtimes[config.LinuxV1RuntimeName]
+	conf.Runtimes[config.StockRuntimeName] = conf.Runtimes[config.LinuxV2RuntimeName]
 }
 
 func defaultV2ShimConfig(conf *config.Config, runtimePath string) *types.ShimConfig {
