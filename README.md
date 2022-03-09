@@ -19,7 +19,7 @@ supports container deltas for 10-70x more efficient bandwidth usage, has 3x
 smaller binaries, uses RAM and storage more conservatively, and focuses on
 atomicity and durability of container pulling.
 
-Since 2013, when we first ported Docker to ARMv6 and the Raspberry Pi,
+Since 2013, when we [first ported Docker to ARMv6 and the Raspberry Pi](https://www.balena.io/blog/docker-on-raspberry-pi/),
 the balena team has been working in and around the Docker codebase.
 Meanwhile, having seen IoT devices used in production for tens of millions of
 hours, we’ve become intimately acquainted with the unique needs of the embedded world.
