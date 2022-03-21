@@ -633,6 +633,12 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 	}
 
 	if len(descriptors) != len(configRootFS.DiffIDs) {
+		log.G(ctx).WithFields(log.Fields{
+			"len(descriptors)":          len(descriptors),
+			"len(configRootFS.DiffIDs)": len(configRootFS.DiffIDs),
+			"descriptors":               fmt.Sprintf("%#v", descriptors),
+			"configRootFS":              fmt.Sprintf("%#v", configRootFS),
+		}).Error("rootFS mismatch before downloading layers")
 		return "", errRootFSMismatch
 	}
 
@@ -689,11 +695,24 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 		// Otherwise the image config could be referencing layers that aren't
 		// included in the manifest.
 		if len(downloadedRootFS.DiffIDs) != len(configRootFS.DiffIDs) {
+			log.G(ctx).WithFields(log.Fields{
+				"len(downloadedRootFS.DiffIDs)": len(downloadedRootFS.DiffIDs),
+				"len(configRootFS.DiffIDs)":     len(configRootFS.DiffIDs),
+				"downloadedRootFS":              fmt.Sprintf("%#v", downloadedRootFS),
+				"configRootFS":                  fmt.Sprintf("%#v", configRootFS),
+			}).Error("rootFS mismatch after downloading layers")
 			return "", errRootFSMismatch
 		}
 
 		for i := range downloadedRootFS.DiffIDs {
 			if downloadedRootFS.DiffIDs[i] != configRootFS.DiffIDs[i] {
+				log.G(ctx).WithFields(log.Fields{
+					"i":                           i,
+					"downloadedRootFS.DiffIDs[i]": downloadedRootFS.DiffIDs[i],
+					"configRootFS.DiffIDs[i]":     configRootFS.DiffIDs[i],
+					"downloadedRootFS":            fmt.Sprintf("%#v", downloadedRootFS),
+					"configRootFS":                fmt.Sprintf("%#v", configRootFS),
+				}).Error("rootFS mismatch in layer")
 				return "", errRootFSMismatch
 			}
 		}
