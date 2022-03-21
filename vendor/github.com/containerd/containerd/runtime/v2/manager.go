@@ -135,6 +135,7 @@ func (m *TaskManager) Create(ctx context.Context, id string, opts runtime.Create
 		topts = opts.RuntimeOptions
 	}
 
+	log.G(ctx).WithField("id", id).Warnf("!!! getting shim binary")
 	b := shimBinary(ctx, bundle, opts.Runtime, m.containerdAddress, m.containerdTTRPCAddress, m.events, m.tasks)
 	shim, err := b.Start(ctx, topts, func() {
 		log.G(ctx).WithField("id", id).Info("shim disconnected")
@@ -149,6 +150,7 @@ func (m *TaskManager) Create(ctx context.Context, id string, opts runtime.Create
 	if err != nil {
 		return nil, err
 	}
+	log.G(ctx).WithField("id", id).Warnf("!!! getting shim binary: runtime=%s", b.runtime)
 	defer func() {
 		if err != nil {
 			dctx, cancel := timeout.WithContext(context.Background(), cleanupTimeout)
@@ -160,6 +162,7 @@ func (m *TaskManager) Create(ctx context.Context, id string, opts runtime.Create
 			}
 		}
 	}()
+	log.G(ctx).WithField("id", id).Warnf("!!! creating shim")
 	t, err := shim.Create(ctx, opts)
 	if err != nil {
 		return nil, err

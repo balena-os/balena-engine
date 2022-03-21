@@ -50,8 +50,7 @@ func Command(ctx context.Context, runtime, containerdAddress, containerdTTRPCAdd
 	args := []string{
 		"-namespace", ns,
 		"-address", containerdAddress,
-		"-publish-binary", self,
-		"-publish-binary-argv0", os.Args[0],
+		"-publish-binary", os.Args[0],
 	}
 	args = append(args, cmdArgs...)
 	name := BinaryName(runtime)

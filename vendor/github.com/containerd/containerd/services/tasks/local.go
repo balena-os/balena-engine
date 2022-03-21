@@ -196,6 +196,7 @@ func (l *local) Create(ctx context.Context, r *api.CreateTaskRequest, _ ...grpc.
 	} else if container.Runtime.Name == plugin.RuntimeRuncV1 {
 		log.G(ctx).Warnf("%q is deprecated since containerd v1.4, consider using %q", plugin.RuntimeRuncV1, plugin.RuntimeRuncV2)
 	}
+	log.G(ctx).Warnf("!!! runtime=%s", container.Runtime.Name)
 	rtime, err := l.getRuntime(container.Runtime.Name)
 	if err != nil {
 		return nil, err
