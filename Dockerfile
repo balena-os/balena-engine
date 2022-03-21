@@ -205,6 +205,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh shfmt
 
+FROM base AS delve
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+        GOBIN=/build GO111MODULE=on go install github.com/go-delve/delve/cmd/dlv@latest
+
 # FROM dev-base AS dockercli
 # ARG DOCKERCLI_CHANNEL
 # ARG DOCKERCLI_VERSION
@@ -314,6 +319,7 @@ COPY --from=vndr          /build/ /usr/local/bin/
 COPY --from=gotestsum     /build/ /usr/local/bin/
 COPY --from=golangci_lint /build/ /usr/local/bin/
 COPY --from=shfmt         /build/ /usr/local/bin/
+COPY --from=delve         /build/ /usr/local/bin/
 # COPY --from=runc          /build/ /usr/local/bin/
 # COPY --from=containerd    /build/ /usr/local/bin/
 COPY --from=rootlesskit   /build/ /usr/local/bin/

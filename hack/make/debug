@@ -1,0 +1,15 @@
+#!/bin/env bash
+
+(
+	BUILDFLAGS+=(-gcflags="all=-N -l")
+	. hack/make/dynbinary-daemon
+	. hack/make/.binary-symlinks
+)
+
+PATH=${DEST}:${PATH}
+
+if [ "$DOCKER_DEBUG" = "dap" ]; then
+	dlv dap -l 0.0.0.0:38697 --log --log-output="dap"
+else
+	dlv exec "${DEST}/balena-engine-containerd"
+fi

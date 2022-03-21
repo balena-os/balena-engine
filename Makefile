@@ -221,6 +221,9 @@ build: buildx
 shell: build  ## start a shell inside the build env
 	$(DOCKER_RUN_DOCKER) bash
 
+debug: build  ## start a debug session using delve inside the build env
+	$(DOCKER_RUN_DOCKER) hack/make.sh debug
+
 test: build test-unit ## run the unit, integration and docker-py tests
 	$(DOCKER_RUN_DOCKER) hack/make.sh dynbinary cross test-integration test-docker-py
 
