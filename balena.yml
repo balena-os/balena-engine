@@ -1,6 +1,6 @@
 type: type-product-os-t-golang-source@1.1.3
 name: balena-engine
-version: 20.10.11
+version: 20.10.14
 data:
   $transformer: {}
 
