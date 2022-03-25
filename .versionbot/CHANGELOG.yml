@@ -1,4 +1,26 @@
 - commits:
+    - subject: "WIP: integration: run hack/make/.integration-daemon-start from Go"
+      hash: 87651f315eaf26332cadaf10d42ba026427fb9a7
+      body: ""
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+    - subject: Add contract
+      hash: c8368ab859a86c834efbc33175632b72d229a115
+      body: |
+        This enables transformers to run on this repo
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Robert Günzler <robertg@balena.io>
+        signed-off-by: Robert Günzler <robertg@balena.io>
+      author: Robert Günzler
+  version: 20.10.14
+  date: 2022-03-25T17:56:48.975Z
+- commits:
     - subject: Add link to post to test landr
       hash: 4688b2395c49dcd350a6107824da61a13a1c4765
       body: ""
