@@ -3,7 +3,7 @@
 # see test-integration-with-debugger for example usage of this script
 
 base="$ABS_DEST/.."
-export PATH="$base/dynbinary-balena:$base/binary-balena:$PATH"
+export PATH="$base/dynbinary-daemon:$base/binary-daemon:$PATH"
 
 export TEST_CLIENT_BINARY=balena-engine
 export TEST_DOCKER_RUNC_BINARY=balena-engine-runc
@@ -13,7 +13,7 @@ if [ -n "$DOCKER_CLI_PATH" ]; then
 fi
 
 echo "Using test binary $TEST_CLIENT_BINARY"
-if ! command -v "$TEST_CLIENT_BINARY" &> /dev/null; then
+if ! command -v "$TEST_CLIENT_BINARY" &>/dev/null; then
 	echo >&2 "error: missing test client $TEST_CLIENT_BINARY"
 	false
 fi
@@ -28,13 +28,13 @@ if [ "$(go env GOOS)" = 'windows' ]; then
 fi
 
 if [ -z "$DOCKER_TEST_HOST" ]; then
-	if balena-engine version &> /dev/null; then
+	if balena-engine version &>/dev/null; then
 		echo >&2 'skipping daemon start, since daemon appears to be already started'
 		return
 	fi
 fi
 
-if ! command -v balena-engine-daemon &> /dev/null; then
+if ! command -v balena-engine-daemon &>/dev/null; then
 	echo >&2 'error: binary-daemon or dynbinary-daemon must be run before .integration-daemon-start'
 	false
 fi
@@ -42,6 +42,9 @@ fi
 # intentionally open a couple bogus file descriptors to help test that they get scrubbed in containers
 exec 41>&1 42>&2
 
+# Allow pushing manifest v2 schema 1 images, as they're used to push
+# images to our test-registries for testing _pulling_ schema 2v1 images.
+export DOCKER_ALLOW_SCHEMA1_PUSH_DONOTUSE=1
 export DOCKER_GRAPHDRIVER=${DOCKER_GRAPHDRIVER:-vfs}
 export DOCKER_USERLANDPROXY=${DOCKER_USERLANDPROXY:-true}
 
@@ -62,9 +65,32 @@ if [ "$DOCKER_REMAP_ROOT" ]; then
 fi
 
 # example usage: DOCKER_EXPERIMENTAL=1
-if [  "$DOCKER_EXPERIMENTAL" ]; then
+if [ "$DOCKER_EXPERIMENTAL" ]; then
 	echo >&2 '# DOCKER_EXPERIMENTAL is set: starting daemon with experimental features enabled! '
 	extra_params="$extra_params --experimental"
+fi
+
+dockerd="balena-engine-daemon"
+if [ -f "/sys/fs/cgroup/cgroup.controllers" ]; then
+	if [ -z "$TEST_SKIP_INTEGRATION_CLI" ]; then
+		echo >&2 '# cgroup v2 requires TEST_SKIP_INTEGRATION_CLI to be set'
+		exit 1
+	fi
+fi
+
+if [ -n "$DOCKER_ROOTLESS" ]; then
+	if [ -z "$TEST_SKIP_INTEGRATION_CLI" ]; then
+		echo >&2 '# DOCKER_ROOTLESS requires TEST_SKIP_INTEGRATION_CLI to be set'
+		exit 1
+	fi
+	ln -sf "$(command -v vpnkit."$(uname -m)")" /usr/local/bin/vpnkit
+	user="unprivilegeduser"
+	uid=$(id -u $user)
+	# shellcheck disable=SC2174
+	mkdir -p -m 700 "/tmp/docker-${uid}"
+	chown "$user" "/tmp/docker-${uid}"
+	chmod -R o+w "$DEST"
+	dockerd="sudo -u $user -E -E XDG_RUNTIME_DIR=/tmp/docker-${uid} -E HOME=/home/${user} -E PATH=$PATH -- dockerd-rootless.sh"
 fi
 
 if [ -z "$DOCKER_TEST_HOST" ]; then
@@ -86,15 +112,15 @@ if [ -z "$DOCKER_TEST_HOST" ]; then
 		[ -n "$TESTDEBUG" ] && set -x
 		export GO111MODULE=off
 		exec \
-			dlv --check-go-version=false --listen=:40000 --headless=true --api-version=2 exec \
-			bundles/dynbinary-balena/balena-engine-daemon -- --debug \
+			dlv --listen=:40000 --headless=true --api-version=2 exec \
+			bundles/dynbinary-daemon/balena-engine-daemon -- --debug \
 			--host "$DOCKER_HOST" \
 			--storage-driver "$DOCKER_GRAPHDRIVER" \
 			--pidfile "$DEST/balena-engine.pid" \
 			--userland-proxy="$DOCKER_USERLANDPROXY" \
 			${storage_params} \
 			${extra_params} \
-				&> "$DEST/docker.log"
+				&>"$DEST/docker.log"
 	) &
 else
 	export DOCKER_HOST="$DOCKER_TEST_HOST"
@@ -103,10 +129,10 @@ fi
 # give it a little time to come up so it's "ready"
 tries=60
 sleep 2
-echo "INFO: Waiting for daemon to start... "
+echo "INFO: Waiting for daemon to start..."
 echo "> > > Please connect your debugger now < < <"
-while ! ${TEST_CLIENT_BINARY} version &> /dev/null; do
-	(( tries-- ))
+while ! ${TEST_CLIENT_BINARY} version &>/dev/null; do
+	((tries--))
 	if [ $tries -le 0 ]; then
 		printf "\n"
 		if [ -z "$DOCKER_HOST" ]; then
