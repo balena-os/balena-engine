@@ -1,4 +1,28 @@
 - commits:
+    - subject: Add more integration tests for deltas
+      hash: 59f6cd6dc32ee178532dbf7595933ef606cebf39
+      body: |
+        This adds two new integration tests:
+
+        * TestDeltaSize: this is meant to catch regressions on delta sizes. It
+          generates deltas and compare their sizes with the delta sizes we get
+          as of now. If the size increases, the test fails.
+        * TestDeltaCorrectness: checks if applying a delta indeed results in the
+          same image as we had originally.
+
+        A number of different test cases (different images with distinct
+        features) are tested for each of these integration tests.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.14
+  title: "'Add more integration tests for deltas'"
+  date: 2022-04-01T13:30:28.649Z
+- commits:
     - subject: Add link to post to test landr
       hash: 4688b2395c49dcd350a6107824da61a13a1c4765
       body: ""
