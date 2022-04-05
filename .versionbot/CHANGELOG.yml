@@ -1,4 +1,21 @@
 - commits:
+    - subject: Log more info upon when raising errRootFSMismatch
+      hash: ab3db5c03663e0b2ee35213ceebf9038e4af6b62
+      body: |
+        We currently do not log any information to help us understanding the
+        underlying issue -- not even to identify what is the exact point in
+        which the error is raised. This commit improves on this situation.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.15
+  title: "'Configure Renovate'"
+  date: 2022-04-05T07:56:50.137Z
+- commits:
     - subject: Add more integration tests for deltas
       hash: 59f6cd6dc32ee178532dbf7595933ef606cebf39
       body: |
