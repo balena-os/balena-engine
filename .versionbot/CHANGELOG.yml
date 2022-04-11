@@ -1,4 +1,20 @@
 - commits:
+    - subject: Update netlink
+      hash: c135dc37e5fec47c52ad89b2bba8a9c8be22f027
+      body: |
+        This new version of netlink includes a number of bugfixes, including a
+        fix to #292.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.16
+  title: "'Update netlink'"
+  date: 2022-04-11T21:28:11.067Z
+- commits:
     - subject: Log more info upon when raising errRootFSMismatch
       hash: ab3db5c03663e0b2ee35213ceebf9038e4af6b62
       body: |
