@@ -1,4 +1,19 @@
 - commits:
+    - subject: "contrib/init/systemd: update balena-engine.service"
+      hash: 4d3b831bfbe197a68792a3baf33cbea639811763
+      body: |
+        Currently this file is used by Buildroot.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: TIAN Yuanhao <tianyuanhao3@163.com>
+        signed-off-by: TIAN Yuanhao <tianyuanhao3@163.com>
+      author: TIAN Yuanhao
+      nested: []
+  version: 20.10.16
+  title: "'update balena-engine.service'"
+  date: 2022-04-07T05:22:26.128Z
+- commits:
     - subject: Log more info upon when raising errRootFSMismatch
       hash: ab3db5c03663e0b2ee35213ceebf9038e4af6b62
       body: |
