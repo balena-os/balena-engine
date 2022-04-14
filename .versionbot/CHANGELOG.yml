@@ -1,4 +1,18 @@
 - commits:
+    - subject: Update docs for landr build
+      hash: f7be0a43cfe8f0d3c54bd0e71eaa0d3d8551513c
+      body: ""
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Amit Solanki <amit@balena.io>
+        signed-off-by: Amit Solanki <amit@balena.io>
+      author: Amit Solanki
+      nested: []
+  version: 20.10.16
+  title: "'Update docs for landr build'"
+  date: 2022-04-14T19:37:38.568Z
+- commits:
     - subject: Log more info upon when raising errRootFSMismatch
       hash: ab3db5c03663e0b2ee35213ceebf9038e4af6b62
       body: |
