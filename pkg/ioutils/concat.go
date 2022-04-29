@@ -5,14 +5,22 @@ import (
 	"io"
 )
 
-func min(x, y int) int {
-	if x < y {
-		return x
+// clampSliceIndex clamps index to be between min and max (inclusive). As the
+// name suggests, the function is designed to be especially useful for slice
+// indices -- and in particular, to do so safely in both 32- and 64-bit
+// platforms.
+func clampSliceIndex(index int64, min, max int) int {
+	if index < int64(min) {
+		return min
 	}
-	return y
+	if index > int64(max) {
+		return max
+	}
+	return int(index)
 }
 
-func max(x, y int) int {
+// max64 returns the larger of two int64 values.
+func max64(x, y int64) int64 {
 	if x < y {
 		return y
 	}
@@ -52,7 +60,9 @@ func (self *concatReadSeekCloser) Read(p []byte) (n int, err error) {
 			return 0, err
 		}
 
-		nA, err := io.ReadFull(self.a, p[:min(len(p), int(self.aSize-self.off))])
+		i := clampSliceIndex(self.aSize-self.off, 0, len(p))
+		nA, err := io.ReadFull(self.a, p[:i])
+
 		if err != nil {
 			return 0, err
 		}
@@ -61,11 +71,12 @@ func (self *concatReadSeekCloser) Read(p []byte) (n int, err error) {
 
 	// if the read ends within b
 	if self.off+int64(len(p)) >= self.aSize {
-		if _, err := self.b.Seek(int64(max(0, int(self.off-self.aSize))), io.SeekStart); err != nil {
+		if _, err := self.b.Seek(max64(0, self.off-self.aSize), io.SeekStart); err != nil {
 			return 0, err
 		}
 
-		nB, err := io.ReadFull(self.b, p[max(int(self.aSize-self.off), 0):])
+		i := clampSliceIndex(self.aSize-self.off, 0, len(p))
+		nB, err := io.ReadFull(self.b, p[i:])
 		if err != nil {
 			return 0, err
 		}
