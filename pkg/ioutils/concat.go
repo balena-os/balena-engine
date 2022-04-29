@@ -1,8 +1,8 @@
 package ioutils
 
 import (
-	"io"
 	"errors"
+	"io"
 )
 
 func min(x, y int) int {
@@ -38,11 +38,11 @@ func SeekerSize(s io.Seeker) (int64, error) {
 }
 
 type concatReadSeekCloser struct {
-	a ReadSeekCloser
+	a     ReadSeekCloser
 	aSize int64
-	b ReadSeekCloser
+	b     ReadSeekCloser
 	bSize int64
-	off int64
+	off   int64
 }
 
 func (self *concatReadSeekCloser) Read(p []byte) (n int, err error) {
@@ -52,7 +52,7 @@ func (self *concatReadSeekCloser) Read(p []byte) (n int, err error) {
 			return 0, err
 		}
 
-		nA, err := io.ReadFull(self.a, p[:min(len(p), int(self.aSize - self.off))])
+		nA, err := io.ReadFull(self.a, p[:min(len(p), int(self.aSize-self.off))])
 		if err != nil {
 			return 0, err
 		}
@@ -60,12 +60,12 @@ func (self *concatReadSeekCloser) Read(p []byte) (n int, err error) {
 	}
 
 	// if the read ends within b
-	if self.off + int64(len(p)) >= self.aSize {
-		if _, err := self.b.Seek(int64(max(0, int(self.off - self.aSize))), io.SeekStart); err != nil {
+	if self.off+int64(len(p)) >= self.aSize {
+		if _, err := self.b.Seek(int64(max(0, int(self.off-self.aSize))), io.SeekStart); err != nil {
 			return 0, err
 		}
 
-		nB, err := io.ReadFull(self.b, p[max(int(self.aSize - self.off), 0):])
+		nB, err := io.ReadFull(self.b, p[max(int(self.aSize-self.off), 0):])
 		if err != nil {
 			return 0, err
 		}
