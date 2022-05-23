@@ -1,4 +1,27 @@
 - commits:
+    - subject: Fix "slice bounds out of range" while applying deltas
+      hash: 6f12d0abb3e438f26a18eee9bbaeca9c4702f7e7
+      body: |
+        The root cause of this issue was an integer overflow in 32-bit platforms
+        -- specifically, when explicitly converting `io.Reader` offsets
+        (`int64`) to slice indices (`int`, which is only 32-bit long on 32-bit
+        platforms).
+
+        We already had in place the checks supposed to ensure slice bounds where
+        always within the expected bounds. So, in a way, this commit just
+        re-organizes the code so that we perform safely this required `int64` to
+        `int` type conversion.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.17
+  title: "'Lmb/fix oob slice'"
+  date: 2022-05-17T20:01:47.266Z
+- commits:
     - subject: "contrib/init/systemd: update balena-engine.service"
       hash: 4d3b831bfbe197a68792a3baf33cbea639811763
       body: |
