@@ -35,7 +35,7 @@ You'll see a message on the console telling you when to connect your debugger.
 
 How to run Delve on your host to connect to the remote debugger depends on what
 editor, IDE or Delve front end you are using (if you are using one at all). On
-VS Code, a proper entry on `.vscode/lauch.json` would look like this:
+VS Code, a proper entry on `.vscode/launch.json` would look like this:
 
 ```json
 {
