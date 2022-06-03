@@ -1,4 +1,24 @@
 - commits:
+    - subject: Improve error reporting for delta base image loading
+      hash: 8bb06fd928da2474a88a648137a47dfa5338997f
+      body: |
+        This adds some context to the error message when there's some error
+        loading the delta base image (for example, when the delta base image is
+        not found locally).
+
+        The error message we had before was generic and low-level, which didn't
+        give any clues about what lead to the error.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.18
+  title: "'Improve error reporting for delta base image loading'"
+  date: 2022-06-03T16:55:03.261Z
+- commits:
     - subject: Fix "slice bounds out of range" while applying deltas
       hash: 6f12d0abb3e438f26a18eee9bbaeca9c4702f7e7
       body: |
