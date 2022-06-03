@@ -581,7 +581,7 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 
 			stream, err := p.config.ImageStore.GetTarSeekStream(digest)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("loading delta base image %v: %w", digest, err)
 			}
 			defer stream.Close()
 
