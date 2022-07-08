@@ -1,4 +1,56 @@
 - commits:
+    - subject: "Bugfix: concatReadSeekCloser.Read() with buffers of any size"
+      hash: 83658f010cb0c75a5ba85b8654fa8086dbb0f860
+      body: |
+        Previously, `concatReadSeekCloser.Read()` would incorrectly return
+        an `io.ErrUnexpectedEOF` if the last read from the second concatenated
+        `Reader` didn't completely fill the passed buffer.
+
+        For instance:
+
+        ```
+              First Reader    Second Reader
+            |aaaaaaaaaaaaa|bbbbbbbbbbbbbbbbbbb|      <--- concatReadSeekCloser
+            |--- previously read ---|--- buffer ---| <--- last read
+                                              |xxxx| <--- "excess" buffer
+        ```
+
+        In this example, we have a `concatReadSeekCloser` that concatenates two
+        `Reader`s (`aaa...` and `bbb`). The last `Read()` used a buffer larger
+        than the yet-to-be-read portion of the `bbb...`. So, it would
+        incorrectly return an `io.ErrUnexpectedEOF`.
+
+        This commit makes sure that last `Read()` returns all the remaining data
+        without an error. It also adds various test cases for
+        `concatReadSeekCloser.Read()`, many of which would fail before this
+        correction.
+
+        It's worth mentioning that the code before this commit was working for
+        us, but only by coincidence. Here's why: we use `concatReadSeekCloser`
+        only for delta generation, to concatenate data from different image
+        layers. Coincidentally:
+
+        * Image layer data is encoded as tar files, whose sizes are always
+          multiple of 512 bytes.
+        * All reads use a buffer with the same size as the delta block size,
+          which is currently hardcoded to 512 bytes.
+
+        As result, the read buffers always end up being perfectly aligned with
+        the data being read, so things just work.
+
+        However, we are implementing some changes to delta generation. Soon, the
+        delta block size (and therefore the size of the read buffer) will be
+        different and things would break without this fix.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.19
+  date: 2022-07-08T21:31:24.387Z
+- commits:
     - subject: Improve error reporting for delta base image loading
       hash: 8bb06fd928da2474a88a648137a47dfa5338997f
       body: |
