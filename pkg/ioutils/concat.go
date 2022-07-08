@@ -71,19 +71,28 @@ func (self *concatReadSeekCloser) Read(p []byte) (n int, err error) {
 
 	// if the read ends within b
 	if self.off+int64(len(p)) >= self.aSize {
-		if _, err := self.b.Seek(max64(0, self.off-self.aSize), io.SeekStart); err != nil {
+		bOffset := max64(self.off-self.aSize, 0)
+
+		if _, err := self.b.Seek(bOffset, io.SeekStart); err != nil {
 			return 0, err
 		}
 
 		i := clampSliceIndex(self.aSize-self.off, 0, len(p))
-		nB, err := io.ReadFull(self.b, p[i:])
-		if err != nil {
-			return 0, err
+		j := clampSliceIndex(int64(i)+self.bSize-bOffset, i, len(p))
+
+		if i != j {
+			nB, err := io.ReadFull(self.b, p[i:j])
+			if err != nil {
+				return 0, err
+			}
+			n += nB
 		}
-		n += nB
 	}
 
 	self.off += int64(n)
+	if self.off == self.aSize+self.bSize {
+		err = io.EOF
+	}
 
 	return
 }
