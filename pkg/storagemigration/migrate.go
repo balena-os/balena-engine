@@ -336,10 +336,14 @@ func SwitchAllContainersStorageDriver(root, newStorageDriver string) error {
 	logrus.Debugf("migrating %v container(s) to %s", len(containerIDs), newStorageDriver)
 	for _, containerID := range containerIDs {
 		err := switchContainerStorageDriver(root, containerID, newStorageDriver)
-		if err != nil {
+		switch err {
+		case nil:
+			logrus.WithField("container_id", containerID).Debugf("reconfigured storage-driver to %s", newStorageDriver)
+		case errNoConfigV2JSON:
+			logrus.WithField("container_id", containerID).Warning("ignoring container without config.v2.json")
+		default:
 			return fmt.Errorf("Error rewriting container config for %s: %v", containerID, err)
 		}
-		logrus.WithField("container_id", containerID).Debugf("reconfigured storage-driver to %s", newStorageDriver)
 	}
 	return nil
 }
