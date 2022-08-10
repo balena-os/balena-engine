@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"os"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/md4"
@@ -73,8 +74,8 @@ func Signature(input io.Reader, output io.Writer, blockLen, strongLen uint32, si
 	ret.blockLen = blockLen
 
 	for {
-		n, err := io.ReadFull(input, block)
-		if err == io.ErrUnexpectedEOF || err == io.EOF {
+		n, err := input.Read(block)
+		if err == io.EOF {
 			break
 		} else if err != nil {
 			return nil, err
@@ -95,4 +96,68 @@ func Signature(input io.Reader, output io.Writer, blockLen, strongLen uint32, si
 	}
 
 	return &ret, nil
+}
+
+// ReadSignature reads a signature from an io.Reader.
+func ReadSignature(r io.Reader) (*SignatureType, error) {
+	var magic MagicNumber
+	err := binary.Read(r, binary.BigEndian, &magic)
+	if err != nil {
+		return nil, err
+	}
+
+	var blockLen uint32
+	err = binary.Read(r, binary.BigEndian, &blockLen)
+	if err != nil {
+		return nil, err
+	}
+
+	var strongLen uint32
+	err = binary.Read(r, binary.BigEndian, &strongLen)
+	if err != nil {
+		return nil, err
+	}
+
+	strongSigs := [][]byte{}
+	weak2block := map[uint32]int{}
+
+	for {
+		var weakSum uint32
+		err = binary.Read(r, binary.BigEndian, &weakSum)
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+
+		strongSum := make([]byte, strongLen)
+		n, err := r.Read(strongSum)
+		if err != nil {
+			return nil, err
+		}
+		if n != int(strongLen) {
+			return nil, fmt.Errorf("got only %d/%d bytes of the strong hash", n, strongLen)
+		}
+
+		weak2block[weakSum] = len(strongSigs)
+		strongSigs = append(strongSigs, strongSum)
+	}
+
+	return &SignatureType{
+		sigType:    magic,
+		blockLen:   blockLen,
+		strongLen:  strongLen,
+		strongSigs: strongSigs,
+		weak2block: weak2block,
+	}, nil
+}
+
+// ReadSignatureFile reads a signature from the file at path.
+func ReadSignatureFile(path string) (*SignatureType, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return ReadSignature(f)
 }

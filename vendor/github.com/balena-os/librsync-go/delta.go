@@ -18,15 +18,12 @@ func Delta(sig *SignatureType, i io.Reader, output io.Writer) error {
 	}
 
 	prevByte := byte(0)
-	m := match{output: output}
+	m := newMatch(output)
 
 	weakSum := NewRollsum()
 	block, _ := circbuf.NewBuffer(int64(sig.blockLen))
-	block.WriteByte(0)
-	pos := 0
 
 	for {
-		pos += 1
 		in, err := input.ReadByte()
 		if err == io.EOF {
 			break

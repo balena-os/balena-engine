@@ -40,7 +40,7 @@ func (r *Rollsum) Update(p []byte) {
 }
 
 func (r *Rollsum) Rotate(out, in byte) {
-	r.s1 += uint16(in - out)
+	r.s1 += uint16(in) - uint16(out)
 	r.s2 += r.s1 - uint16(r.count)*(uint16(out)+uint16(ROLLSUM_CHAR_OFFSET))
 }
 
