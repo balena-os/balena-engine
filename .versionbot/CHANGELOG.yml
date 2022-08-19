@@ -1,4 +1,18 @@
 - commits:
+    - subject: Update vendored dependencies
+      hash: bf707ac0966974e21026f5cf6b52c2611db2a1bf
+      body: ""
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.19
+  title: "'Optimize delta generation (in speed and size)'"
+  date: 2022-08-19T20:39:44.936Z
+- commits:
     - subject: Improve error reporting for delta base image loading
       hash: 8bb06fd928da2474a88a648137a47dfa5338997f
       body: |
