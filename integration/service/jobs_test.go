@@ -18,6 +18,8 @@ import (
 // TestCreateJob tests that a Service can be created and run with
 // mode ReplicatedJob
 func TestCreateJob(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
@@ -42,6 +44,8 @@ func TestCreateJob(t *testing.T) {
 // TestReplicatedJob tests that running a replicated job starts the requisite
 // number of tasks,
 func TestReplicatedJob(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
@@ -86,6 +90,8 @@ func TestReplicatedJob(t *testing.T) {
 // TestUpdateJob tests that a job can be updated, and that it runs with the
 // correct parameters.
 func TestUpdateReplicatedJob(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon)
 	skip.If(t, testEnv.DaemonInfo.OSType == "windows")
 
