@@ -481,6 +481,8 @@ func TestCreateServiceSysctls(t *testing.T) {
 // capabilities option with the correct value, we can assume that the capabilities has been
 // plumbed correctly.
 func TestCreateServiceCapabilities(t *testing.T) {
+	t.Skip("swarm isn't supported")
+
 	skip.If(
 		t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.41"),
 		"setting service capabilities is unsupported before api v1.41",
