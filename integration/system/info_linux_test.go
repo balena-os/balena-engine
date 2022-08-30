@@ -52,6 +52,8 @@ func TestInfoAPIVersioned(t *testing.T) {
 // TestInfoDiscoveryBackend verifies that a daemon run with `--cluster-advertise` and
 // `--cluster-store` properly returns the backend's endpoint in info output.
 func TestInfoDiscoveryBackend(t *testing.T) {
+	t.Skip("consul isn't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 
 	const (
@@ -92,6 +94,8 @@ func TestInfoDiscoveryInvalidAdvertise(t *testing.T) {
 // TestInfoDiscoveryAdvertiseInterfaceName verifies that a daemon run with `--cluster-advertise`
 // configured with interface name properly show the advertise ip-address in info output.
 func TestInfoDiscoveryAdvertiseInterfaceName(t *testing.T) {
+	t.Skip("consul isn't supported")
+
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot run daemon when remote daemon")
 	skip.If(t, testEnv.IsRootless, "rootless mode has different view of network")
 	// TODO should we check for networking availability (integration-cli suite checks for networking through `Network()`)
