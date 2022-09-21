@@ -1,3 +1,4 @@
+//go:build linux && !exclude_disk_quota && cgo
 // +build linux,!exclude_disk_quota,cgo
 
 //
@@ -52,13 +53,13 @@ const int Q_XGETQSTAT_PRJQUOTA = QCMD(Q_XGETQSTAT, PRJQUOTA);
 */
 import "C"
 import (
-	"io/ioutil"
+	"os"
 	"path"
 	"path/filepath"
 	"sync"
 	"unsafe"
 
-	"github.com/containerd/containerd/sys"
+	"github.com/containerd/containerd/pkg/userns"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -118,7 +119,7 @@ func NewControl(basePath string) (*Control, error) {
 	// If we are running in a user namespace quota won't be supported for
 	// now since makeBackingFsDev() will try to mknod().
 	//
-	if sys.RunningInUserNS() {
+	if userns.RunningInUserNS() {
 		return nil, ErrQuotaNotSupported
 	}
 
@@ -336,7 +337,7 @@ func (q *Control) findNextProjectID(home string, baseID uint32) error {
 		return projid, nil
 	}
 
-	files, err := ioutil.ReadDir(home)
+	files, err := os.ReadDir(home)
 	if err != nil {
 		return errors.Errorf("read directory failed: %s", home)
 	}
@@ -352,7 +353,7 @@ func (q *Control) findNextProjectID(home string, baseID uint32) error {
 		if projid > 0 && projid != baseID {
 			continue
 		}
-		subfiles, err := ioutil.ReadDir(path)
+		subfiles, err := os.ReadDir(path)
 		if err != nil {
 			return errors.Errorf("read directory failed: %s", path)
 		}

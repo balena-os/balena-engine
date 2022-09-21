@@ -15,7 +15,6 @@ import (
 	"github.com/docker/docker/daemon/logger/loggerutils"
 	units "github.com/docker/go-units"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 // Name is the name of the file that the jsonlogger logs to.
@@ -23,19 +22,18 @@ const Name = "json-file"
 
 // JSONFileLogger is Logger implementation for default Docker logging.
 type JSONFileLogger struct {
-	mu      sync.Mutex
-	closed  bool
-	writer  *loggerutils.LogFile
-	readers map[*logger.LogWatcher]struct{} // stores the active log followers
-	tag     string                          // tag values requested by the user to log
+	writer      *loggerutils.LogFile
+	tag         string // tag values requested by the user to log
+	extra       json.RawMessage
+	buffersPool sync.Pool
 }
 
 func init() {
 	if err := logger.RegisterLogDriver(Name, New); err != nil {
-		logrus.Fatal(err)
+		panic(err)
 	}
 	if err := logger.RegisterLogOptValidator(Name, ValidateLogOpt); err != nil {
-		logrus.Fatal(err)
+		panic(err)
 	}
 }
 
@@ -91,7 +89,7 @@ func New(info logger.Info) (logger.Logger, error) {
 		attrs["tag"] = tag
 	}
 
-	var extra []byte
+	var extra json.RawMessage
 	if len(attrs) > 0 {
 		var err error
 		extra, err = json.Marshal(attrs)
@@ -100,34 +98,40 @@ func New(info logger.Info) (logger.Logger, error) {
 		}
 	}
 
-	buf := bytes.NewBuffer(nil)
-	marshalFunc := func(msg *logger.Message) ([]byte, error) {
-		if err := marshalMessage(msg, extra, buf); err != nil {
-			return nil, err
-		}
-		b := buf.Bytes()
-		buf.Reset()
-		return b, nil
-	}
-
-	writer, err := loggerutils.NewLogFile(info.LogPath, capval, maxFiles, compress, marshalFunc, decodeFunc, 0640, getTailReader)
+	writer, err := loggerutils.NewLogFile(info.LogPath, capval, maxFiles, compress, decodeFunc, 0640, getTailReader)
 	if err != nil {
 		return nil, err
 	}
 
 	return &JSONFileLogger{
-		writer:  writer,
-		readers: make(map[*logger.LogWatcher]struct{}),
-		tag:     tag,
+		writer:      writer,
+		tag:         tag,
+		extra:       extra,
+		buffersPool: makePool(),
 	}, nil
+}
+
+func makePool() sync.Pool {
+	// Every buffer will have to store the same constant json structure and the message
+	// len(`{"log":"","stream:"stdout","time":"2000-01-01T00:00:00.000000000Z"}\n`) = 68
+	// So let's start with a buffer bigger than this
+	const initialBufSize = 128
+
+	return sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, initialBufSize)) }}
 }
 
 // Log converts logger.Message to jsonlog.JSONLog and serializes it to file.
 func (l *JSONFileLogger) Log(msg *logger.Message) error {
-	l.mu.Lock()
-	err := l.writer.WriteLogEntry(msg)
-	l.mu.Unlock()
-	return err
+	defer logger.PutMessage(msg)
+	buf := l.buffersPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer l.buffersPool.Put(buf)
+
+	if err := marshalMessage(msg, l.extra, buf); err != nil {
+		return err
+	}
+
+	return l.writer.WriteLogEntry(msg.Timestamp, buf.Bytes())
 }
 
 func marshalMessage(msg *logger.Message, extra json.RawMessage, buf *bytes.Buffer) error {
@@ -170,15 +174,7 @@ func ValidateLogOpt(cfg map[string]string) error {
 // Close closes underlying file and signals all the readers
 // that the logs producer is gone.
 func (l *JSONFileLogger) Close() error {
-	l.mu.Lock()
-	l.closed = true
-	err := l.writer.Close()
-	for r := range l.readers {
-		r.ProducerGone()
-		delete(l.readers, r)
-	}
-	l.mu.Unlock()
-	return err
+	return l.writer.Close()
 }
 
 // Name returns name of this logger.

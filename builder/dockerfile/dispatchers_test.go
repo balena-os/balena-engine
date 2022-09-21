@@ -116,8 +116,8 @@ func TestFromScratch(t *testing.T) {
 	}
 	err := initializeStage(sb, cmd)
 
-	if runtime.GOOS == "windows" && !system.LCOWSupported() {
-		assert.Check(t, is.Error(err, "Linux containers are not supported on this system"))
+	if runtime.GOOS == "windows" {
+		assert.Check(t, is.Error(err, "Windows does not support FROM scratch"))
 		return
 	}
 
@@ -470,12 +470,12 @@ func TestRunWithBuildArgs(t *testing.T) {
 			config: &container.Config{Cmd: origCmd},
 		}, nil, nil
 	}
-	mockBackend.containerCreateFunc = func(config types.ContainerCreateConfig) (container.ContainerCreateCreatedBody, error) {
+	mockBackend.containerCreateFunc = func(config types.ContainerCreateConfig) (container.CreateResponse, error) {
 		// Check the runConfig.Cmd sent to create()
 		assert.Check(t, is.DeepEqual(cmdWithShell, config.Config.Cmd))
 		assert.Check(t, is.Contains(config.Config.Env, "one=two"))
 		assert.Check(t, is.DeepEqual(strslice.StrSlice{""}, config.Config.Entrypoint))
-		return container.ContainerCreateCreatedBody{ID: "12345"}, nil
+		return container.CreateResponse{ID: "12345"}, nil
 	}
 	mockBackend.commitFunc = func(cfg backend.CommitConfig) (image.ID, error) {
 		// Check the runConfig.Cmd sent to commit()
@@ -536,8 +536,8 @@ func TestRunIgnoresHealthcheck(t *testing.T) {
 			config: &container.Config{Cmd: origCmd},
 		}, nil, nil
 	}
-	mockBackend.containerCreateFunc = func(config types.ContainerCreateConfig) (container.ContainerCreateCreatedBody, error) {
-		return container.ContainerCreateCreatedBody{ID: "12345"}, nil
+	mockBackend.containerCreateFunc = func(config types.ContainerCreateConfig) (container.CreateResponse, error) {
+		return container.CreateResponse{ID: "12345"}, nil
 	}
 	mockBackend.commitFunc = func(cfg backend.CommitConfig) (image.ID, error) {
 		return "", nil
@@ -547,27 +547,34 @@ func TestRunIgnoresHealthcheck(t *testing.T) {
 	assert.NilError(t, err)
 
 	expectedTest := []string{"CMD-SHELL", "curl -f http://localhost/ || exit 1"}
-	cmd := &instructions.HealthCheckCommand{
-		Health: &container.HealthConfig{
-			Test: expectedTest,
+	healthint, err := instructions.ParseInstruction(&parser.Node{
+		Original: `HEALTHCHECK CMD curl -f http://localhost/ || exit 1`,
+		Value:    "healthcheck",
+		Next: &parser.Node{
+			Value: "cmd",
+			Next: &parser.Node{
+				Value: `curl -f http://localhost/ || exit 1`,
+			},
 		},
-	}
+	})
+	assert.NilError(t, err)
+	cmd := healthint.(*instructions.HealthCheckCommand)
+
 	assert.NilError(t, dispatch(sb, cmd))
 	assert.Assert(t, sb.state.runConfig.Healthcheck != nil)
 
-	mockBackend.containerCreateFunc = func(config types.ContainerCreateConfig) (container.ContainerCreateCreatedBody, error) {
+	mockBackend.containerCreateFunc = func(config types.ContainerCreateConfig) (container.CreateResponse, error) {
 		// Check the Healthcheck is disabled.
 		assert.Check(t, is.DeepEqual([]string{"NONE"}, config.Config.Healthcheck.Test))
-		return container.ContainerCreateCreatedBody{ID: "123456"}, nil
+		return container.CreateResponse{ID: "123456"}, nil
 	}
 
 	sb.state.buildArgs.AddArg("one", strPtr("two"))
-	run := &instructions.RunCommand{
-		ShellDependantCmdLine: instructions.ShellDependantCmdLine{
-			CmdLine:      strslice.StrSlice{"echo foo"},
-			PrependShell: true,
-		},
-	}
+	runint, err := instructions.ParseInstruction(&parser.Node{Original: `RUN echo foo`, Value: "run"})
+	assert.NilError(t, err)
+	run := runint.(*instructions.RunCommand)
+	run.PrependShell = true
+
 	assert.NilError(t, dispatch(sb, run))
 	assert.Check(t, is.DeepEqual(expectedTest, sb.state.runConfig.Healthcheck.Test))
 }
@@ -579,24 +586,33 @@ func TestDispatchUnsupportedOptions(t *testing.T) {
 	sb.state.operatingSystem = runtime.GOOS
 
 	t.Run("ADD with chmod", func(t *testing.T) {
-		cmd := &instructions.AddCommand{SourcesAndDest: []string{".", "."}, Chmod: "0655"}
+		cmd := &instructions.AddCommand{
+			SourcesAndDest: instructions.SourcesAndDest{
+				SourcePaths: []string{"."},
+				DestPath:    ".",
+			},
+			Chmod: "0655",
+		}
 		err := dispatch(sb, cmd)
 		assert.Error(t, err, "the --chmod option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled")
 	})
 
 	t.Run("COPY with chmod", func(t *testing.T) {
-		cmd := &instructions.CopyCommand{SourcesAndDest: []string{".", "."}, Chmod: "0655"}
+		cmd := &instructions.CopyCommand{
+			SourcesAndDest: instructions.SourcesAndDest{
+				SourcePaths: []string{"."},
+				DestPath:    ".",
+			},
+			Chmod: "0655",
+		}
 		err := dispatch(sb, cmd)
 		assert.Error(t, err, "the --chmod option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled")
 	})
 
 	t.Run("RUN with unsupported options", func(t *testing.T) {
-		cmd := &instructions.RunCommand{
-			ShellDependantCmdLine: instructions.ShellDependantCmdLine{
-				CmdLine:      strslice.StrSlice{"echo foo"},
-				PrependShell: true,
-			},
-		}
+		runint, err := instructions.ParseInstruction(&parser.Node{Original: `RUN echo foo`, Value: "run"})
+		assert.NilError(t, err)
+		cmd := runint.(*instructions.RunCommand)
 
 		// classic builder "RUN" currently doesn't support any flags, but testing
 		// both "known" flags and "bogus" flags for completeness, and in case

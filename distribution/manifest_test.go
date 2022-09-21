@@ -3,7 +3,6 @@ package distribution
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
 	"os"
 	"strings"
 	"sync"
@@ -19,7 +18,7 @@ import (
 	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	digest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"gotest.tools/v3/assert"
@@ -127,7 +126,7 @@ func TestManifestStore(t *testing.T) {
 	dgst := digest.Canonical.FromBytes(serialized)
 
 	setupTest := func(t *testing.T) (specs.Descriptor, *mockManifestGetter, *manifestStore, content.Store, func(*testing.T)) {
-		root, err := ioutil.TempDir("", strings.Replace(t.Name(), "/", "_", -1))
+		root, err := os.MkdirTemp("", strings.ReplaceAll(t.Name(), "/", "_"))
 		assert.NilError(t, err)
 		defer func() {
 			if t.Failed() {

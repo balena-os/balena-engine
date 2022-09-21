@@ -1,17 +1,16 @@
+//go:build linux || freebsd
 // +build linux freebsd
 
 package graphtest // import "github.com/docker/docker/daemon/graphdriver/graphtest"
 
 import (
 	"bytes"
-	"io/ioutil"
-	"math/rand"
+	"crypto/rand"
 	"os"
 	"path"
 	"reflect"
 	"sort"
 	"testing"
-	"unsafe"
 
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/pkg/stringid"
@@ -36,7 +35,7 @@ type Driver struct {
 }
 
 func newDriver(t testing.TB, name string, options []string) *Driver {
-	root, err := ioutil.TempDir("", "docker-graphtest-")
+	root, err := os.MkdirTemp("", "docker-graphtest-")
 	assert.NilError(t, err)
 
 	assert.NilError(t, os.MkdirAll(root, 0755))
@@ -295,20 +294,12 @@ func DriverTestChanges(t testing.TB, drivername string, driverOptions ...string)
 }
 
 func writeRandomFile(path string, size uint64) error {
-	buf := make([]int64, size/8)
-
-	r := rand.NewSource(0)
-	for i := range buf {
-		buf[i] = r.Int63()
+	data := make([]byte, size)
+	_, err := rand.Read(data)
+	if err != nil {
+		return err
 	}
-
-	// Cast to []byte
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&buf))
-	header.Len *= 8
-	header.Cap *= 8
-	data := *(*[]byte)(unsafe.Pointer(&header))
-
-	return ioutil.WriteFile(path, data, 0700)
+	return os.WriteFile(path, data, 0700)
 }
 
 // DriverTestSetQuota Create a driver and test setting quota.

@@ -10,32 +10,12 @@ import (
 	"github.com/docker/docker/daemon/logger/jsonfilelog/jsonlog"
 	"github.com/docker/docker/daemon/logger/loggerutils"
 	"github.com/docker/docker/pkg/tailfile"
-	"github.com/sirupsen/logrus"
 )
-
-const maxJSONDecodeRetry = 20000
 
 // ReadLogs implements the logger's LogReader interface for the logs
 // created by this driver.
 func (l *JSONFileLogger) ReadLogs(config logger.ReadConfig) *logger.LogWatcher {
-	logWatcher := logger.NewLogWatcher()
-
-	go l.readLogs(logWatcher, config)
-	return logWatcher
-}
-
-func (l *JSONFileLogger) readLogs(watcher *logger.LogWatcher, config logger.ReadConfig) {
-	defer close(watcher.Msg)
-
-	l.mu.Lock()
-	l.readers[watcher] = struct{}{}
-	l.mu.Unlock()
-
-	l.writer.ReadLogs(config, watcher)
-
-	l.mu.Lock()
-	delete(l.readers, watcher)
-	l.mu.Unlock()
+	return l.writer.ReadLogs(config)
 }
 
 func decodeLogLine(dec *json.Decoder, l *jsonlog.JSONLog) (*logger.Message, error) {
@@ -88,34 +68,7 @@ func (d *decoder) Decode() (msg *logger.Message, err error) {
 	if d.jl == nil {
 		d.jl = &jsonlog.JSONLog{}
 	}
-	if d.maxRetry == 0 {
-		// We aren't using maxJSONDecodeRetry directly so we can give a custom value for testing.
-		d.maxRetry = maxJSONDecodeRetry
-	}
-	for retries := 0; retries < d.maxRetry; retries++ {
-		msg, err = decodeLogLine(d.dec, d.jl)
-		if err == nil || err == io.EOF {
-			break
-		}
-
-		logrus.WithError(err).WithField("retries", retries).Warn("got error while decoding json")
-		// try again, could be due to a an incomplete json object as we read
-		if _, ok := err.(*json.SyntaxError); ok {
-			d.dec = json.NewDecoder(d.rdr)
-			continue
-		}
-
-		// io.ErrUnexpectedEOF is returned from json.Decoder when there is
-		// remaining data in the parser's buffer while an io.EOF occurs.
-		// If the json logger writes a partial json log entry to the disk
-		// while at the same time the decoder tries to decode it, the race condition happens.
-		if err == io.ErrUnexpectedEOF {
-			d.rdr = combineReaders(d.dec.Buffered(), d.rdr)
-			d.dec = json.NewDecoder(d.rdr)
-			continue
-		}
-	}
-	return msg, err
+	return decodeLogLine(d.dec, d.jl)
 }
 
 func combineReaders(pre, rdr io.Reader) io.Reader {

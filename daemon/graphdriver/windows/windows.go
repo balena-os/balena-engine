@@ -1,4 +1,5 @@
-//+build windows
+//go:build windows
+// +build windows
 
 package windows // import "github.com/docker/docker/daemon/graphdriver/windows"
 
@@ -9,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -38,8 +38,15 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// filterDriver is an HCSShim driver type for the Windows Filter driver.
-const filterDriver = 1
+const (
+	// filterDriver is an HCSShim driver type for the Windows Filter driver.
+	filterDriver = 1
+	// For WCOW, the default of 20GB hard-coded in the platform
+	// is too small for builder scenarios where many users are
+	// using RUN or COPY statements to install large amounts of data.
+	// Use 127GB as that's the default size of a VHD in Hyper-V.
+	defaultSandboxSize = "127GB"
+)
 
 var (
 	// mutatedFiles is a list of files that are mutated by the import process
@@ -73,6 +80,10 @@ func (c *checker) IsMounted(path string) bool {
 	return false
 }
 
+type storageOptions struct {
+	size uint64
+}
+
 // Driver represents a windows graph driver.
 type Driver struct {
 	// info stores the shim driver information
@@ -80,12 +91,13 @@ type Driver struct {
 	ctr  *graphdriver.RefCounter
 	// it is safe for windows to use a cache here because it does not support
 	// restoring containers when the daemon dies.
-	cacheMu sync.Mutex
-	cache   map[string]string
+	cacheMu            sync.Mutex
+	cache              map[string]string
+	defaultStorageOpts *storageOptions
 }
 
 // InitFilter returns a new Windows storage filter driver.
-func InitFilter(home string, options []string, uidMaps, gidMaps []idtools.IDMap) (graphdriver.Driver, error) {
+func InitFilter(home string, options []string, _ idtools.IdentityMapping) (graphdriver.Driver, error) {
 	logrus.Debugf("WindowsGraphDriver InitFilter at %s", home)
 
 	fsType, err := getFileSystemType(string(home[0]))
@@ -100,13 +112,27 @@ func InitFilter(home string, options []string, uidMaps, gidMaps []idtools.IDMap)
 		return nil, fmt.Errorf("windowsfilter failed to create '%s': %v", home, err)
 	}
 
+	storageOpt := make(map[string]string)
+	storageOpt["size"] = defaultSandboxSize
+
+	for _, v := range options {
+		opt := strings.SplitN(v, "=", 2)
+		storageOpt[strings.ToLower(opt[0])] = opt[1]
+	}
+
+	storageOptions, err := parseStorageOpt(storageOpt)
+	if err != nil {
+		return nil, fmt.Errorf("windowsfilter failed to parse default storage options - %s", err)
+	}
+
 	d := &Driver{
 		info: hcsshim.DriverInfo{
 			HomeDir: home,
 			Flavour: filterDriver,
 		},
-		cache: make(map[string]string),
-		ctr:   graphdriver.NewRefCounter(&checker{}),
+		cache:              make(map[string]string),
+		ctr:                graphdriver.NewRefCounter(&checker{}),
+		defaultStorageOpts: storageOptions,
 	}
 	return d, nil
 }
@@ -231,8 +257,13 @@ func (d *Driver) create(id, parent, mountLabel string, readOnly bool, storageOpt
 			return fmt.Errorf("Failed to parse storage options - %s", err)
 		}
 
+		sandboxSize := d.defaultStorageOpts.size
 		if storageOptions.size != 0 {
-			if err := hcsshim.ExpandSandboxSize(d.info, id, storageOptions.size); err != nil {
+			sandboxSize = storageOptions.size
+		}
+
+		if sandboxSize != 0 {
+			if err := hcsshim.ExpandSandboxSize(d.info, id, sandboxSize); err != nil {
 				return err
 			}
 		}
@@ -450,7 +481,7 @@ func (d *Driver) Put(id string) error {
 // We use this opportunity to cleanup any -removing folders which may be
 // still left if the daemon was killed while it was removing a layer.
 func (d *Driver) Cleanup() error {
-	items, err := ioutil.ReadDir(d.info.HomeDir)
+	items, err := os.ReadDir(d.info.HomeDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -801,13 +832,13 @@ func writeLayerReexec() {
 
 // writeLayer writes a layer from a tar file.
 func writeLayer(layerData io.Reader, home string, id string, parentLayerPaths ...string) (size int64, retErr error) {
-	err := winio.EnableProcessPrivileges([]string{winio.SeBackupPrivilege, winio.SeRestorePrivilege})
+	err := winio.EnableProcessPrivileges([]string{winio.SeSecurityPrivilege, winio.SeBackupPrivilege, winio.SeRestorePrivilege})
 	if err != nil {
 		return 0, err
 	}
 	if noreexec {
 		defer func() {
-			if err := winio.DisableProcessPrivileges([]string{winio.SeBackupPrivilege, winio.SeRestorePrivilege}); err != nil {
+			if err := winio.DisableProcessPrivileges([]string{winio.SeSecurityPrivilege, winio.SeBackupPrivilege, winio.SeRestorePrivilege}); err != nil {
 				// This should never happen, but just in case when in debugging mode.
 				// See https://github.com/docker/docker/pull/28002#discussion_r86259241 for rationale.
 				panic("Failed to disabled process privileges while in non re-exec mode")
@@ -840,7 +871,7 @@ func writeLayer(layerData io.Reader, home string, id string, parentLayerPaths ..
 
 // resolveID computes the layerID information based on the given id.
 func (d *Driver) resolveID(id string) (string, error) {
-	content, err := ioutil.ReadFile(filepath.Join(d.dir(id), "layerID"))
+	content, err := os.ReadFile(filepath.Join(d.dir(id), "layerID"))
 	if os.IsNotExist(err) {
 		return id, nil
 	} else if err != nil {
@@ -851,13 +882,13 @@ func (d *Driver) resolveID(id string) (string, error) {
 
 // setID stores the layerId in disk.
 func (d *Driver) setID(id, altID string) error {
-	return ioutil.WriteFile(filepath.Join(d.dir(id), "layerId"), []byte(altID), 0600)
+	return os.WriteFile(filepath.Join(d.dir(id), "layerId"), []byte(altID), 0600)
 }
 
 // getLayerChain returns the layer chain information.
 func (d *Driver) getLayerChain(id string) ([]string, error) {
 	jPath := filepath.Join(d.dir(id), "layerchain.json")
-	content, err := ioutil.ReadFile(jPath)
+	content, err := os.ReadFile(jPath)
 	if os.IsNotExist(err) {
 		return nil, nil
 	} else if err != nil {
@@ -881,7 +912,7 @@ func (d *Driver) setLayerChain(id string, chain []string) error {
 	}
 
 	jPath := filepath.Join(d.dir(id), "layerchain.json")
-	err = ioutil.WriteFile(jPath, content, 0600)
+	err = os.WriteFile(jPath, content, 0600)
 	if err != nil {
 		return fmt.Errorf("Unable to write layerchain file - %s", err)
 	}
@@ -933,10 +964,6 @@ func (d *Driver) DiffGetter(id string) (graphdriver.FileGetCloser, error) {
 	}
 
 	return &fileGetCloserWithBackupPrivileges{d.dir(id)}, nil
-}
-
-type storageOptions struct {
-	size uint64
 }
 
 func parseStorageOpt(storageOpt map[string]string) (*storageOptions, error) {

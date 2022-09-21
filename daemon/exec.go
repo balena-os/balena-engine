@@ -15,7 +15,7 @@ import (
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/pools"
-	"github.com/docker/docker/pkg/signal"
+	"github.com/moby/sys/signal"
 	"github.com/moby/term"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
@@ -59,7 +59,7 @@ func (daemon *Daemon) getExecConfig(name string) (*exec.Config, error) {
 		return nil, containerNotFound(name)
 	}
 	if !ctr.IsRunning() {
-		return nil, fmt.Errorf("Container %s is not running: %s", ctr.ID, ctr.State.String())
+		return nil, errNotRunning(ctr.ID)
 	}
 	if ctr.IsPaused() {
 		return nil, errExecPaused(ctr.ID)
@@ -158,7 +158,7 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 
 	ec, err := daemon.getExecConfig(name)
 	if err != nil {
-		return errExecNotFound(name)
+		return err
 	}
 
 	ec.Lock()
@@ -176,6 +176,9 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 	ec.Unlock()
 
 	c := daemon.containers.Get(ec.ContainerID)
+	if c == nil {
+		return containerNotFound(ec.ContainerID)
+	}
 	logrus.Debugf("starting exec command %s in container %s", ec.ID, c.ID)
 	attributes := map[string]string{
 		"execID": ec.ID,
@@ -276,7 +279,7 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 	select {
 	case <-ctx.Done():
 		logrus.Debugf("Sending TERM signal to process %v in container %v", name, c.ID)
-		daemon.containerd.SignalProcess(ctx, c.ID, name, int(signal.SignalMap["TERM"]))
+		daemon.containerd.SignalProcess(ctx, c.ID, name, signal.SignalMap["TERM"])
 
 		timeout := time.NewTimer(termProcessTimeout)
 		defer timeout.Stop()
@@ -284,7 +287,7 @@ func (daemon *Daemon) ContainerExecStart(ctx context.Context, name string, stdin
 		select {
 		case <-timeout.C:
 			logrus.Infof("Container %v, process %v failed to exit within %v of signal TERM - using the force", c.ID, name, termProcessTimeout)
-			daemon.containerd.SignalProcess(ctx, c.ID, name, int(signal.SignalMap["KILL"]))
+			daemon.containerd.SignalProcess(ctx, c.ID, name, signal.SignalMap["KILL"])
 		case <-attachErr:
 			// TERM signal worked
 		}

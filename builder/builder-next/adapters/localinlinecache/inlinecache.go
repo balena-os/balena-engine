@@ -17,7 +17,7 @@ import (
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/solver"
 	"github.com/moby/buildkit/worker"
-	digest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
@@ -75,7 +75,7 @@ func (li *localImporter) Resolve(ctx context.Context, _ specs.Descriptor, id str
 	if err != nil {
 		return nil, err
 	}
-	return solver.NewCacheManager(id, keysStorage, resultStorage), nil
+	return solver.NewCacheManager(ctx, id, keysStorage, resultStorage), nil
 }
 
 func (li *localImporter) importInlineCache(ctx context.Context, dt []byte, cc solver.CacheExporterTarget) error {

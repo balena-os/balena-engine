@@ -21,12 +21,12 @@ import (
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/jsonmessage"
-	"github.com/docker/docker/pkg/signal"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/go-connections/nat"
 	"github.com/moby/buildkit/frontend/dockerfile/instructions"
 	"github.com/moby/buildkit/frontend/dockerfile/parser"
 	"github.com/moby/buildkit/frontend/dockerfile/shell"
+	"github.com/moby/sys/signal"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
@@ -172,9 +172,6 @@ func initializeStage(d dispatchRequest, cmd *instructions.Stage) error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to parse platform %s", v)
 		}
-		if err := system.ValidatePlatform(p); err != nil {
-			return err
-		}
 		platform = &p
 	}
 
@@ -211,7 +208,7 @@ func dispatchTriggeredOnBuild(d dispatchRequest, triggers []string) error {
 		}
 		cmd, err := instructions.ParseCommand(ast.AST.Children[0])
 		if err != nil {
-			var uiErr *instructions.UnknownInstruction
+			var uiErr *instructions.UnknownInstructionError
 			if errors.As(err, &uiErr) {
 				buildsFailed.WithValues(metricsUnknownInstructionError).Inc()
 			}
@@ -249,30 +246,19 @@ func (d *dispatchRequest) getImageOrStage(name string, platform *specs.Platform)
 		platform = d.builder.platform
 	}
 
-	// Windows cannot support a container with no base image unless it is LCOW.
+	// Windows cannot support a container with no base image.
 	if name == api.NoBaseImageSpecifier {
-		p := platforms.DefaultSpec()
-		if platform != nil {
-			p = *platform
-		}
-		imageImage := &image.Image{}
-		imageImage.OS = p.OS
-
-		// old windows scratch handling
-		// TODO: scratch should not have an os. It should be nil image.
-		// Windows supports scratch. What is not supported is running containers
-		// from it.
+		// Windows supports scratch. What is not supported is running containers from it.
 		if runtime.GOOS == "windows" {
-			if platform == nil || platform.OS == "linux" {
-				if !system.LCOWSupported() {
-					return nil, errors.New("Linux containers are not supported on this system")
-				}
-				imageImage.OS = "linux"
-			} else if platform.OS == "windows" {
-				return nil, errors.New("Windows does not support FROM scratch")
-			} else {
-				return nil, errors.Errorf("platform %s is not supported", platforms.Format(p))
-			}
+			return nil, errors.New("Windows does not support FROM scratch")
+		}
+
+		// TODO: scratch should not have an os. It should be nil image.
+		imageImage := &image.Image{}
+		if platform != nil {
+			imageImage.OS = platform.OS
+		} else {
+			imageImage.OS = runtime.GOOS
 		}
 		return builder.Image(imageImage), nil
 	}

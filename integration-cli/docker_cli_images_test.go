@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -69,7 +68,7 @@ func (s *DockerSuite) TestImagesOrderedByCreationDate(c *testing.T) {
 func (s *DockerSuite) TestImagesErrorWithInvalidFilterNameTest(c *testing.T) {
 	out, _, err := dockerCmdWithError("images", "-f", "FOO=123")
 	assert.ErrorContains(c, err, "")
-	assert.Assert(c, strings.Contains(out, "Invalid filter"))
+	assert.Assert(c, strings.Contains(out, "invalid filter"))
 }
 
 func (s *DockerSuite) TestImagesFilterLabelMatch(c *testing.T) {
@@ -253,7 +252,7 @@ func (s *DockerSuite) TestImagesEnsureDanglingImageOnlyListedOnce(c *testing.T) 
 func (s *DockerSuite) TestImagesWithIncorrectFilter(c *testing.T) {
 	out, _, err := dockerCmdWithError("images", "-f", "dangling=invalid")
 	assert.ErrorContains(c, err, "")
-	assert.Assert(c, strings.Contains(out, "Invalid filter"))
+	assert.Assert(c, strings.Contains(out, "invalid filter"))
 }
 
 func (s *DockerSuite) TestImagesEnsureOnlyHeadsImagesShown(c *testing.T) {
@@ -352,11 +351,11 @@ func (s *DockerSuite) TestImagesFormatDefaultFormat(c *testing.T) {
 	config := `{
 		"imagesFormat": "{{ .ID }} default"
 }`
-	d, err := ioutil.TempDir("", "integration-cli-")
+	d, err := os.MkdirTemp("", "integration-cli-")
 	assert.NilError(c, err)
 	defer os.RemoveAll(d)
 
-	err = ioutil.WriteFile(filepath.Join(d, "config.json"), []byte(config), 0644)
+	err = os.WriteFile(filepath.Join(d, "config.json"), []byte(config), 0644)
 	assert.NilError(c, err)
 
 	out, _ = dockerCmd(c, "--config", d, "images", "-q", "myimage")

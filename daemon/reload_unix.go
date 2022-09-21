@@ -1,3 +1,4 @@
+//go:build linux || freebsd
 // +build linux freebsd
 
 package daemon // import "github.com/docker/docker/daemon"
@@ -19,7 +20,7 @@ func (daemon *Daemon) reloadPlatform(conf *config.Config, attributes map[string]
 
 	if conf.IsValueSet("runtimes") {
 		// Always set the default one
-		conf.Runtimes[config.StockRuntimeName] = types.Runtime{Path: DefaultRuntimeBinary}
+		conf.Runtimes[config.StockRuntimeName] = types.Runtime{Path: config.DefaultRuntimeBinary}
 		if err := daemon.initRuntimes(conf.Runtimes); err != nil {
 			return err
 		}

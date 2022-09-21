@@ -1,3 +1,4 @@
+//go:build linux && cgo && !static_build && journald
 // +build linux,cgo,!static_build,journald
 
 package journald // import "github.com/docker/docker/daemon/logger/journald"
@@ -115,20 +116,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (s *journald) Close() error {
-	s.mu.Lock()
-	for r := range s.readers {
-		r.ProducerGone()
-		delete(s.readers, r)
-	}
-	s.mu.Unlock()
-	return nil
-}
-
-// convert error code returned from a sd_journal_* function
+// CErr converts error code returned from a sd_journal_* function
 // (which returns -errno) to a string
 func CErr(ret C.int) string {
-	return C.GoString(C.strerror(C.int(-ret)))
+	return C.GoString(C.strerror(-ret))
 }
 
 func (s *journald) drainJournal(logWatcher *logger.LogWatcher, j *C.sd_journal, oldCursor *C.char, untilUnixMicro uint64) (*C.char, bool, int) {
@@ -232,9 +223,7 @@ drain:
 }
 
 func (s *journald) followJournal(logWatcher *logger.LogWatcher, j *C.sd_journal, cursor *C.char, untilUnixMicro uint64) *C.char {
-	s.mu.Lock()
-	s.readers[logWatcher] = struct{}{}
-	s.mu.Unlock()
+	defer close(logWatcher.Msg)
 
 	waitTimeout := C.uint64_t(250000) // 0.25s
 
@@ -242,12 +231,12 @@ func (s *journald) followJournal(logWatcher *logger.LogWatcher, j *C.sd_journal,
 		status := C.sd_journal_wait(j, waitTimeout)
 		if status < 0 {
 			logWatcher.Err <- errors.New("error waiting for journal: " + CErr(status))
-			goto cleanup
+			break
 		}
 		select {
 		case <-logWatcher.WatchConsumerGone():
-			goto cleanup // won't be able to write anything anymore
-		case <-logWatcher.WatchProducerGone():
+			break // won't be able to write anything anymore
+		case <-s.closed:
 			// container is gone, drain journal
 		default:
 			// container is still alive
@@ -263,11 +252,6 @@ func (s *journald) followJournal(logWatcher *logger.LogWatcher, j *C.sd_journal,
 		}
 	}
 
-cleanup:
-	s.mu.Lock()
-	delete(s.readers, logWatcher)
-	s.mu.Unlock()
-	close(logWatcher.Msg)
 	return cursor
 }
 
@@ -377,7 +361,6 @@ func (s *journald) readLogs(logWatcher *logger.LogWatcher, config logger.ReadCon
 	}
 
 	C.free(unsafe.Pointer(cursor))
-	return
 }
 
 func (s *journald) ReadLogs(config logger.ReadConfig) *logger.LogWatcher {

@@ -4,18 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net"
+	"net/url"
 	"os"
-	"reflect"
 	"strings"
 	"sync"
 
-	daemondiscovery "github.com/docker/docker/daemon/discovery"
 	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/authorization"
-	"github.com/docker/docker/pkg/discovery"
 	"github.com/docker/docker/registry"
 	"github.com/imdario/mergo"
 	"github.com/pkg/errors"
@@ -40,24 +36,37 @@ const (
 	// maximum number of attempts that
 	// may take place at a time for each push when the connection is lost.
 	DefaultUploadAttempts = 5
-	// DefaultShmSize is the default value for container's shm size
-	DefaultShmSize = int64(67108864)
+	// DefaultShmSize is the default value for container's shm size (64 MiB)
+	DefaultShmSize int64 = 64 * 1024 * 1024
 	// DefaultNetworkMtu is the default value for network MTU
 	DefaultNetworkMtu = 1500
 	// DisableNetworkBridge is the default value of the option to disable network bridge
 	DisableNetworkBridge = "none"
+	// DefaultShutdownTimeout is the default shutdown timeout (in seconds) for
+	// the daemon for containers to stop when it is shutting down.
+	DefaultShutdownTimeout = 15
 	// DefaultInitBinary is the name of the default init binary
 	DefaultInitBinary = "balena-engine-init"
+	// DefaultRuntimeBinary is the default runtime to be used by
+	// containerd if none is specified
+	DefaultRuntimeBinary = "balena-engine-runc"
+	// DefaultContainersNamespace is the name of the default containerd namespace used for users containers.
+	DefaultContainersNamespace = "moby"
+	// DefaultPluginNamespace is the name of the default containerd namespace used for plugins.
+	DefaultPluginNamespace = "plugins.moby"
 
-	// StockRuntimeName is the reserved name/alias used to represent the
-	// OCI runtime being shipped with the docker daemon package.
-	StockRuntimeName = "runc"
 	// LinuxV1RuntimeName is the runtime used to specify the containerd v1 shim with the runc binary
 	// Note this is different than io.containerd.runc.v1 which would be the v1 shim using the v2 shim API.
 	// This is specifically for the v1 shim using the v1 shim API.
 	LinuxV1RuntimeName = "io.containerd.runtime.v1.linux"
 	// LinuxV2RuntimeName is the runtime used to specify the containerd v2 runc shim
 	LinuxV2RuntimeName = "io.containerd.runc.v2"
+
+	// SeccompProfileDefault is the built-in default seccomp profile.
+	SeccompProfileDefault = "builtin"
+	// SeccompProfileUnconfined is a special profile name for seccomp to use an
+	// "unconfined" seccomp profile.
+	SeccompProfileUnconfined = "unconfined"
 )
 
 var builtinRuntimes = map[string]bool{
@@ -166,6 +175,9 @@ type CommonConfig struct {
 	SocketGroup           string                    `json:"group,omitempty"`
 	CorsHeaders           string                    `json:"api-cors-header,omitempty"`
 
+	// Proxies holds the proxies that are configured for the daemon.
+	Proxies `json:"proxies"`
+
 	// TrustKeyPath is used to generate the daemon ID and for signing schema 1 manifests
 	// when pushing to a registry which does not support schema 2. This field is marked as
 	// deprecated because schema 1 manifests are deprecated in favor of schema 2 and the
@@ -195,15 +207,15 @@ type CommonConfig struct {
 
 	// MaxConcurrentDownloads is the maximum number of downloads that
 	// may take place at a time for each pull.
-	MaxConcurrentDownloads *int `json:"max-concurrent-downloads,omitempty"`
+	MaxConcurrentDownloads int `json:"max-concurrent-downloads,omitempty"`
 
 	// MaxConcurrentUploads is the maximum number of uploads that
 	// may take place at a time for each push.
-	MaxConcurrentUploads *int `json:"max-concurrent-uploads,omitempty"`
+	MaxConcurrentUploads int `json:"max-concurrent-uploads,omitempty"`
 
 	// MaxDownloadAttempts is the maximum number of attempts that
 	// may take place at a time for each push.
-	MaxDownloadAttempts *int `json:"max-download-attempts,omitempty"`
+	MaxDownloadAttempts int `json:"max-download-attempts,omitempty"`
 
 	// MaxUploadAttempts is the maximum number of attempts that
 	// may take place at a time for each push.
@@ -275,6 +287,15 @@ type CommonConfig struct {
 
 	ContainerdNamespace       string `json:"containerd-namespace,omitempty"`
 	ContainerdPluginNamespace string `json:"containerd-plugin-namespace,omitempty"`
+
+	DefaultRuntime string `json:"default-runtime,omitempty"`
+}
+
+// Proxies holds the proxies that are configured for the daemon.
+type Proxies struct {
+	HTTPProxy  string `json:"http-proxy,omitempty"`
+	HTTPSProxy string `json:"https-proxy,omitempty"`
+	NoProxy    string `json:"no-proxy,omitempty"`
 }
 
 // IsValueSet returns true if a configuration value
@@ -289,26 +310,13 @@ func (conf *Config) IsValueSet(name string) bool {
 
 // New returns a new fully initialized Config struct
 func New() *Config {
-	config := Config{}
-	config.LogConfig.Config = make(map[string]string)
-	config.ClusterOpts = make(map[string]string)
-	return &config
-}
-
-// ParseClusterAdvertiseSettings parses the specified advertise settings
-func ParseClusterAdvertiseSettings(clusterStore, clusterAdvertise string) (string, error) {
-	if clusterAdvertise == "" {
-		return "", daemondiscovery.ErrDiscoveryDisabled
+	return &Config{
+		CommonConfig: CommonConfig{
+			LogConfig: LogConfig{
+				Config: make(map[string]string),
+			},
+		},
 	}
-	if clusterStore == "" {
-		return "", errors.New("invalid cluster configuration. --cluster-advertise must be accompanied by --cluster-store configuration")
-	}
-
-	advertise, err := discovery.ParseAdvertise(clusterAdvertise)
-	if err != nil {
-		return "", errors.Wrap(err, "discovery advertise parsing failed")
-	}
-	return advertise, nil
 }
 
 // GetConflictFreeLabels validates Labels for conflict
@@ -346,16 +354,36 @@ func Reload(configFile string, flags *pflag.FlagSet, reload func(*Config)) error
 		newConfig = New()
 	}
 
-	if err := Validate(newConfig); err != nil {
-		return errors.Wrap(err, "file configuration validation failed")
-	}
-
 	// Check if duplicate label-keys with different values are found
 	newLabels, err := GetConflictFreeLabels(newConfig.Labels)
 	if err != nil {
 		return err
 	}
 	newConfig.Labels = newLabels
+
+	// TODO(thaJeztah) This logic is problematic and needs a rewrite;
+	// This is validating newConfig before the "reload()" callback is executed.
+	// At this point, newConfig may be a partial configuration, to be merged
+	// with the existing configuration in the "reload()" callback. Validating
+	// this config before it's merged can result in incorrect validation errors.
+	//
+	// However, the current "reload()" callback we use is DaemonCli.reloadConfig(),
+	// which includes a call to Daemon.Reload(), which both performs "merging"
+	// and validation, as well as actually updating the daemon configuration.
+	// Calling DaemonCli.reloadConfig() *before* validation, could thus lead to
+	// a failure in that function (making the reload non-atomic).
+	//
+	// While *some* errors could always occur when applying/updating the config,
+	// we should make it more atomic, and;
+	//
+	// 1. get (a copy of) the active configuration
+	// 2. get the new configuration
+	// 3. apply the (reloadable) options from the new configuration
+	// 4. validate the merged results
+	// 5. apply the new configuration.
+	if err := Validate(newConfig); err != nil {
+		return errors.Wrap(err, "file configuration validation failed")
+	}
 
 	reload(newConfig)
 	return nil
@@ -377,17 +405,12 @@ func MergeDaemonConfigurations(flagsConfig *Config, flags *pflag.FlagSet, config
 		return nil, err
 	}
 
-	if err := Validate(fileConfig); err != nil {
-		return nil, errors.Wrap(err, "configuration validation from file failed")
-	}
-
 	// merge flags configuration on top of the file configuration
 	if err := mergo.Merge(fileConfig, flagsConfig); err != nil {
 		return nil, err
 	}
 
-	// We need to validate again once both fileConfig and flagsConfig
-	// have been merged
+	// validate the merged fileConfig and flagsConfig
 	if err := Validate(fileConfig); err != nil {
 		return nil, errors.Wrap(err, "merged configuration validation from file and command line flags failed")
 	}
@@ -399,17 +422,22 @@ func MergeDaemonConfigurations(flagsConfig *Config, flags *pflag.FlagSet, config
 // It compares that configuration with the one provided by the flags,
 // and returns an error if there are conflicts.
 func getConflictFreeConfiguration(configFile string, flags *pflag.FlagSet) (*Config, error) {
-	b, err := ioutil.ReadFile(configFile)
+	b, err := os.ReadFile(configFile)
 	if err != nil {
 		return nil, err
 	}
 
 	var config Config
-	var reader io.Reader
+
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 {
+		// empty config file
+		return &config, nil
+	}
+
 	if flags != nil {
 		var jsonConfig map[string]interface{}
-		reader = bytes.NewReader(b)
-		if err := json.NewDecoder(reader).Decode(&jsonConfig); err != nil {
+		if err := json.Unmarshal(b, &jsonConfig); err != nil {
 			return nil, err
 		}
 
@@ -452,8 +480,7 @@ func getConflictFreeConfiguration(configFile string, flags *pflag.FlagSet) (*Con
 		config.ValuesSet = configSet
 	}
 
-	reader = bytes.NewReader(b)
-	if err := json.NewDecoder(reader).Decode(&config); err != nil {
+	if err := json.Unmarshal(b, &config); err != nil {
 		return nil, err
 	}
 
@@ -519,6 +546,11 @@ func findConfigurationConflicts(config map[string]interface{}, flags *pflag.Flag
 
 	var conflicts []string
 	printConflict := func(name string, flagValue, fileValue interface{}) string {
+		switch name {
+		case "http-proxy", "https-proxy":
+			flagValue = MaskCredentials(flagValue.(string))
+			fileValue = MaskCredentials(fileValue.(string))
+		}
 		return fmt.Sprintf("%s: (from flag: %v, from file: %v)", name, flagValue, fileValue)
 	}
 
@@ -552,6 +584,13 @@ func findConfigurationConflicts(config map[string]interface{}, flags *pflag.Flag
 // such as config.DNS, config.Labels, config.DNSSearch,
 // as well as config.MaxConcurrentDownloads, config.MaxConcurrentUploads and config.MaxDownloadAttempts.
 func Validate(config *Config) error {
+	// validate log-level
+	if config.LogLevel != "" {
+		if _, err := logrus.ParseLevel(config.LogLevel); err != nil {
+			return fmt.Errorf("invalid logging level: %s", config.LogLevel)
+		}
+	}
+
 	// validate DNS
 	for _, dns := range config.DNS {
 		if _, err := opts.ValidateIPAddress(dns); err != nil {
@@ -572,16 +611,16 @@ func Validate(config *Config) error {
 			return err
 		}
 	}
-	// validate MaxConcurrentDownloads
-	if config.MaxConcurrentDownloads != nil && *config.MaxConcurrentDownloads < 0 {
-		return fmt.Errorf("invalid max concurrent downloads: %d", *config.MaxConcurrentDownloads)
+
+	// TODO(thaJeztah) Validations below should not accept "0" to be valid; see Validate() for a more in-depth description of this problem
+	if config.MaxConcurrentDownloads < 0 {
+		return fmt.Errorf("invalid max concurrent downloads: %d", config.MaxConcurrentDownloads)
 	}
-	// validate MaxConcurrentUploads
-	if config.MaxConcurrentUploads != nil && *config.MaxConcurrentUploads < 0 {
-		return fmt.Errorf("invalid max concurrent uploads: %d", *config.MaxConcurrentUploads)
+	if config.MaxConcurrentUploads < 0 {
+		return fmt.Errorf("invalid max concurrent uploads: %d", config.MaxConcurrentUploads)
 	}
-	if err := ValidateMaxDownloadAttempts(config); err != nil {
-		return err
+	if config.MaxDownloadAttempts < 0 {
+		return fmt.Errorf("invalid max download attempts: %d", config.MaxDownloadAttempts)
 	}
 	if err := ValidateMaxUploadAttempts(config); err != nil {
 		return err
@@ -607,16 +646,23 @@ func Validate(config *Config) error {
 		}
 	}
 
+	for _, h := range config.Hosts {
+		if _, err := opts.ValidateHost(h); err != nil {
+			return err
+		}
+	}
+
 	// validate platform-specific settings
 	return config.ValidatePlatformConfig()
 }
 
-// ValidateMaxDownloadAttempts validates if the max-download-attempts is within the valid range
-func ValidateMaxDownloadAttempts(config *Config) error {
-	if config.MaxDownloadAttempts != nil && *config.MaxDownloadAttempts <= 0 {
-		return fmt.Errorf("invalid max download attempts: %d", *config.MaxDownloadAttempts)
-	}
-	return nil
+// GetDefaultRuntimeName returns the current default runtime
+func (conf *Config) GetDefaultRuntimeName() string {
+	conf.Lock()
+	rt := conf.DefaultRuntime
+	conf.Unlock()
+
+	return rt
 }
 
 // ValidateMaxUploadAttempts validates if the max-upload-attempts is within the valid range
@@ -627,17 +673,12 @@ func ValidateMaxUploadAttempts(config *Config) error {
 	return nil
 }
 
-// ModifiedDiscoverySettings returns whether the discovery configuration has been modified or not.
-func ModifiedDiscoverySettings(config *Config, backendType, advertise string, clusterOpts map[string]string) bool {
-	if config.ClusterStore != backendType || config.ClusterAdvertise != advertise {
-		return true
+// MaskCredentials masks credentials that are in an URL.
+func MaskCredentials(rawURL string) string {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil || parsedURL.User == nil {
+		return rawURL
 	}
-
-	if (config.ClusterOpts == nil && clusterOpts == nil) ||
-		(config.ClusterOpts == nil && len(clusterOpts) == 0) ||
-		(len(config.ClusterOpts) == 0 && clusterOpts == nil) {
-		return false
-	}
-
-	return !reflect.DeepEqual(config.ClusterOpts, clusterOpts)
+	parsedURL.User = url.UserPassword("xxxxx", "xxxxx")
+	return parsedURL.String()
 }

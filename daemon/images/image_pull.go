@@ -16,8 +16,7 @@ import (
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
-	"github.com/docker/docker/registry"
-	digest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -63,7 +62,7 @@ func (i *ImageService) PullImage(ctx context.Context, image, tag string, platfor
 		// is a single-arch image, in which case (for backward compatibility),
 		// we allow the image to have a non-matching architecture. The code
 		// below checks for this situation, and returns a warning to the client,
-		// as well ass logs it to the daemon logs.
+		// as well as logging it to the daemon logs.
 		img, err := i.GetImage(image, platform)
 
 		// Note that this is a special case where GetImage returns both an image
@@ -124,7 +123,6 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 			ReferenceStore: i.referenceStore,
 		},
 		DownloadManager: i.downloadManager,
-		Schema2Types:    distribution.ImageTypes,
 		Platform:        platform,
 	}
 
@@ -135,41 +133,13 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 }
 
 // GetRepository returns a repository from the registry.
-func (i *ImageService) GetRepository(ctx context.Context, ref reference.Named, authConfig *types.AuthConfig) (dist.Repository, bool, error) {
-	// get repository info
-	repoInfo, err := i.registryService.ResolveRepository(ref)
-	if err != nil {
-		return nil, false, errdefs.InvalidParameter(err)
-	}
-	// makes sure name is not empty or `scratch`
-	if err := distribution.ValidateRepoName(repoInfo.Name); err != nil {
-		return nil, false, errdefs.InvalidParameter(err)
-	}
-
-	// get endpoints
-	endpoints, err := i.registryService.LookupPullEndpoints(reference.Domain(repoInfo.Name))
-	if err != nil {
-		return nil, false, err
-	}
-
-	// retrieve repository
-	var (
-		confirmedV2 bool
-		repository  dist.Repository
-		lastError   error
-	)
-
-	for _, endpoint := range endpoints {
-		if endpoint.Version == registry.APIVersion1 {
-			continue
-		}
-
-		repository, confirmedV2, lastError = distribution.NewV2Repository(ctx, repoInfo, endpoint, nil, authConfig, "pull")
-		if lastError == nil && confirmedV2 {
-			break
-		}
-	}
-	return repository, confirmedV2, lastError
+func (i *ImageService) GetRepository(ctx context.Context, ref reference.Named, authConfig *types.AuthConfig) (dist.Repository, error) {
+	return distribution.GetRepository(ctx, ref, &distribution.ImagePullConfig{
+		Config: distribution.Config{
+			AuthConfig:      authConfig,
+			RegistryService: i.registryService,
+		},
+	})
 }
 
 func tempLease(ctx context.Context, mgr leases.Manager) (context.Context, func(context.Context) error, error) {

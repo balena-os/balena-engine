@@ -1,18 +1,18 @@
+//go:build !windows
 // +build !windows
 
 package buildkit
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 
 	"github.com/docker/docker/daemon/config"
+	"github.com/docker/docker/libnetwork"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/stringid"
-	"github.com/docker/libnetwork"
 	"github.com/moby/buildkit/executor"
 	"github.com/moby/buildkit/executor/oci"
 	"github.com/moby/buildkit/executor/runcexecutor"
@@ -25,7 +25,7 @@ import (
 
 const networkName = "bridge"
 
-func newExecutor(root, cgroupParent string, net libnetwork.NetworkController, dnsConfig *oci.DNSConfig, rootless bool, idmap *idtools.IdentityMapping, apparmorProfile string) (executor.Executor, error) {
+func newExecutor(root, cgroupParent string, net libnetwork.NetworkController, dnsConfig *oci.DNSConfig, rootless bool, idmap idtools.IdentityMapping, apparmorProfile string) (executor.Executor, error) {
 	netRoot := filepath.Join(root, "net")
 	networkProviders := map[pb.NetMode]network.Provider{
 		pb.NetMode_UNSET: &bridgeProvider{NetworkController: net, Root: netRoot},
@@ -34,7 +34,7 @@ func newExecutor(root, cgroupParent string, net libnetwork.NetworkController, dn
 	}
 
 	// make sure net state directory is cleared from previous state
-	fis, err := ioutil.ReadDir(netRoot)
+	fis, err := os.ReadDir(netRoot)
 	if err == nil {
 		for _, fi := range fis {
 			fp := filepath.Join(netRoot, fi.Name())
@@ -44,13 +44,20 @@ func newExecutor(root, cgroupParent string, net libnetwork.NetworkController, dn
 		}
 	}
 
+	// Returning a non-nil but empty *IdentityMapping breaks BuildKit:
+	// https://github.com/moby/moby/pull/39444
+	pidmap := &idmap
+	if idmap.Empty() {
+		pidmap = nil
+	}
+
 	return runcexecutor.New(runcexecutor.Opt{
 		Root:                filepath.Join(root, "executor"),
 		CommandCandidates:   []string{"balena-engine-runc"},
 		DefaultCgroupParent: cgroupParent,
 		Rootless:            rootless,
 		NoPivot:             os.Getenv("DOCKER_RAMDISK") != "",
-		IdentityMapping:     idmap,
+		IdentityMapping:     pidmap,
 		DNS:                 dnsConfig,
 		ApparmorProfile:     apparmorProfile,
 	}, networkProviders)

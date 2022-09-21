@@ -1,3 +1,4 @@
+//go:build linux && cgo
 // +build linux,cgo
 
 package loopback // import "github.com/docker/docker/pkg/loopback"
@@ -38,7 +39,7 @@ func FindLoopDeviceFor(file *os.File) *os.File {
 	}
 	targetInode := stat.Ino
 	// the type is 32bit on mips
-	targetDevice := uint64(stat.Dev) // nolint: unconvert
+	targetDevice := uint64(stat.Dev) //nolint: unconvert
 
 	for i := 0; true; i++ {
 		path := fmt.Sprintf("/dev/loop%d", i)

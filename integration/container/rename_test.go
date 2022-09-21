@@ -123,7 +123,6 @@ func TestRenameInvalidName(t *testing.T) {
 // This test is to make sure once the container has been renamed,
 // the service discovery for the (re)named container works.
 func TestRenameAnonymousContainer(t *testing.T) {
-	skip.If(t, testEnv.OSType == "windows", "FIXME")
 	defer setupTest(t)()
 	ctx := context.Background()
 	client := testEnv.APIClient()
@@ -144,7 +143,7 @@ func TestRenameAnonymousContainer(t *testing.T) {
 	assert.NilError(t, err)
 	// Stop/Start the container to get registered
 	// FIXME(vdemeester) this is a really weird behavior as it fails otherwise
-	err = client.ContainerStop(ctx, container1Name, nil)
+	err = client.ContainerStop(ctx, container1Name, containertypes.StopOptions{})
 	assert.NilError(t, err)
 	err = client.ContainerStart(ctx, container1Name, types.ContainerStartOptions{})
 	assert.NilError(t, err)

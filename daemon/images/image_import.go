@@ -5,10 +5,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"runtime"
 	"strings"
 	"time"
 
+	"github.com/containerd/containerd/platforms"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/builder/dockerfile"
@@ -20,6 +20,8 @@ import (
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
+	"github.com/docker/docker/pkg/system"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 )
 
@@ -27,17 +29,12 @@ import (
 // inConfig (if src is "-"), or from a URI specified in src. Progress output is
 // written to outStream. Repository and tag names can optionally be given in
 // the repo and tag arguments, respectively.
-func (i *ImageService) ImportImage(src string, repository, os string, tag string, msg string, inConfig io.ReadCloser, outStream io.Writer, changes []string) error {
+func (i *ImageService) ImportImage(src string, repository string, platform *specs.Platform, tag string, msg string, inConfig io.ReadCloser, outStream io.Writer, changes []string) error {
 	var (
 		rc     io.ReadCloser
 		resp   *http.Response
 		newRef reference.Named
 	)
-
-	// Default the operating system if not supplied.
-	if os == "" {
-		os = runtime.GOOS
-	}
 
 	if repository != "" {
 		var err error
@@ -57,7 +54,15 @@ func (i *ImageService) ImportImage(src string, repository, os string, tag string
 		}
 	}
 
-	config, err := dockerfile.BuildFromConfig(&container.Config{}, changes, os)
+	// Normalize platform - default to the operating system and architecture if not supplied.
+	if platform == nil {
+		p := platforms.DefaultSpec()
+		platform = &p
+	}
+	if !system.IsOSSupported(platform.OS) {
+		return errdefs.InvalidParameter(system.ErrNotSupportedOperatingSystem)
+	}
+	config, err := dockerfile.BuildFromConfig(&container.Config{}, changes, platform.OS)
 	if err != nil {
 		return err
 	}
@@ -91,19 +96,20 @@ func (i *ImageService) ImportImage(src string, repository, os string, tag string
 	if err != nil {
 		return err
 	}
-	l, err := i.layerStores[os].Register(inflatedLayerData, "")
+	l, err := i.layerStore.Register(inflatedLayerData, "")
 	if err != nil {
 		return err
 	}
-	defer layer.ReleaseAndLog(i.layerStores[os], l)
+	defer layer.ReleaseAndLog(i.layerStore, l)
 
 	created := time.Now().UTC()
 	imgConfig, err := json.Marshal(&image.Image{
 		V1Image: image.V1Image{
 			DockerVersion: dockerversion.Version,
 			Config:        config,
-			Architecture:  runtime.GOARCH,
-			OS:            os,
+			Architecture:  platform.Architecture,
+			Variant:       platform.Variant,
+			OS:            platform.OS,
 			Created:       created,
 			Comment:       msg,
 		},

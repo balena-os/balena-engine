@@ -20,6 +20,7 @@ import (
 
 // delInterface removes given network interface
 func delInterface(t *testing.T, ifName string) {
+	t.Helper()
 	icmd.RunCommand("ip", "link", "delete", ifName).Assert(t, icmd.Success)
 	icmd.RunCommand("iptables", "-t", "nat", "--flush").Assert(t, icmd.Success)
 	icmd.RunCommand("iptables", "--flush").Assert(t, icmd.Success)
@@ -296,6 +297,7 @@ func TestServiceRemoveKeepsIngressNetwork(t *testing.T) {
 	assert.Assert(t, ok, "ingress-sbox not present in ingress network")
 }
 
+//nolint:unused // for some reason, the "unused" linter marks this function as "unused"
 func swarmIngressReady(client client.NetworkAPIClient) func(log poll.LogT) poll.Result {
 	return func(log poll.LogT) poll.Result {
 		netInfo, err := client.NetworkInspect(context.Background(), ingressNet, types.NetworkInspectOptions{

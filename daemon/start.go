@@ -81,7 +81,7 @@ func (daemon *Daemon) ContainerStart(name string, hostConfig *containertypes.Hos
 
 	// check if hostConfig is in line with the current system settings.
 	// It may happen cgroups are umounted or the like.
-	if _, err = daemon.verifyContainerSettings(ctr.OS, ctr.HostConfig, nil, false); err != nil {
+	if _, err = daemon.verifyContainerSettings(ctr.HostConfig, nil, false); err != nil {
 		return errdefs.InvalidParameter(err)
 	}
 	// Adapt for old containers in case we have updates in this function and
@@ -235,7 +235,7 @@ func (daemon *Daemon) Cleanup(container *container.Container) {
 	if err := daemon.conditionalUnmountOnCleanup(container); err != nil {
 		// FIXME: remove once reference counting for graphdrivers has been refactored
 		// Ensure that all the mounts are gone
-		if mountid, err := daemon.imageService.GetLayerMountID(container.ID, container.OS); err == nil {
+		if mountid, err := daemon.imageService.GetLayerMountID(container.ID); err == nil {
 			daemon.cleanupMountsByID(mountid)
 		}
 	}

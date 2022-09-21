@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net/url"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/containerd/containerd/log"
@@ -20,8 +18,6 @@ import (
 	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/docker/distribution/reference"
-	"github.com/docker/distribution/registry/api/errcode"
-	"github.com/docker/distribution/registry/client/auth"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
@@ -33,10 +29,11 @@ import (
 	"github.com/docker/docker/pkg/system"
 	refstore "github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
-	digest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	archvariant "github.com/tonistiigi/go-archvariant"
 )
 
 var (
@@ -46,32 +43,42 @@ var (
 
 const maxDownloadAttempts = 10
 
-// ImageConfigPullError is an error pulling the image config blob
+// imageConfigPullError is an error pulling the image config blob
 // (only applies to schema2).
-type ImageConfigPullError struct {
+type imageConfigPullError struct {
 	Err error
 }
 
-// Error returns the error string for ImageConfigPullError.
-func (e ImageConfigPullError) Error() string {
+// Error returns the error string for imageConfigPullError.
+func (e imageConfigPullError) Error() string {
 	return "error pulling image configuration: " + e.Err.Error()
 }
 
-type v2Puller struct {
-	V2MetadataService metadata.V2MetadataService
-	endpoint          registry.APIEndpoint
-	config            *ImagePullConfig
-	repoInfo          *registry.RepositoryInfo
-	repo              distribution.Repository
-	// confirmedV2 is set to true if we confirm we're talking to a v2
-	// registry. This is used to limit fallbacks to the v1 protocol.
-	confirmedV2   bool
-	manifestStore *manifestStore
+// newPuller returns a puller to pull from a v2 registry.
+func newPuller(endpoint registry.APIEndpoint, repoInfo *registry.RepositoryInfo, config *ImagePullConfig, local ContentStore) *puller {
+	return &puller{
+		metadataService: metadata.NewV2MetadataService(config.MetadataStore),
+		endpoint:        endpoint,
+		config:          config,
+		repoInfo:        repoInfo,
+		manifestStore: &manifestStore{
+			local: local,
+		},
+	}
 }
 
-func (p *v2Puller) Pull(ctx context.Context, ref reference.Named, platform *specs.Platform) (err error) {
+type puller struct {
+	metadataService metadata.V2MetadataService
+	endpoint        registry.APIEndpoint
+	config          *ImagePullConfig
+	repoInfo        *registry.RepositoryInfo
+	repo            distribution.Repository
+	manifestStore   *manifestStore
+}
+
+func (p *puller) pull(ctx context.Context, ref reference.Named) (err error) {
 	// TODO(tiborvass): was ReceiveTimeout
-	p.repo, p.confirmedV2, err = NewV2Repository(ctx, p.repoInfo, p.endpoint, p.config.MetaHeaders, p.config.AuthConfig, "pull")
+	p.repo, err = newRepository(ctx, p.repoInfo, p.endpoint, p.config.MetaHeaders, p.config.AuthConfig, "pull")
 	if err != nil {
 		logrus.Warnf("Error getting v2 registry: %v", err)
 		return err
@@ -82,14 +89,13 @@ func (p *v2Puller) Pull(ctx context.Context, ref reference.Named, platform *spec
 		return err
 	}
 
-	if err = p.pullV2Repository(ctx, ref, platform); err != nil {
+	if err = p.pullRepository(ctx, ref); err != nil {
 		if _, ok := err.(fallbackError); ok {
 			return err
 		}
 		if continueOnError(err, p.endpoint.Mirror) {
 			return fallbackError{
 				err:         err,
-				confirmedV2: p.confirmedV2,
 				transportOK: true,
 			}
 		}
@@ -97,32 +103,25 @@ func (p *v2Puller) Pull(ctx context.Context, ref reference.Named, platform *spec
 	return err
 }
 
-func (p *v2Puller) pullV2Repository(ctx context.Context, ref reference.Named, platform *specs.Platform) (err error) {
+func (p *puller) pullRepository(ctx context.Context, ref reference.Named) (err error) {
 	var layersDownloaded bool
 	if !reference.IsNameOnly(ref) {
-		layersDownloaded, err = p.pullV2Tag(ctx, ref, platform)
+		layersDownloaded, err = p.pullTag(ctx, ref, p.config.Platform)
 		if err != nil {
 			return err
 		}
 	} else {
 		tags, err := p.repo.Tags(ctx).All(ctx)
 		if err != nil {
-			// If this repository doesn't exist on V2, we should
-			// permit a fallback to V1.
-			return allowV1Fallback(err)
+			return err
 		}
-
-		// The v2 registry knows about this repository, so we will not
-		// allow fallback to the v1 protocol even if we encounter an
-		// error later on.
-		p.confirmedV2 = true
 
 		for _, tag := range tags {
 			tagRef, err := reference.WithTag(ref, tag)
 			if err != nil {
 				return err
 			}
-			pulledNew, err := p.pullV2Tag(ctx, tagRef, platform)
+			pulledNew, err := p.pullTag(ctx, tagRef, p.config.Platform)
 			if err != nil {
 				// Since this is the pull-all-tags case, don't
 				// allow an error pulling a particular tag to
@@ -138,44 +137,56 @@ func (p *v2Puller) pullV2Repository(ctx context.Context, ref reference.Named, pl
 		}
 	}
 
-	writeStatus(reference.FamiliarString(ref), p.config.ProgressOutput, layersDownloaded)
+	p.writeStatus(reference.FamiliarString(ref), layersDownloaded)
 
 	return nil
 }
 
-type v2LayerDescriptor struct {
-	digest            digest.Digest
-	diffID            layer.DiffID
-	repoInfo          *registry.RepositoryInfo
-	repo              distribution.Repository
-	V2MetadataService metadata.V2MetadataService
-	tmpFile           *os.File
-	verifier          digest.Verifier
-	src               distribution.Descriptor
-	ctx               context.Context
-	layerDownload     io.ReadCloser
-	downloadRetries   uint8 // Number of retries since last successful download attempt
-	downloadOffset    int64
-	deltaBase         io.ReadSeeker
-	progressOutput    progress.Output
+// writeStatus writes a status message to out. If layersDownloaded is true, the
+// status message indicates that a newer image was downloaded. Otherwise, it
+// indicates that the image is up to date. requestedTag is the tag the message
+// will refer to.
+func (p *puller) writeStatus(requestedTag string, layersDownloaded bool) {
+	if layersDownloaded {
+		progress.Message(p.config.ProgressOutput, "", "Status: Downloaded newer image for "+requestedTag)
+	} else {
+		progress.Message(p.config.ProgressOutput, "", "Status: Image is up to date for "+requestedTag)
+	}
 }
 
-func (ld *v2LayerDescriptor) Key() string {
+type layerDescriptor struct {
+	digest          digest.Digest
+	diffID          layer.DiffID
+	repoInfo        *registry.RepositoryInfo
+	repo            distribution.Repository
+	metadataService metadata.V2MetadataService
+	tmpFile         *os.File
+	verifier        digest.Verifier
+	src             distribution.Descriptor
+	ctx             context.Context
+	layerDownload   io.ReadCloser
+	downloadRetries uint8 // Number of retries since last successful download attempt
+	downloadOffset  int64
+	deltaBase       io.ReadSeeker
+	progressOutput  progress.Output
+}
+
+func (ld *layerDescriptor) Key() string {
 	return "v2:" + ld.digest.String()
 }
 
-func (ld *v2LayerDescriptor) ID() string {
+func (ld *layerDescriptor) ID() string {
 	return stringid.TruncateID(ld.digest.String())
 }
 
-func (ld *v2LayerDescriptor) DiffID() (layer.DiffID, error) {
+func (ld *layerDescriptor) DiffID() (layer.DiffID, error) {
 	if ld.diffID != "" {
 		return ld.diffID, nil
 	}
-	return ld.V2MetadataService.GetDiffID(ld.digest)
+	return ld.metadataService.GetDiffID(ld.digest)
 }
 
-func (ld *v2LayerDescriptor) reset() error {
+func (ld *layerDescriptor) reset() error {
 	if ld.layerDownload != nil {
 		ld.layerDownload.Close()
 		ld.layerDownload = nil
@@ -195,7 +206,7 @@ func (ld *v2LayerDescriptor) reset() error {
 	return nil
 }
 
-func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
+func (ld *layerDescriptor) Read(p []byte) (int, error) {
 	if ld.downloadRetries > maxDownloadAttempts {
 		logrus.Warnf("giving up layer download after %v retries", maxDownloadAttempts)
 		return 0, fmt.Errorf("no request retries left")
@@ -256,17 +267,11 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (ld *v2LayerDescriptor) DeltaBase() io.ReadSeeker {
+func (ld *layerDescriptor) DeltaBase() io.ReadSeeker {
 	return ld.deltaBase
 }
 
-func (ld *v2LayerDescriptor) Close() {
-	if ld.layerDownload != nil {
-		ld.layerDownload.Close()
-	}
-}
-
-func (ld *v2LayerDescriptor) Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error) {
+func (ld *layerDescriptor) Download(ctx context.Context, progressOutput progress.Output) (io.ReadCloser, int64, error) {
 	logrus.Debugf("pulling blob %q", ld.digest)
 
 	ld.ctx = ctx
@@ -280,17 +285,22 @@ func (ld *v2LayerDescriptor) Download(ctx context.Context, progressOutput progre
 	return ioutils.NewReadCloserWrapper(ld, func() error { return nil }), ld.src.Size, nil
 }
 
-func (ld *v2LayerDescriptor) Registered(diffID layer.DiffID) {
+func (ld *v2LayerDescriptor) Close() {
+	if ld.layerDownload != nil {
+		ld.layerDownload.Close()
+	}
+}
+
+func (ld *layerDescriptor) Registered(diffID layer.DiffID) {
 	// Cache mapping from this layer's DiffID to the blobsum
-	ld.V2MetadataService.Add(diffID, metadata.V2Metadata{Digest: ld.digest, SourceRepository: ld.repoInfo.Name.Name()})
+	_ = ld.metadataService.Add(diffID, metadata.V2Metadata{Digest: ld.digest, SourceRepository: ld.repoInfo.Name.Name()})
 }
 
 func (ld *v2LayerDescriptor) Size() int64 {
 	return ld.src.Size
 }
 
-func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform *specs.Platform) (tagUpdated bool, err error) {
-
+func (p *puller) pullTag(ctx context.Context, ref reference.Named, platform *specs.Platform) (tagUpdated bool, err error) {
 	var (
 		tagOrDigest string // Used for logging/progress only
 		dgst        digest.Digest
@@ -306,7 +316,7 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform 
 		tagService := p.repo.Tags(ctx)
 		desc, err := tagService.Get(ctx, tagged.Tag())
 		if err != nil {
-			return false, allowV1Fallback(err)
+			return false, err
 		}
 
 		dgst = desc.Digest
@@ -364,25 +374,10 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform 
 	}
 
 	if m, ok := manifest.(*schema2.DeserializedManifest); ok {
-		var allowedMediatype bool
-		for _, t := range p.config.Schema2Types {
-			if m.Manifest.Config.MediaType == t {
-				allowedMediatype = true
-				break
-			}
-		}
-		if !allowedMediatype {
-			configClass := mediaTypeClasses[m.Manifest.Config.MediaType]
-			if configClass == "" {
-				configClass = "unknown"
-			}
-			return false, invalidManifestClassError{m.Manifest.Config.MediaType, configClass}
+		if err := p.validateMediaType(m.Manifest.Config.MediaType); err != nil {
+			return false, err
 		}
 	}
-
-	// If manSvc.Get succeeded, we can be confident that the registry on
-	// the other side speaks the v2 protocol.
-	p.confirmedV2 = true
 
 	logrus.Debugf("Pulling ref from V2 registry: %s", reference.FamiliarString(ref))
 	progress.Message(p.config.ProgressOutput, tagOrDigest, "Pulling from "+reference.FamiliarName(p.repo.Named()))
@@ -457,7 +452,37 @@ func (p *v2Puller) pullV2Tag(ctx context.Context, ref reference.Named, platform 
 	return true, nil
 }
 
-func (p *v2Puller) pullSchema1(ctx context.Context, ref reference.Reference, unverifiedManifest *schema1.SignedManifest, platform *specs.Platform) (id digest.Digest, manifestDigest digest.Digest, err error) {
+// validateMediaType validates if the given mediaType is accepted by the puller's
+// configuration.
+func (p *puller) validateMediaType(mediaType string) error {
+	var allowedMediaTypes []string
+	if len(p.config.Schema2Types) > 0 {
+		allowedMediaTypes = p.config.Schema2Types
+	} else {
+		allowedMediaTypes = defaultImageTypes
+	}
+	for _, t := range allowedMediaTypes {
+		if mediaType == t {
+			return nil
+		}
+	}
+
+	configClass := mediaTypeClasses[mediaType]
+	if configClass == "" {
+		configClass = "unknown"
+	}
+	return invalidManifestClassError{mediaType, configClass}
+}
+
+func (p *puller) pullSchema1(ctx context.Context, ref reference.Reference, unverifiedManifest *schema1.SignedManifest, platform *specs.Platform) (id digest.Digest, manifestDigest digest.Digest, err error) {
+	if platform != nil {
+		// Early bath if the requested OS doesn't match that of the configuration.
+		// This avoids doing the download, only to potentially fail later.
+		if !system.IsOSSupported(platform.OS) {
+			return "", "", fmt.Errorf("cannot download image with operating system %q when requesting %q", runtime.GOOS, platform.OS)
+		}
+	}
+
 	var verifiedManifest *schema1.Manifest
 	verifiedManifest, err = verifySchema1Manifest(unverifiedManifest, ref)
 	if err != nil {
@@ -502,54 +527,17 @@ func (p *v2Puller) pullSchema1(ctx context.Context, ref reference.Reference, unv
 			continue
 		}
 
-		layerDescriptor := &v2LayerDescriptor{
-			digest:            blobSum,
-			repoInfo:          p.repoInfo,
-			repo:              p.repo,
-			V2MetadataService: p.V2MetadataService,
+		layerDescriptor := &layerDescriptor{
+			digest:          blobSum,
+			repoInfo:        p.repoInfo,
+			repo:            p.repo,
+			metadataService: p.metadataService,
 		}
 
 		descriptors = append(descriptors, layerDescriptor)
 	}
 
-	// The v1 manifest itself doesn't directly contain an OS. However,
-	// the history does, but unfortunately that's a string, so search through
-	// all the history until hopefully we find one which indicates the OS.
-	// supertest2014/nyan is an example of a registry image with schemav1.
-	configOS := runtime.GOOS
-	if system.LCOWSupported() {
-		type config struct {
-			Os string `json:"os,omitempty"`
-		}
-		for _, v := range verifiedManifest.History {
-			var c config
-			if err := json.Unmarshal([]byte(v.V1Compatibility), &c); err == nil {
-				if c.Os != "" {
-					configOS = c.Os
-					break
-				}
-			}
-		}
-	}
-
-	// In the situation that the API call didn't specify an OS explicitly, but
-	// we support the operating system, switch to that operating system.
-	// eg FROM supertest2014/nyan with no platform specifier, and docker build
-	// with no --platform= flag under LCOW.
-	requestedOS := ""
-	if platform != nil {
-		requestedOS = platform.OS
-	} else if system.IsOSSupported(configOS) {
-		requestedOS = configOS
-	}
-
-	// Early bath if the requested OS doesn't match that of the configuration.
-	// This avoids doing the download, only to potentially fail later.
-	if !strings.EqualFold(configOS, requestedOS) {
-		return "", "", fmt.Errorf("cannot download image with operating system %q when requesting %q", configOS, requestedOS)
-	}
-
-	resultRootFS, release, err := p.config.DownloadManager.Download(ctx, *rootFS, configOS, descriptors, p.config.ProgressOutput)
+	resultRootFS, release, err := p.config.DownloadManager.Download(ctx, *rootFS, descriptors, p.config.ProgressOutput)
 	if err != nil {
 		return "", "", err
 	}
@@ -570,7 +558,7 @@ func (p *v2Puller) pullSchema1(ctx context.Context, ref reference.Reference, unv
 	return imageID, manifestDigest, nil
 }
 
-func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.Descriptor, layers []distribution.Descriptor, platform *specs.Platform) (id digest.Digest, err error) {
+func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Descriptor, layers []distribution.Descriptor, platform *specs.Platform) (id digest.Digest, err error) {
 	if _, err := p.config.ImageStore.Get(ctx, target.Digest); err == nil {
 		// If the image already exists locally, no need to pull
 		// anything.
@@ -636,13 +624,13 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 		if err := d.Digest.Validate(); err != nil {
 			return "", errors.Wrapf(err, "could not validate layer digest %q", d.Digest)
 		}
-		layerDescriptor := &v2LayerDescriptor{
-			digest:            d.Digest,
-			repo:              p.repo,
-			repoInfo:          p.repoInfo,
-			V2MetadataService: p.V2MetadataService,
-			src:               d,
-			deltaBase:         deltaBase,
+		layerDescriptor := &layerDescriptor{
+			digest:          d.Digest,
+			repo:            p.repo,
+			repoInfo:        p.repoInfo,
+			metadataService: p.metadataService,
+			src:             d,
+			deltaBase:       deltaBase,
 		}
 
 		descriptors = append(descriptors, layerDescriptor)
@@ -677,7 +665,13 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 	// Populate diff ids in descriptors to avoid downloading foreign layers
 	// which have been side loaded
 	for i := range descriptors {
-		descriptors[i].(*v2LayerDescriptor).diffID = configRootFS.DiffIDs[i]
+		descriptors[i].(*layerDescriptor).diffID = configRootFS.DiffIDs[i]
+	}
+
+	// Assume that the operating system is the host OS if blank, and validate it
+	// to ensure we don't cause a panic by an invalid index into the layerstores.
+	if layerStoreOS != "" && !system.IsOSSupported(layerStoreOS) {
+		return "", system.ErrNotSupportedOperatingSystem
 	}
 
 	if p.config.DownloadManager != nil {
@@ -687,7 +681,7 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 				rootFS image.RootFS
 			)
 			downloadRootFS := *image.NewRootFS()
-			rootFS, release, err = p.config.DownloadManager.Download(ctx, downloadRootFS, layerStoreOS, descriptors, p.config.ProgressOutput)
+			rootFS, release, err = p.config.DownloadManager.Download(ctx, downloadRootFS, descriptors, p.config.ProgressOutput)
 			if err != nil {
 				// Intentionally do not cancel the config download here
 				// as the error from config download (if there is one)
@@ -750,7 +744,7 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 	return imageID, nil
 }
 
-func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *schema2.DeserializedManifest, platform *specs.Platform) (id digest.Digest, manifestDigest digest.Digest, err error) {
+func (p *puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *schema2.DeserializedManifest, platform *specs.Platform) (id digest.Digest, manifestDigest digest.Digest, err error) {
 	manifestDigest, err = schema2ManifestDigest(ref, mfst)
 	if err != nil {
 		return "", "", err
@@ -759,7 +753,7 @@ func (p *v2Puller) pullSchema2(ctx context.Context, ref reference.Named, mfst *s
 	return id, manifestDigest, err
 }
 
-func (p *v2Puller) pullOCI(ctx context.Context, ref reference.Named, mfst *ocischema.DeserializedManifest, platform *specs.Platform) (id digest.Digest, manifestDigest digest.Digest, err error) {
+func (p *puller) pullOCI(ctx context.Context, ref reference.Named, mfst *ocischema.DeserializedManifest, platform *specs.Platform) (id digest.Digest, manifestDigest digest.Digest, err error) {
 	manifestDigest, err = schema2ManifestDigest(ref, mfst)
 	if err != nil {
 		return "", "", err
@@ -770,7 +764,7 @@ func (p *v2Puller) pullOCI(ctx context.Context, ref reference.Named, mfst *ocisc
 
 // pullManifestList handles "manifest lists" which point to various
 // platform-specific manifests.
-func (p *v2Puller) pullManifestList(ctx context.Context, ref reference.Named, mfstList *manifestlist.DeserializedManifestList, pp *specs.Platform) (id digest.Digest, manifestListDigest digest.Digest, err error) {
+func (p *puller) pullManifestList(ctx context.Context, ref reference.Named, mfstList *manifestlist.DeserializedManifestList, pp *specs.Platform) (id digest.Digest, manifestListDigest digest.Digest, err error) {
 	manifestListDigest, err = schema2ManifestDigest(ref, mfstList)
 	if err != nil {
 		return "", "", err
@@ -784,69 +778,78 @@ func (p *v2Puller) pullManifestList(ctx context.Context, ref reference.Named, mf
 
 	manifestMatches := filterManifests(mfstList.Manifests, platform)
 
-	if len(manifestMatches) == 0 {
-		errMsg := fmt.Sprintf("no matching manifest for %s in the manifest list entries", formatPlatform(platform))
-		logrus.Debugf(errMsg)
-		return "", "", errors.New(errMsg)
-	}
+	for _, match := range manifestMatches {
+		if err := checkImageCompatibility(match.Platform.OS, match.Platform.OSVersion); err != nil {
+			return "", "", err
+		}
 
-	if len(manifestMatches) > 1 {
-		logrus.Debugf("found multiple matches in manifest list, choosing best match %s", manifestMatches[0].Digest.String())
-	}
-	match := manifestMatches[0]
-
-	if err := checkImageCompatibility(match.Platform.OS, match.Platform.OSVersion); err != nil {
-		return "", "", err
-	}
-
-	desc := specs.Descriptor{
-		Digest:    match.Digest,
-		Size:      match.Size,
-		MediaType: match.MediaType,
-	}
-	manifest, err := p.manifestStore.Get(ctx, desc)
-	if err != nil {
-		return "", "", err
-	}
-
-	manifestRef, err := reference.WithDigest(reference.TrimNamed(ref), match.Digest)
-	if err != nil {
-		return "", "", err
-	}
-
-	switch v := manifest.(type) {
-	case *schema1.SignedManifest:
-		msg := fmt.Sprintf("[DEPRECATION NOTICE] v2 schema1 manifests in manifest lists are not supported and will break in a future release. Suggest author of %s to upgrade to v2 schema2. More information at https://docs.docker.com/registry/spec/deprecated-schema-v1/", ref)
-		logrus.Warn(msg)
-		progress.Message(p.config.ProgressOutput, "", msg)
-
-		platform := toOCIPlatform(manifestMatches[0].Platform)
-		id, _, err = p.pullSchema1(ctx, manifestRef, v, &platform)
+		desc := specs.Descriptor{
+			Digest:    match.Digest,
+			Size:      match.Size,
+			MediaType: match.MediaType,
+		}
+		manifest, err := p.manifestStore.Get(ctx, desc)
 		if err != nil {
 			return "", "", err
 		}
-	case *schema2.DeserializedManifest:
-		platform := toOCIPlatform(manifestMatches[0].Platform)
-		id, _, err = p.pullSchema2(ctx, manifestRef, v, &platform)
-		if err != nil {
-			return "", "", err
-		}
-	case *ocischema.DeserializedManifest:
-		platform := toOCIPlatform(manifestMatches[0].Platform)
-		id, _, err = p.pullOCI(ctx, manifestRef, v, &platform)
-		if err != nil {
-			return "", "", err
-		}
-	default:
-		return "", "", errors.New("unsupported manifest format")
-	}
 
-	return id, manifestListDigest, err
+		manifestRef, err := reference.WithDigest(reference.TrimNamed(ref), match.Digest)
+		if err != nil {
+			return "", "", err
+		}
+
+		switch v := manifest.(type) {
+		case *schema1.SignedManifest:
+			msg := fmt.Sprintf("[DEPRECATION NOTICE] v2 schema1 manifests in manifest lists are not supported and will break in a future release. Suggest author of %s to upgrade to v2 schema2. More information at https://docs.docker.com/registry/spec/deprecated-schema-v1/", ref)
+			logrus.Warn(msg)
+			progress.Message(p.config.ProgressOutput, "", msg)
+
+			platform := toOCIPlatform(match.Platform)
+			id, _, err = p.pullSchema1(ctx, manifestRef, v, platform)
+			if err != nil {
+				return "", "", err
+			}
+		case *schema2.DeserializedManifest:
+			platform := toOCIPlatform(match.Platform)
+			id, _, err = p.pullSchema2(ctx, manifestRef, v, platform)
+			if err != nil {
+				return "", "", err
+			}
+		case *ocischema.DeserializedManifest:
+			platform := toOCIPlatform(match.Platform)
+			id, _, err = p.pullOCI(ctx, manifestRef, v, platform)
+			if err != nil {
+				return "", "", err
+			}
+		case *manifestlist.DeserializedManifestList:
+			id, _, err = p.pullManifestList(ctx, manifestRef, v, pp)
+			if err != nil {
+				var noMatches noMatchesErr
+				if !errors.As(err, &noMatches) {
+					// test the next match
+					continue
+				}
+			}
+		default:
+			// OCI spec requires to skip unknown manifest types
+			continue
+		}
+		return id, manifestListDigest, err
+	}
+	return "", "", noMatchesErr{platform: platform}
 }
 
-func (p *v2Puller) pullSchema2Config(ctx context.Context, dgst digest.Digest) (configJSON []byte, err error) {
+const (
+	defaultSchemaPullBackoff     = 250 * time.Millisecond
+	defaultMaxSchemaPullAttempts = 5
+)
+
+func (p *puller) pullSchema2Config(ctx context.Context, dgst digest.Digest) (configJSON []byte, err error) {
 	blobs := p.repo.Blobs(ctx)
-	configJSON, err = blobs.Get(ctx, dgst)
+	err = retry(ctx, defaultMaxSchemaPullAttempts, defaultSchemaPullBackoff, func(ctx context.Context) (err error) {
+		configJSON, err = blobs.Get(ctx, dgst)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -863,6 +866,40 @@ func (p *v2Puller) pullSchema2Config(ctx context.Context, dgst digest.Digest) (c
 	}
 
 	return configJSON, nil
+}
+
+type noMatchesErr struct {
+	platform specs.Platform
+}
+
+func (e noMatchesErr) Error() string {
+	return fmt.Sprintf("no matching manifest for %s in the manifest list entries", formatPlatform(e.platform))
+}
+
+func retry(ctx context.Context, maxAttempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
+	attempt := 0
+	for ; attempt < maxAttempts; attempt++ {
+		err = retryOnError(f(ctx))
+		if err == nil {
+			return nil
+		}
+		if xfer.IsDoNotRetryError(err) {
+			break
+		}
+
+		if attempt+1 < maxAttempts {
+			timer := time.NewTimer(sleep)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+				logrus.WithError(err).WithField("attempts", attempt+1).Debug("retrying after error")
+				sleep *= 2
+			}
+		}
+	}
+	return errors.Wrapf(err, "download failed after attempts=%d", attempt+1)
 }
 
 // schema2ManifestDigest computes the manifest digest, and, if pulling by
@@ -888,39 +925,6 @@ func schema2ManifestDigest(ref reference.Named, mfst distribution.Manifest) (dig
 	}
 
 	return digest.FromBytes(canonical), nil
-}
-
-// allowV1Fallback checks if the error is a possible reason to fallback to v1
-// (even if confirmedV2 has been set already), and if so, wraps the error in
-// a fallbackError with confirmedV2 set to false. Otherwise, it returns the
-// error unmodified.
-func allowV1Fallback(err error) error {
-	switch v := err.(type) {
-	case errcode.Errors:
-		if len(v) != 0 {
-			if v0, ok := v[0].(errcode.Error); ok && shouldV2Fallback(v0) {
-				return fallbackError{
-					err:         err,
-					confirmedV2: false,
-					transportOK: true,
-				}
-			}
-		}
-	case errcode.Error:
-		if shouldV2Fallback(v) {
-			return fallbackError{
-				err:         err,
-				confirmedV2: false,
-				transportOK: true,
-			}
-		}
-	case *url.Error:
-		if v.Err == auth.ErrNoBasicAuthCredentials {
-			return fallbackError{err: err, confirmedV2: false}
-		}
-	}
-
-	return err
 }
 
 func verifySchema1Manifest(signedManifest *schema1.SignedManifest, ref reference.Reference) (m *schema1.Manifest, err error) {
@@ -1000,12 +1004,30 @@ func fixManifestLayers(m *schema1.Manifest) error {
 	return nil
 }
 
-func toOCIPlatform(p manifestlist.PlatformSpec) specs.Platform {
-	return specs.Platform{
+func createDownloadFile() (*os.File, error) {
+	return os.CreateTemp("", "GetImageBlob")
+}
+
+func toOCIPlatform(p manifestlist.PlatformSpec) *specs.Platform {
+	// distribution pkg does define platform as pointer so this hack for empty struct
+	// is necessary. This is temporary until correct OCI image-spec package is used.
+	if p.OS == "" && p.Architecture == "" && p.Variant == "" && p.OSVersion == "" && p.OSFeatures == nil && p.Features == nil {
+		return nil
+	}
+	return &specs.Platform{
 		OS:           p.OS,
 		Architecture: p.Architecture,
 		Variant:      p.Variant,
 		OSFeatures:   p.OSFeatures,
 		OSVersion:    p.OSVersion,
 	}
+}
+
+// maximumSpec returns the distribution platform with maximum compatibility for the current node.
+func maximumSpec() specs.Platform {
+	p := platforms.DefaultSpec()
+	if p.Architecture == "amd64" {
+		p.Variant = archvariant.AMD64Variant()
+	}
+	return p
 }

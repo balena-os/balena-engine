@@ -11,7 +11,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/plugingetter"
 	"github.com/docker/docker/pkg/plugins"
-	digest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -126,7 +126,9 @@ func (p *Plugin) Set(args []string) error {
 	// TODO(vieux): lots of code duplication here, needs to be refactored.
 
 next:
-	for _, s := range sets {
+	for _, set := range sets {
+		s := set
+
 		// range over all the envs in the config
 		for _, env := range p.PluginObj.Config.Env {
 			// found the env in the config

@@ -2,7 +2,6 @@ package volumes
 
 import (
 	"context"
-	"io/ioutil"
 	"os"
 	"testing"
 
@@ -30,7 +29,7 @@ func TestPluginWithDevMounts(t *testing.T) {
 	c := d.NewClientT(t)
 	ctx := context.Background()
 
-	testDir, err := ioutil.TempDir("", "test-dir")
+	testDir, err := os.MkdirTemp("", "test-dir")
 	assert.NilError(t, err)
 	defer os.RemoveAll(testDir)
 

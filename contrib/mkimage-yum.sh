@@ -3,8 +3,7 @@
 # Create a base CentOS Docker image.
 #
 # This script is useful on systems with yum installed (e.g., building
-# a CentOS image on CentOS).  See contrib/mkimage-rinse.sh for a way
-# to build CentOS images on other systems.
+# a CentOS image on CentOS).
 
 set -e
 
@@ -19,7 +18,7 @@ OPTIONS:
   -y <yumconf>     The path to the yum config to install packages from. The
                    default is /etc/yum.conf for Centos/RHEL and /etc/dnf/dnf.conf for Fedora
   -t <tag>         Specify Tag information.
-                   default is reffered at /etc/{redhat,system}-release
+                   default is referred at /etc/{redhat,system}-release
 EOOPTS
 	exit 1
 }

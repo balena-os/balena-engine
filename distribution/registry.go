@@ -19,46 +19,47 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-// ImageTypes represents the schema2 config types for images
-var ImageTypes = []string{
-	schema2.MediaTypeImageConfig,
-	ocispec.MediaTypeImageConfig,
-	// Handle unexpected values from https://github.com/docker/distribution/issues/1621
-	// (see also https://github.com/docker/docker/issues/22378,
-	// https://github.com/docker/docker/issues/30083)
-	"application/octet-stream",
-	"application/json",
-	"text/html",
-	// Treat defaulted values as images, newer types cannot be implied
-	"",
-}
+var (
+	// defaultImageTypes represents the schema2 config types for images
+	defaultImageTypes = []string{
+		schema2.MediaTypeImageConfig,
+		ocispec.MediaTypeImageConfig,
+		// Handle unexpected values from https://github.com/docker/distribution/issues/1621
+		// (see also https://github.com/docker/docker/issues/22378,
+		// https://github.com/docker/docker/issues/30083)
+		"application/octet-stream",
+		"application/json",
+		"text/html",
+		// Treat defaulted values as images, newer types cannot be implied
+		"",
+	}
 
-// PluginTypes represents the schema2 config types for plugins
-var PluginTypes = []string{
-	schema2.MediaTypePluginConfig,
-}
+	// pluginTypes represents the schema2 config types for plugins
+	pluginTypes = []string{
+		schema2.MediaTypePluginConfig,
+	}
 
-var mediaTypeClasses map[string]string
+	mediaTypeClasses map[string]string
+)
 
 func init() {
-	// initialize media type classes with all know types for
-	// plugin
+	// initialize media type classes with all know types for images and plugins.
 	mediaTypeClasses = map[string]string{}
-	for _, t := range ImageTypes {
+	for _, t := range defaultImageTypes {
 		mediaTypeClasses[t] = "image"
 	}
-	for _, t := range PluginTypes {
+	for _, t := range pluginTypes {
 		mediaTypeClasses[t] = "plugin"
 	}
 }
 
-// NewV2Repository returns a repository (v2 only). It creates an HTTP transport
+// newRepository returns a repository (v2 only). It creates an HTTP transport
 // providing timeout settings and authentication support, and also verifies the
 // remote API version.
-func NewV2Repository(
+func newRepository(
 	ctx context.Context, repoInfo *registry.RepositoryInfo, endpoint registry.APIEndpoint,
 	metaHeaders http.Header, authConfig *types.AuthConfig, actions ...string,
-) (repo distribution.Repository, foundVersion bool, err error) {
+) (repo distribution.Repository, err error) {
 	repoName := repoInfo.Name.Name()
 	// If endpoint does not support CanonicalName, use the RemoteName instead
 	if endpoint.TrimHostname {
@@ -68,7 +69,6 @@ func NewV2Repository(
 	direct := &net.Dialer{
 		Timeout:   30 * time.Second,
 		KeepAlive: 30 * time.Second,
-		DualStack: true,
 	}
 
 	// TODO(dmcgowan): Call close idle connections when complete, use keep alive
@@ -84,16 +84,15 @@ func NewV2Repository(
 	modifiers := registry.Headers(dockerversion.DockerUserAgent(ctx), metaHeaders)
 	authTransport := transport.NewTransport(base, modifiers...)
 
-	challengeManager, foundVersion, err := registry.PingV2Registry(endpoint.URL, authTransport)
+	challengeManager, err := registry.PingV2Registry(endpoint.URL, authTransport)
 	if err != nil {
 		transportOK := false
 		if responseErr, ok := err.(registry.PingResponseError); ok {
 			transportOK = true
 			err = responseErr.Err
 		}
-		return nil, foundVersion, fallbackError{
+		return nil, fallbackError{
 			err:         err,
-			confirmedV2: foundVersion,
 			transportOK: transportOK,
 		}
 	}
@@ -123,9 +122,8 @@ func NewV2Repository(
 
 	repoNameRef, err := reference.WithName(repoName)
 	if err != nil {
-		return nil, foundVersion, fallbackError{
+		return nil, fallbackError{
 			err:         err,
-			confirmedV2: foundVersion,
 			transportOK: true,
 		}
 	}
@@ -134,7 +132,6 @@ func NewV2Repository(
 	if err != nil {
 		err = fallbackError{
 			err:         err,
-			confirmedV2: foundVersion,
 			transportOK: true,
 		}
 	}

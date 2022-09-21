@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/docker/docker/pkg/ioutils"
 )
@@ -23,14 +22,14 @@ func (el *emptyLayer) TarStream() (io.ReadCloser, error) {
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
 	tarWriter.Close()
-	return ioutil.NopCloser(buf), nil
+	return io.NopCloser(buf), nil
 }
 
 func (el *emptyLayer) TarSeekStream() (ioutils.ReadSeekCloser, error) {
 	buf := new(bytes.Buffer)
 	tarWriter := tar.NewWriter(buf)
 	tarWriter.Close()
-	return ioutils.NewReadSeekCloserWrapper(bytes.NewReader(buf.Bytes()), func() error {return nil}), nil
+	return ioutils.NewReadSeekCloserWrapper(bytes.NewReader(buf.Bytes()), func() error { return nil }), nil
 }
 
 func (el *emptyLayer) TarStreamFrom(p ChainID) (io.ReadCloser, error) {
@@ -52,12 +51,12 @@ func (el *emptyLayer) Parent() Layer {
 	return nil
 }
 
-func (el *emptyLayer) Size() (size int64, err error) {
-	return 0, nil
+func (el *emptyLayer) Size() int64 {
+	return 0
 }
 
-func (el *emptyLayer) DiffSize() (size int64, err error) {
-	return 0, nil
+func (el *emptyLayer) DiffSize() int64 {
+	return 0
 }
 
 func (el *emptyLayer) Metadata() (map[string]string, error) {

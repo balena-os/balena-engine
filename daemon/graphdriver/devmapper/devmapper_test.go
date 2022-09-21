@@ -1,3 +1,4 @@
+//go:build linux && !no_devmapper
 // +build linux,!no_devmapper
 
 package devmapper // import "github.com/docker/docker/daemon/graphdriver/devmapper"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/docker/docker/daemon/graphdriver"
 	"github.com/docker/docker/daemon/graphdriver/graphtest"
+	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/parsers/kernel"
 	"golang.org/x/sys/unix"
 )
@@ -41,7 +43,7 @@ func initLoopbacks() error {
 		// only create new loopback files if they don't exist
 		if _, err := os.Stat(loopPath); err != nil {
 			if mkerr := syscall.Mknod(loopPath,
-				uint32(statT.Mode|syscall.S_IFBLK), int((7<<8)|(i&0xff)|((i&0xfff00)<<12))); mkerr != nil { // nolint: unconvert
+				uint32(statT.Mode|syscall.S_IFBLK), int((7<<8)|(i&0xff)|((i&0xfff00)<<12))); mkerr != nil { //nolint: unconvert
 				return mkerr
 			}
 			os.Chown(loopPath, int(statT.Uid), int(statT.Gid))
@@ -114,7 +116,7 @@ func testChangeLoopBackSize(t *testing.T, delta, expectDataSize, expectMetaDataS
 	d, err := Init(driver.home, []string{
 		fmt.Sprintf("dm.loopdatasize=%d", defaultDataLoopbackSize+delta),
 		fmt.Sprintf("dm.loopmetadatasize=%d", defaultMetaDataLoopbackSize+delta),
-	}, nil, nil)
+	}, idtools.IdentityMapping{})
 	if err != nil {
 		t.Fatalf("error creating devicemapper driver: %v", err)
 	}
@@ -136,7 +138,7 @@ func TestDevmapperLockReleasedDeviceDeletion(t *testing.T) {
 	// DeviceSet Lock. If lock has not been released, this will hang.
 	driver.DeviceSet.cleanupDeletedDevices()
 
-	doneChan := make(chan bool)
+	doneChan := make(chan bool, 1)
 
 	go func() {
 		driver.DeviceSet.Lock()

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,11 +93,11 @@ func (s *DockerSuite) TestVolumeLsFormatDefaultFormat(c *testing.T) {
 	config := `{
 		"volumesFormat": "{{ .Name }} default"
 }`
-	d, err := ioutil.TempDir("", "integration-cli-")
+	d, err := os.MkdirTemp("", "integration-cli-")
 	assert.NilError(c, err)
 	defer os.RemoveAll(d)
 
-	err = ioutil.WriteFile(filepath.Join(d, "config.json"), []byte(config), 0644)
+	err = os.WriteFile(filepath.Join(d, "config.json"), []byte(config), 0644)
 	assert.NilError(c, err)
 
 	out, _ := dockerCmd(c, "--config", d, "volume", "ls")
@@ -167,13 +166,13 @@ func (s *DockerSuite) TestVolumeCLILsFilterDangling(c *testing.T) {
 func (s *DockerSuite) TestVolumeCLILsErrorWithInvalidFilterName(c *testing.T) {
 	out, _, err := dockerCmdWithError("volume", "ls", "-f", "FOO=123")
 	assert.ErrorContains(c, err, "")
-	assert.Assert(c, strings.Contains(out, "Invalid filter"))
+	assert.Assert(c, strings.Contains(out, "invalid filter"))
 }
 
 func (s *DockerSuite) TestVolumeCLILsWithIncorrectFilterValue(c *testing.T) {
 	out, _, err := dockerCmdWithError("volume", "ls", "-f", "dangling=invalid")
 	assert.ErrorContains(c, err, "")
-	assert.Assert(c, strings.Contains(out, "Invalid filter"))
+	assert.Assert(c, strings.Contains(out, "invalid filter"))
 }
 
 func (s *DockerSuite) TestVolumeCLIRm(c *testing.T) {

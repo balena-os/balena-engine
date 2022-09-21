@@ -4,11 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/docker/distribution"
@@ -18,7 +16,7 @@ import (
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/system"
-	digest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
 )
 
@@ -150,19 +148,15 @@ func (l *tarexporter) takeLayerReference(id image.ID, imgDescr *imageDescriptor)
 	if err != nil {
 		return err
 	}
+	if os := img.OperatingSystem(); !system.IsOSSupported(os) {
+		return fmt.Errorf("os %q is not supported", os)
+	}
 	imgDescr.image = img
 	topLayerID := img.RootFS.ChainID()
 	if topLayerID == "" {
 		return nil
 	}
-	os := img.OS
-	if os == "" {
-		os = runtime.GOOS
-	}
-	if !system.IsOSSupported(os) {
-		return fmt.Errorf("os %q is not supported", os)
-	}
-	layer, err := l.lss[os].Get(topLayerID)
+	layer, err := l.lss.Get(topLayerID)
 	if err != nil {
 		return err
 	}
@@ -174,11 +168,7 @@ func (l *tarexporter) takeLayerReference(id image.ID, imgDescr *imageDescriptor)
 func (l *tarexporter) releaseLayerReferences(imgDescr map[image.ID]*imageDescriptor) error {
 	for _, descr := range imgDescr {
 		if descr.layerRef != nil {
-			os := descr.image.OS
-			if os == "" {
-				os = runtime.GOOS
-			}
-			l.lss[os].Release(descr.layerRef)
+			l.lss.Release(descr.layerRef)
 		}
 	}
 	return nil
@@ -189,7 +179,7 @@ func (s *saveSession) save(outStream io.Writer) error {
 	s.diffIDPaths = make(map[layer.DiffID]string)
 
 	// get image json
-	tempDir, err := ioutil.TempDir("", "docker-export-")
+	tempDir, err := os.MkdirTemp("", "docker-export-")
 	if err != nil {
 		return err
 	}
@@ -221,9 +211,7 @@ func (s *saveSession) save(outStream io.Writer) error {
 
 		for _, l := range imageDescr.layers {
 			// IMPORTANT: We use path, not filepath here to ensure the layers
-			// in the manifest use Unix-style forward-slashes. Otherwise, a
-			// Linux image saved from LCOW won't be able to be imported on
-			// LCOL.
+			// in the manifest use Unix-style forward-slashes.
 			layers = append(layers, path.Join(l, legacyLayerFileName))
 		}
 
@@ -337,7 +325,7 @@ func (s *saveSession) saveImage(id image.ID) (map[layer.DiffID]distribution.Desc
 	}
 
 	configFile := filepath.Join(s.outDir, id.Digest().Hex()+".json")
-	if err := ioutil.WriteFile(configFile, img.RawJSON(), 0644); err != nil {
+	if err := os.WriteFile(configFile, img.RawJSON(), 0644); err != nil {
 		return nil, err
 	}
 	if err := system.Chtimes(configFile, img.Created, img.Created); err != nil {
@@ -359,7 +347,7 @@ func (s *saveSession) saveLayer(id layer.ChainID, legacyImg image.V1Image, creat
 	}
 
 	// todo: why is this version file here?
-	if err := ioutil.WriteFile(filepath.Join(outDir, legacyVersionFileName), []byte("1.0"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, legacyVersionFileName), []byte("1.0"), 0644); err != nil {
 		return distribution.Descriptor{}, err
 	}
 
@@ -368,21 +356,17 @@ func (s *saveSession) saveLayer(id layer.ChainID, legacyImg image.V1Image, creat
 		return distribution.Descriptor{}, err
 	}
 
-	if err := ioutil.WriteFile(filepath.Join(outDir, legacyConfigFileName), imageConfig, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, legacyConfigFileName), imageConfig, 0644); err != nil {
 		return distribution.Descriptor{}, err
 	}
 
 	// serialize filesystem
 	layerPath := filepath.Join(outDir, legacyLayerFileName)
-	operatingSystem := legacyImg.OS
-	if operatingSystem == "" {
-		operatingSystem = runtime.GOOS
-	}
-	l, err := s.lss[operatingSystem].Get(id)
+	l, err := s.lss.Get(id)
 	if err != nil {
 		return distribution.Descriptor{}, err
 	}
-	defer layer.ReleaseAndLog(s.lss[operatingSystem], l)
+	defer layer.ReleaseAndLog(s.lss, l)
 
 	if oldPath, exists := s.diffIDPaths[l.DiffID()]; exists {
 		relPath, err := filepath.Rel(outDir, oldPath)

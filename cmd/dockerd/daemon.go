@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	buildkit "github.com/docker/docker/builder/builder-next"
 	"github.com/docker/docker/builder/dockerfile"
 	"github.com/docker/docker/cli/debug"
+	"github.com/docker/docker/cmd/dockerd/trap"
 	"github.com/docker/docker/daemon"
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/daemon/listeners"
@@ -40,7 +42,6 @@ import (
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/pidfile"
 	"github.com/docker/docker/pkg/plugingetter"
-	"github.com/docker/docker/pkg/signal"
 	"github.com/docker/docker/pkg/sysinfo"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/plugin"
@@ -70,19 +71,28 @@ func NewDaemonCli() *DaemonCli {
 }
 
 func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
-	stopc := make(chan bool)
-	defer close(stopc)
-
-	opts.SetDefaultOptions(opts.flags)
+	opts.setDefaultOptions()
 
 	if cli.Config, err = loadDaemonCliConfig(opts); err != nil {
 		return err
 	}
-	warnOnDeprecatedConfigOptions(cli.Config)
-
-	if err := configureDaemonLogs(cli.Config); err != nil {
+	if err := checkDeprecatedOptions(cli.Config); err != nil {
 		return err
 	}
+
+	serverConfig, err := newAPIServerConfig(cli.Config)
+	if err != nil {
+		return err
+	}
+
+	if opts.Validate {
+		// If config wasn't OK we wouldn't have made it this far.
+		fmt.Fprintln(os.Stderr, "configuration OK")
+		return nil
+	}
+
+	configureProxyEnv(cli.Config)
+	configureDaemonLogs(cli.Config)
 
 	logrus.Info("Starting up")
 
@@ -111,8 +121,6 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	if runtime.GOOS == "linux" && os.Geteuid() != 0 {
 		return fmt.Errorf("dockerd needs to be started with root privileges. To run dockerd in rootless mode as an unprivileged user, see https://docs.docker.com/go/rootless/")
 	}
-
-	system.InitLCOW(cli.Config.Experimental)
 
 	if err := setDefaultUmask(); err != nil {
 		return err
@@ -151,10 +159,6 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 		}
 	}
 
-	serverConfig, err := newAPIServerConfig(cli)
-	if err != nil {
-		return errors.Wrap(err, "failed to create API server")
-	}
 	cli.api = apiserver.New(serverConfig)
 
 	hosts, err := loadListeners(cli, serverConfig)
@@ -173,7 +177,10 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	}
 	defer cancel()
 
-	signal.Trap(func() {
+	stopc := make(chan bool)
+	defer close(stopc)
+
+	trap.Trap(func() {
 		cli.stop()
 		<-stopc // wait for daemonCli.start() to return
 	}, logrus.StandardLogger())
@@ -365,21 +372,26 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 	conf.Hosts = opts.Hosts
 	conf.LogLevel = opts.LogLevel
 
-	if opts.flags.Changed(FlagTLS) {
+	if flags.Changed("graph") && flags.Changed("data-root") {
+		return nil, errors.New(`cannot specify both "--graph" and "--data-root" option`)
+	}
+	if flags.Changed(FlagTLS) {
 		conf.TLS = &opts.TLS
 	}
-	if opts.flags.Changed(FlagTLSVerify) {
+	if flags.Changed(FlagTLSVerify) {
 		conf.TLSVerify = &opts.TLSVerify
 		v := true
 		conf.TLS = &v
 	}
 
-	conf.CommonTLSOptions = config.CommonTLSOptions{}
-
 	if opts.TLSOptions != nil {
-		conf.CommonTLSOptions.CAFile = opts.TLSOptions.CAFile
-		conf.CommonTLSOptions.CertFile = opts.TLSOptions.CertFile
-		conf.CommonTLSOptions.KeyFile = opts.TLSOptions.KeyFile
+		conf.CommonTLSOptions = config.CommonTLSOptions{
+			CAFile:   opts.TLSOptions.CAFile,
+			CertFile: opts.TLSOptions.CertFile,
+			KeyFile:  opts.TLSOptions.KeyFile,
+		}
+	} else {
+		conf.CommonTLSOptions = config.CommonTLSOptions{}
 	}
 
 	if conf.TrustKeyPath == "" {
@@ -388,10 +400,6 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 			return nil, err
 		}
 		conf.TrustKeyPath = filepath.Join(daemonConfDir, defaultTrustKeyFile)
-	}
-
-	if flags.Changed("graph") && flags.Changed("data-root") {
-		return nil, errors.New(`cannot specify both "--graph" and "--data-root" option`)
 	}
 
 	if opts.configFile != "" {
@@ -407,6 +415,10 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 		if c != nil {
 			conf = c
 		}
+	}
+
+	if err := normalizeHosts(conf); err != nil {
+		return nil, err
 	}
 
 	if err := config.Validate(conf); err != nil {
@@ -435,33 +447,69 @@ func loadDaemonCliConfig(opts *daemonOptions) (*config.Config, error) {
 		conf.TLSVerify = conf.TLS
 	}
 
+	err = validateCPURealtimeOptions(conf)
+	if err != nil {
+		return nil, err
+	}
+
 	return conf, nil
 }
 
-func warnOnDeprecatedConfigOptions(config *config.Config) {
-	if config.ClusterAdvertise != "" {
-		logrus.Warn(`The "cluster-advertise" option is deprecated. To be removed soon.`)
+// normalizeHosts normalizes the configured config.Hosts and remove duplicates.
+// It returns an error if it fails to parse a host.
+func normalizeHosts(config *config.Config) error {
+	if len(config.Hosts) == 0 {
+		// if no hosts are configured, create a single entry slice, so that the
+		// default is used.
+		//
+		// TODO(thaJeztah) implement a cleaner way for this; this depends on a
+		//                 side-effect of how we parse empty/partial hosts.
+		config.Hosts = make([]string, 1)
 	}
-	if config.ClusterStore != "" {
-		logrus.Warn(`The "cluster-store" option is deprecated. To be removed soon.`)
+	hosts := make([]string, 0, len(config.Hosts))
+	seen := make(map[string]struct{}, len(config.Hosts))
+
+	useTLS := DefaultTLSValue
+	if config.TLS != nil {
+		useTLS = *config.TLS
 	}
-	if len(config.ClusterOpts) > 0 {
-		logrus.Warn(`The "cluster-store-opt" option is deprecated. To be removed soon.`)
+
+	for _, h := range config.Hosts {
+		host, err := dopts.ParseHost(useTLS, honorXDG, h)
+		if err != nil {
+			return err
+		}
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		hosts = append(hosts, host)
 	}
+	sort.Strings(hosts)
+	config.Hosts = hosts
+	return nil
+}
+
+func checkDeprecatedOptions(config *config.Config) error {
+	// Overlay networks with external k/v stores have been deprecated
+	if config.ClusterAdvertise != "" || len(config.ClusterOpts) > 0 || config.ClusterStore != "" {
+		return errors.New("Host-discovery and overlay networks with external k/v stores are deprecated. The 'cluster-advertise', 'cluster-store', and 'cluster-store-opt' options have been removed")
+	}
+	return nil
 }
 
 func initRouter(opts routerOptions) {
 	decoder := runconfig.ContainerDecoder{
 		GetSysInfo: func() *sysinfo.SysInfo {
-			return opts.daemon.RawSysInfo(true)
+			return opts.daemon.RawSysInfo()
 		},
 	}
 
 	routers := []router.Router{
-		container.NewRouter(opts.daemon, decoder, opts.daemon.RawSysInfo(true).CgroupUnified),
+		container.NewRouter(opts.daemon, decoder, opts.daemon.RawSysInfo().CgroupUnified),
 		image.NewRouter(opts.daemon.ImageService()),
 		systemrouter.NewRouter(opts.daemon, nil, opts.buildkit, opts.features),
-		volume.NewRouter(opts.daemon.VolumesService()),
+		volume.NewRouter(opts.daemon.VolumesService(), nil),
 		build.NewRouter(opts.buildBackend, opts.daemon, opts.features),
 		sessionrouter.NewRouter(opts.sessionManager),
 		distributionrouter.NewRouter(opts.daemon.ImageService()),
@@ -534,35 +582,30 @@ func (cli *DaemonCli) getContainerdDaemonOpts() ([]supervisor.DaemonOpt, error) 
 	return opts, nil
 }
 
-func newAPIServerConfig(cli *DaemonCli) (*apiserver.Config, error) {
+func newAPIServerConfig(config *config.Config) (*apiserver.Config, error) {
 	serverConfig := &apiserver.Config{
-		Logging:     true,
-		SocketGroup: cli.Config.SocketGroup,
+		SocketGroup: config.SocketGroup,
 		Version:     dockerversion.Version,
-		CorsHeaders: cli.Config.CorsHeaders,
+		CorsHeaders: config.CorsHeaders,
 	}
 
-	if cli.Config.TLS != nil && *cli.Config.TLS {
+	if config.TLS != nil && *config.TLS {
 		tlsOptions := tlsconfig.Options{
-			CAFile:             cli.Config.CommonTLSOptions.CAFile,
-			CertFile:           cli.Config.CommonTLSOptions.CertFile,
-			KeyFile:            cli.Config.CommonTLSOptions.KeyFile,
+			CAFile:             config.CommonTLSOptions.CAFile,
+			CertFile:           config.CommonTLSOptions.CertFile,
+			KeyFile:            config.CommonTLSOptions.KeyFile,
 			ExclusiveRootPools: true,
 		}
 
-		if cli.Config.TLSVerify == nil || *cli.Config.TLSVerify {
+		if config.TLSVerify == nil || *config.TLSVerify {
 			// server requires and verifies client's certificate
 			tlsOptions.ClientAuth = tls.RequireAndVerifyClientCert
 		}
 		tlsConfig, err := tlsconfig.Server(tlsOptions)
 		if err != nil {
-			return nil, err
+			return nil, errors.Wrap(err, "invalid TLS configuration")
 		}
 		serverConfig.TLSConfig = tlsConfig
-	}
-
-	if len(cli.Config.Hosts) == 0 {
-		cli.Config.Hosts = make([]string, 1)
 	}
 
 	return serverConfig, nil
@@ -570,7 +613,8 @@ func newAPIServerConfig(cli *DaemonCli) (*apiserver.Config, error) {
 
 // checkTLSAuthOK checks basically for an explicitly disabled TLS/TLSVerify
 // Going forward we do not want to support a scenario where dockerd listens
-//   on TCP without either TLS client auth (or an explicit opt-in to disable it)
+//
+//	on TCP without either TLS client auth (or an explicit opt-in to disable it)
 func checkTLSAuthOK(c *config.Config) bool {
 	if c.TLS == nil {
 		// Either TLS is enabled by default, in which case TLS verification should be enabled by default, or explicitly disabled
@@ -594,32 +638,19 @@ func checkTLSAuthOK(c *config.Config) bool {
 }
 
 func loadListeners(cli *DaemonCli, serverConfig *apiserver.Config) ([]string, error) {
-	var hosts []string
-	seen := make(map[string]struct{}, len(cli.Config.Hosts))
-
-	useTLS := DefaultTLSValue
-	if cli.Config.TLS != nil {
-		useTLS = *cli.Config.TLS
+	if len(cli.Config.Hosts) == 0 {
+		return nil, errors.New("no hosts configured")
 	}
+	var hosts []string
 
 	for i := 0; i < len(cli.Config.Hosts); i++ {
-		var err error
-		if cli.Config.Hosts[i], err = dopts.ParseHost(useTLS, honorXDG, cli.Config.Hosts[i]); err != nil {
-			return nil, errors.Wrapf(err, "error parsing -H %s", cli.Config.Hosts[i])
-		}
-		if _, ok := seen[cli.Config.Hosts[i]]; ok {
-			continue
-		}
-		seen[cli.Config.Hosts[i]] = struct{}{}
-
 		protoAddr := cli.Config.Hosts[i]
-		protoAddrParts := strings.SplitN(protoAddr, "://", 2)
+		protoAddrParts := strings.SplitN(cli.Config.Hosts[i], "://", 2)
 		if len(protoAddrParts) != 2 {
 			return nil, fmt.Errorf("bad format %s, expected PROTO://ADDR", protoAddr)
 		}
 
-		proto := protoAddrParts[0]
-		addr := protoAddrParts[1]
+		proto, addr := protoAddrParts[0], protoAddrParts[1]
 
 		// It's a bad idea to bind to TCP without tlsverify.
 		authEnabled := serverConfig.TLSConfig != nil && serverConfig.TLSConfig.ClientAuth == tls.RequireAndVerifyClientCert
@@ -702,14 +733,14 @@ func systemContainerdRunning(honorXDG bool) (string, bool, error) {
 	return addr, err == nil, nil
 }
 
-// configureDaemonLogs sets the logrus logging level and formatting
-func configureDaemonLogs(conf *config.Config) error {
+// configureDaemonLogs sets the logrus logging level and formatting. It expects
+// the passed configuration to already be validated, and ignores invalid options.
+func configureDaemonLogs(conf *config.Config) {
 	if conf.LogLevel != "" {
 		lvl, err := logrus.ParseLevel(conf.LogLevel)
-		if err != nil {
-			return fmt.Errorf("unable to parse logging level: %s", conf.LogLevel)
+		if err == nil {
+			logrus.SetLevel(lvl)
 		}
-		logrus.SetLevel(lvl)
 	} else {
 		logrus.SetLevel(logrus.InfoLevel)
 	}
@@ -718,5 +749,30 @@ func configureDaemonLogs(conf *config.Config) error {
 		DisableColors:   conf.RawLogs,
 		FullTimestamp:   true,
 	})
-	return nil
+}
+
+func configureProxyEnv(conf *config.Config) {
+	if p := conf.HTTPProxy; p != "" {
+		overrideProxyEnv("HTTP_PROXY", p)
+		overrideProxyEnv("http_proxy", p)
+	}
+	if p := conf.HTTPSProxy; p != "" {
+		overrideProxyEnv("HTTPS_PROXY", p)
+		overrideProxyEnv("https_proxy", p)
+	}
+	if p := conf.NoProxy; p != "" {
+		overrideProxyEnv("NO_PROXY", p)
+		overrideProxyEnv("no_proxy", p)
+	}
+}
+
+func overrideProxyEnv(name, val string) {
+	if oldVal := os.Getenv(name); oldVal != "" && oldVal != val {
+		logrus.WithFields(logrus.Fields{
+			"name":      name,
+			"old-value": config.MaskCredentials(oldVal),
+			"new-value": config.MaskCredentials(val),
+		}).Warn("overriding existing proxy variable with value from configuration")
+	}
+	_ = os.Setenv(name, val)
 }

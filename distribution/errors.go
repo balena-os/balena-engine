@@ -18,26 +18,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// ErrNoSupport is an error type used for errors indicating that an operation
-// is not supported. It encapsulates a more specific error.
-type ErrNoSupport struct{ Err error }
-
-func (e ErrNoSupport) Error() string {
-	if e.Err == nil {
-		return "not supported"
-	}
-	return e.Err.Error()
-}
-
 // fallbackError wraps an error that can possibly allow fallback to a different
 // endpoint.
 type fallbackError struct {
 	// err is the error being wrapped.
 	err error
-	// confirmedV2 is set to true if it was confirmed that the registry
-	// supports the v2 protocol. This is used to limit fallbacks to the v1
-	// protocol.
-	confirmedV2 bool
 	// transportOK is set to true if we managed to speak HTTP with the
 	// registry. This confirms that we're using appropriate TLS settings
 	// (or lack of TLS).
@@ -51,15 +36,6 @@ func (f fallbackError) Error() string {
 
 func (f fallbackError) Cause() error {
 	return f.err
-}
-
-// shouldV2Fallback returns true if this error is a reason to fall back to v1.
-func shouldV2Fallback(err errcode.Error) bool {
-	switch err.Code {
-	case errcode.ErrorCodeUnauthorized, v2.ErrorCodeManifestUnknown, v2.ErrorCodeNameUnknown:
-		return true
-	}
-	return false
 }
 
 type notFoundError struct {
@@ -87,18 +63,18 @@ func (e notFoundError) Cause() error {
 	return e.cause
 }
 
-// TranslatePullError is used to convert an error from a registry pull
+// translatePullError is used to convert an error from a registry pull
 // operation to an error representing the entire pull operation. Any error
 // information which is not used by the returned error gets output to
 // log at info level.
-func TranslatePullError(err error, ref reference.Named) error {
+func translatePullError(err error, ref reference.Named) error {
 	switch v := err.(type) {
 	case errcode.Errors:
 		if len(v) != 0 {
 			for _, extra := range v[1:] {
-				logrus.Infof("Ignoring extra error returned from registry: %v", extra)
+				logrus.WithError(extra).Infof("Ignoring extra error returned from registry")
 			}
-			return TranslatePullError(v[0], ref)
+			return translatePullError(v[0], ref)
 		}
 	case errcode.Error:
 		switch v.Code {
@@ -106,7 +82,7 @@ func TranslatePullError(err error, ref reference.Named) error {
 			return notFoundError{v, ref}
 		}
 	case xfer.DoNotRetry:
-		return TranslatePullError(v.Err, ref)
+		return translatePullError(v.Err, ref)
 	}
 
 	return errdefs.Unknown(err)
@@ -138,14 +114,12 @@ func continueOnError(err error, mirrorEndpoint bool) bool {
 			return true
 		}
 		return continueOnError(v[0], mirrorEndpoint)
-	case ErrNoSupport:
-		return continueOnError(v.Err, mirrorEndpoint)
 	case errcode.Error:
-		return mirrorEndpoint || shouldV2Fallback(v)
+		return mirrorEndpoint
 	case *client.UnexpectedHTTPResponseError:
 		return true
-	case ImageConfigPullError:
-		// ImageConfigPullError only happens with v2 images, v1 fallback is
+	case imageConfigPullError:
+		// imageConfigPullError only happens with v2 images, v1 fallback is
 		// unnecessary.
 		// Failures from a mirror endpoint should result in fallback to the
 		// canonical repo.

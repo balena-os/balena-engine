@@ -1,3 +1,4 @@
+//go:build linux || freebsd
 // +build linux freebsd
 
 package daemon // import "github.com/docker/docker/daemon"
@@ -6,15 +7,16 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"syscall"
 
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/links"
 	"github.com/docker/docker/errdefs"
+	"github.com/docker/docker/libnetwork"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/runconfig"
-	"github.com/docker/libnetwork"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -170,24 +172,25 @@ func (daemon *Daemon) cleanupSecretDir(c *container.Container) {
 
 func killProcessDirectly(container *container.Container) error {
 	pid := container.GetPID()
-	// Ensure that we don't kill ourselves
 	if pid == 0 {
+		// Ensure that we don't kill ourselves
 		return nil
 	}
 
-	if err := unix.Kill(pid, 9); err != nil {
+	if err := unix.Kill(pid, syscall.SIGKILL); err != nil {
 		if err != unix.ESRCH {
-			return err
+			return errdefs.System(err)
 		}
-		e := errNoSuchProcess{pid, 9}
-		logrus.WithError(e).WithField("container", container.ID).Debug("no such process")
-		return e
+		err = errNoSuchProcess{pid, syscall.SIGKILL}
+		logrus.WithError(err).WithField("container", container.ID).Debug("no such process")
+		return err
 	}
 
 	// In case there were some exceptions(e.g., state of zombie and D)
 	if system.IsProcessAlive(pid) {
 		// Since we can not kill a zombie pid, add zombie check here
 		isZombie, err := system.IsProcessZombie(pid)
+		// TODO(thaJeztah) should we ignore os.IsNotExist() here? ("/proc/<pid>/stat" will be gone if the process exited)
 		if err != nil {
 			logrus.WithError(err).WithField("container", container.ID).Warn("Container state is invalid")
 			return err

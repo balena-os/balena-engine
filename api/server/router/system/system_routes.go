@@ -13,10 +13,11 @@ import (
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/registry"
+	"github.com/docker/docker/api/types/swarm"
 	timetypes "github.com/docker/docker/api/types/time"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/pkg/ioutils"
-	pkgerrors "github.com/pkg/errors"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 )
@@ -34,6 +35,9 @@ func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r
 	if bv := builderVersion; bv != "" {
 		w.Header().Set("Builder-Version", string(bv))
 	}
+
+	w.Header().Set("Swarm", s.swarmStatus())
+
 	if r.Method == http.MethodHead {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Length", "0")
@@ -41,6 +45,15 @@ func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r
 	}
 	_, err := w.Write([]byte{'O', 'K'})
 	return err
+}
+
+func (s *systemRouter) swarmStatus() string {
+	if s.cluster != nil {
+		if p, ok := s.cluster.(StatusProvider); ok {
+			return p.Status()
+		}
+	}
+	return string(swarm.LocalNodeStateInactive)
 }
 
 func (s *systemRouter) getInfo(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
@@ -51,7 +64,8 @@ func (s *systemRouter) getInfo(ctx context.Context, w http.ResponseWriter, r *ht
 		info.Warnings = append(info.Warnings, info.Swarm.Warnings...)
 	}
 
-	if versions.LessThan(httputils.VersionFromContext(ctx), "1.25") {
+	version := httputils.VersionFromContext(ctx)
+	if versions.LessThan(version, "1.25") {
 		// TODO: handle this conversion in engine-api
 		type oldInfo struct {
 			*types.Info
@@ -72,13 +86,16 @@ func (s *systemRouter) getInfo(ctx context.Context, w http.ResponseWriter, r *ht
 		old.SecurityOptions = nameOnlySecurityOptions
 		return httputils.WriteJSON(w, http.StatusOK, old)
 	}
-	if versions.LessThan(httputils.VersionFromContext(ctx), "1.39") {
+	if versions.LessThan(version, "1.39") {
 		if info.KernelVersion == "" {
 			info.KernelVersion = "<unknown>"
 		}
 		if info.OperatingSystem == "" {
 			info.OperatingSystem = "<unknown>"
 		}
+	}
+	if versions.GreaterThanOrEqualTo(version, "1.42") {
+		info.KernelMemory = false
 	}
 	return httputils.WriteJSON(w, http.StatusOK, info)
 }
@@ -90,37 +107,86 @@ func (s *systemRouter) getVersion(ctx context.Context, w http.ResponseWriter, r 
 }
 
 func (s *systemRouter) getDiskUsage(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	if err := httputils.ParseForm(r); err != nil {
+		return err
+	}
+
+	version := httputils.VersionFromContext(ctx)
+
+	var getContainers, getImages, getVolumes, getBuildCache bool
+	typeStrs, ok := r.Form["type"]
+	if versions.LessThan(version, "1.42") || !ok {
+		getContainers, getImages, getVolumes, getBuildCache = true, true, true, true
+	} else {
+		for _, typ := range typeStrs {
+			switch types.DiskUsageObject(typ) {
+			case types.ContainerObject:
+				getContainers = true
+			case types.ImageObject:
+				getImages = true
+			case types.VolumeObject:
+				getVolumes = true
+			case types.BuildCacheObject:
+				getBuildCache = true
+			default:
+				return invalidRequestError{Err: fmt.Errorf("unknown object type: %s", typ)}
+			}
+		}
+	}
+
 	eg, ctx := errgroup.WithContext(ctx)
 
-	var du *types.DiskUsage
-	eg.Go(func() error {
-		var err error
-		du, err = s.backend.SystemDiskUsage(ctx)
-		return err
-	})
+	var systemDiskUsage *types.DiskUsage
+	if getContainers || getImages || getVolumes {
+		eg.Go(func() error {
+			var err error
+			systemDiskUsage, err = s.backend.SystemDiskUsage(ctx, DiskUsageOptions{
+				Containers: getContainers,
+				Images:     getImages,
+				Volumes:    getVolumes,
+			})
+			return err
+		})
+	}
 
 	var buildCache []*types.BuildCache
-	eg.Go(func() error {
-		var err error
-		buildCache, err = s.builder.DiskUsage(ctx)
-		if err != nil {
-			return pkgerrors.Wrap(err, "error getting build cache usage")
-		}
-		return nil
-	})
+	if getBuildCache {
+		eg.Go(func() error {
+			var err error
+			buildCache, err = s.builder.DiskUsage(ctx)
+			if err != nil {
+				return errors.Wrap(err, "error getting build cache usage")
+			}
+			if buildCache == nil {
+				// Ensure empty `BuildCache` field is represented as empty JSON array(`[]`)
+				// instead of `null` to be consistent with `Images`, `Containers` etc.
+				buildCache = []*types.BuildCache{}
+			}
+			return nil
+		})
+	}
 
 	if err := eg.Wait(); err != nil {
 		return err
 	}
 
 	var builderSize int64
-	for _, b := range buildCache {
-		builderSize += b.Size
+	if versions.LessThan(version, "1.42") {
+		for _, b := range buildCache {
+			builderSize += b.Size
+		}
 	}
 
-	du.BuilderSize = builderSize
-	du.BuildCache = buildCache
-
+	du := types.DiskUsage{
+		BuildCache:  buildCache,
+		BuilderSize: builderSize,
+	}
+	if systemDiskUsage != nil {
+		du.LayersSize = systemDiskUsage.LayersSize
+		du.Images = systemDiskUsage.Images
+		du.Containers = systemDiskUsage.Containers
+		du.Volumes = systemDiskUsage.Volumes
+	}
 	return httputils.WriteJSON(w, http.StatusOK, du)
 }
 

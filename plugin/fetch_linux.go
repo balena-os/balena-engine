@@ -18,7 +18,7 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/stringid"
-	digest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -109,10 +109,7 @@ func (pm *Manager) fetch(ctx context.Context, ref reference.Named, auth *types.A
 
 	fp := withFetchProgress(pm.blobStore, out, ref)
 	handlers = append([]images.Handler{fp, remotes.FetchHandler(pm.blobStore, fetcher)}, handlers...)
-	if err := images.Dispatch(ctx, images.Handlers(handlers...), nil, desc); err != nil {
-		return err
-	}
-	return nil
+	return images.Dispatch(ctx, images.Handlers(handlers...), nil, desc)
 }
 
 // applyLayer makes an images.HandlerFunc which applies a fetched image rootfs layer to a directory.

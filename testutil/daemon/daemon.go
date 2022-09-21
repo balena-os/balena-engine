@@ -3,8 +3,6 @@ package daemon // import "github.com/docker/docker/testutil/daemon"
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,7 +16,6 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/opts"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/testutil/request"
@@ -43,6 +40,8 @@ const (
 	defaultDockerdBinary         = "balena-engine-daemon"
 	defaultContainerdSocket      = "/var/run/balena-engine/containerd/balena-engine-containerd.sock"
 	defaultDockerdRootlessBinary = "dockerd-rootless.sh"
+	defaultUnixSocket            = "/var/run/docker.sock"
+	defaultTLSHost               = "localhost:2376"
 )
 
 var errDaemonNotStarted = errors.New("daemon not started")
@@ -102,7 +101,7 @@ func NewDaemon(workingDir string, ops ...Option) (*Daemon, error) {
 		return nil, errors.Wrapf(err, "failed to create daemon socket root %q", SockRoot)
 	}
 
-	id := fmt.Sprintf("d%s", stringid.TruncateID(stringid.GenerateRandomID()))
+	id := "d" + stringid.TruncateID(stringid.GenerateRandomID())
 	dir := filepath.Join(workingDir, id)
 	daemonFolder, err := filepath.Abs(dir)
 	if err != nil {
@@ -217,6 +216,15 @@ func New(t testing.TB, ops ...Option) *Daemon {
 	return d
 }
 
+// BinaryPath returns the binary and its arguments.
+func (d *Daemon) BinaryPath() (string, error) {
+	dockerdBinary, err := exec.LookPath(d.dockerdBinary)
+	if err != nil {
+		return "", errors.Wrapf(err, "[%s] could not find docker binary in $PATH", d.id)
+	}
+	return dockerdBinary, nil
+}
+
 // ContainersNamespace returns the containerd namespace used for containers.
 func (d *Daemon) ContainersNamespace() string {
 	return d.id
@@ -239,7 +247,7 @@ func (d *Daemon) StorageDriver() string {
 
 // Sock returns the socket path of the daemon
 func (d *Daemon) Sock() string {
-	return fmt.Sprintf("unix://" + d.sockPath())
+	return "unix://" + d.sockPath()
 }
 
 func (d *Daemon) sockPath() string {
@@ -253,7 +261,8 @@ func (d *Daemon) LogFileName() string {
 
 // ReadLogFile returns the content of the daemon log file
 func (d *Daemon) ReadLogFile() ([]byte, error) {
-	return ioutil.ReadFile(d.logFile.Name())
+	_ = d.logFile.Sync()
+	return os.ReadFile(d.logFile.Name())
 }
 
 // NewClientT creates new client based on daemon's socket path
@@ -308,9 +317,9 @@ func (d *Daemon) StartWithError(args ...string) error {
 // StartWithLogFile will start the daemon and attach its streams to a given file.
 func (d *Daemon) StartWithLogFile(out *os.File, providedArgs ...string) error {
 	d.handleUserns()
-	dockerdBinary, err := exec.LookPath(d.dockerdBinary)
+	dockerdBinary, err := d.BinaryPath()
 	if err != nil {
-		return errors.Wrapf(err, "[%s] could not find docker binary in $PATH", d.id)
+		return err
 	}
 
 	if d.pidFile == "" {
@@ -337,7 +346,7 @@ func (d *Daemon) StartWithLogFile(out *os.File, providedArgs ...string) error {
 		"--data-root", d.Root,
 		"--exec-root", d.execRoot,
 		"--pidfile", d.pidFile,
-		fmt.Sprintf("--userland-proxy=%t", d.userlandProxy),
+		"--userland-proxy="+strconv.FormatBool(d.userlandProxy),
 		"--containerd-namespace", d.id,
 		"--containerd-plugins-namespace", d.id+"p",
 	)
@@ -731,11 +740,11 @@ func (d *Daemon) getClientConfig() (*clientConfig, error) {
 		transport = &http.Transport{
 			TLSClientConfig: tlsConfig,
 		}
-		addr = fmt.Sprintf("%s:%d", opts.DefaultHTTPHost, opts.DefaultTLSHTTPPort)
+		addr = defaultTLSHost
 		scheme = "https"
 		proto = "tcp"
 	} else if d.UseDefaultHost {
-		addr = opts.DefaultUnixSocket
+		addr = defaultUnixSocket
 		proto = "unix"
 		scheme = "http"
 		transport = &http.Transport{}

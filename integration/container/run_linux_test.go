@@ -1,15 +1,22 @@
 package container // import "github.com/docker/docker/integration/container"
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/integration/internal/container"
 	net "github.com/docker/docker/integration/internal/network"
+	"github.com/docker/docker/pkg/system"
+	"golang.org/x/sys/unix"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
 	"gotest.tools/v3/poll"
@@ -98,4 +105,112 @@ func TestHostnameDnsResolution(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Check(t, is.Equal("", res.Stderr()))
 	assert.Equal(t, 0, res.ExitCode)
+}
+
+func TestUnprivilegedPortsAndPing(t *testing.T) {
+	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
+	skip.If(t, testEnv.IsRootless, "rootless mode doesn't support setting net.ipv4.ping_group_range and net.ipv4.ip_unprivileged_port_start")
+
+	defer setupTest(t)()
+	client := testEnv.APIClient()
+	ctx := context.Background()
+
+	cID := container.Run(ctx, t, client, func(c *container.TestContainerConfig) {
+		c.Config.User = "1000:1000"
+	})
+
+	poll.WaitOn(t, container.IsInState(ctx, client, cID, "running"), poll.WithDelay(100*time.Millisecond))
+
+	// Check net.ipv4.ping_group_range.
+	res, err := container.Exec(ctx, client, cID, []string{"cat", "/proc/sys/net/ipv4/ping_group_range"})
+	assert.NilError(t, err)
+	assert.Assert(t, is.Len(res.Stderr(), 0))
+	assert.Equal(t, 0, res.ExitCode)
+	assert.Equal(t, `0	2147483647`, strings.TrimSpace(res.Stdout()))
+
+	// Check net.ipv4.ip_unprivileged_port_start.
+	res, err = container.Exec(ctx, client, cID, []string{"cat", "/proc/sys/net/ipv4/ip_unprivileged_port_start"})
+	assert.NilError(t, err)
+	assert.Assert(t, is.Len(res.Stderr(), 0))
+	assert.Equal(t, 0, res.ExitCode)
+	assert.Equal(t, "0", strings.TrimSpace(res.Stdout()))
+}
+
+func TestPrivilegedHostDevices(t *testing.T) {
+	// Host devices are linux only. Also it creates host devices,
+	// so needs to be same host.
+	skip.If(t, testEnv.IsRemoteDaemon)
+	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
+
+	defer setupTest(t)()
+	client := testEnv.APIClient()
+	ctx := context.Background()
+
+	const (
+		devTest         = "/dev/test"
+		devRootOnlyTest = "/dev/root-only/test"
+	)
+
+	// Create Null devices.
+	if err := system.Mknod(devTest, unix.S_IFCHR|0600, int(system.Mkdev(1, 3))); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(devTest)
+	if err := os.Mkdir(filepath.Dir(devRootOnlyTest), 0700); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(filepath.Dir(devRootOnlyTest))
+	if err := system.Mknod(devRootOnlyTest, unix.S_IFCHR|0600, int(system.Mkdev(1, 3))); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(devRootOnlyTest)
+
+	cID := container.Run(ctx, t, client, container.WithPrivileged(true))
+
+	poll.WaitOn(t, container.IsInState(ctx, client, cID, "running"), poll.WithDelay(100*time.Millisecond))
+
+	// Check test device.
+	res, err := container.Exec(ctx, client, cID, []string{"ls", devTest})
+	assert.NilError(t, err)
+	assert.Equal(t, 0, res.ExitCode)
+	assert.Check(t, is.Equal(strings.TrimSpace(res.Stdout()), devTest))
+
+	// Check root-only test device.
+	res, err = container.Exec(ctx, client, cID, []string{"ls", devRootOnlyTest})
+	assert.NilError(t, err)
+	if testEnv.IsRootless() {
+		assert.Equal(t, 1, res.ExitCode)
+		assert.Check(t, is.Contains(res.Stderr(), "No such file or directory"))
+	} else {
+		assert.Equal(t, 0, res.ExitCode)
+		assert.Check(t, is.Equal(strings.TrimSpace(res.Stdout()), devRootOnlyTest))
+	}
+}
+
+func TestConsoleSize(t *testing.T) {
+	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
+	skip.If(t, versions.LessThan(testEnv.DaemonAPIVersion(), "1.42"), "skip test from new feature")
+
+	defer setupTest(t)()
+	client := testEnv.APIClient()
+	ctx := context.Background()
+
+	cID := container.Run(ctx, t, client,
+		container.WithTty(true),
+		container.WithImage("busybox"),
+		container.WithCmd("stty", "size"),
+		container.WithConsoleSize(57, 123),
+	)
+
+	poll.WaitOn(t, container.IsStopped(ctx, client, cID), poll.WithDelay(100*time.Millisecond))
+
+	out, err := client.ContainerLogs(ctx, cID, types.ContainerLogsOptions{ShowStdout: true})
+	assert.NilError(t, err)
+	defer out.Close()
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, out)
+	assert.NilError(t, err)
+
+	assert.Equal(t, strings.TrimSpace(b.String()), "123 57")
 }

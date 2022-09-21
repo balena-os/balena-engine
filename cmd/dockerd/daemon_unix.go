@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package dockerd
@@ -12,12 +13,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/containerd/containerd/runtime/v1/linux"
 	"github.com/docker/docker/daemon"
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/libcontainerd/supervisor"
+	"github.com/docker/docker/libnetwork/portallocator"
 	"github.com/docker/docker/pkg/homedir"
-	"github.com/docker/libnetwork/portallocator"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -64,12 +64,6 @@ func getDaemonConfDir(_ string) (string, error) {
 func (cli *DaemonCli) getPlatformContainerdDaemonOpts() ([]supervisor.DaemonOpt, error) {
 	opts := []supervisor.DaemonOpt{
 		supervisor.WithOOMScore(cli.Config.OOMScoreAdjust),
-		supervisor.WithPlugin("linux", &linux.Config{
-			Shim:        daemon.DefaultShimBinary,
-			Runtime:     daemon.DefaultRuntimeBinary,
-			RuntimeRoot: filepath.Join(cli.Config.Root, "runc"),
-			ShimDebug:   cli.Config.Debug,
-		}),
 	}
 
 	return opts, nil

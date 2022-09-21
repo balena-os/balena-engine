@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/services/server/config"
 	"github.com/docker/docker/pkg/system"
+	"github.com/pelletier/go-toml"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -31,13 +30,11 @@ const (
 	pidFile                 = "balena-engine-containerd.pid"
 )
 
-type pluginConfigs struct {
-	Plugins map[string]interface{} `toml:"plugins"`
-}
-
 type remote struct {
 	sync.RWMutex
 	config.Config
+	// Plugins overrides `Plugins map[string]toml.Tree` in config config.
+	Plugins map[string]interface{} `toml:"plugins"`
 
 	daemonPid int
 	logger    *logrus.Entry
@@ -46,9 +43,8 @@ type remote struct {
 	daemonStartCh chan error
 	daemonStopCh  chan struct{}
 
-	rootDir     string
-	stateDir    string
-	pluginConfs pluginConfigs
+	rootDir  string
+	stateDir string
 }
 
 // Daemon represents a running containerd daemon
@@ -69,7 +65,7 @@ func Start(ctx context.Context, rootDir, stateDir string, opts ...DaemonOpt) (Da
 			Root:  filepath.Join(rootDir, "daemon"),
 			State: filepath.Join(stateDir, "daemon"),
 		},
-		pluginConfs:   pluginConfigs{make(map[string]interface{})},
+		Plugins:       make(map[string]interface{}),
 		daemonPid:     -1,
 		logger:        logrus.WithField("module", "libcontainerd"),
 		daemonStartCh: make(chan error, 1),
@@ -157,14 +153,9 @@ func (r *remote) getContainerdConfig() (string, error) {
 	}
 	defer f.Close()
 
-	enc := toml.NewEncoder(f)
-	if err = enc.Encode(r.Config); err != nil {
-		return "", errors.Wrapf(err, "failed to encode general config")
+	if err := toml.NewEncoder(f).Encode(r); err != nil {
+		return "", errors.Wrapf(err, "failed to write containerd config file (%s)", path)
 	}
-	if err = enc.Encode(r.pluginConfs); err != nil {
-		return "", errors.Wrapf(err, "failed to encode plugin configs")
-	}
-
 	return path, nil
 }
 
@@ -219,7 +210,7 @@ func (r *remote) startContainerd() error {
 
 	r.daemonPid = cmd.Process.Pid
 
-	err = ioutil.WriteFile(filepath.Join(r.stateDir, pidFile), []byte(fmt.Sprintf("%d", r.daemonPid)), 0660)
+	err = os.WriteFile(filepath.Join(r.stateDir, pidFile), []byte(fmt.Sprintf("%d", r.daemonPid)), 0660)
 	if err != nil {
 		system.KillProcess(r.daemonPid)
 		return errors.Wrap(err, "libcontainerd: failed to save daemon pid to disk")

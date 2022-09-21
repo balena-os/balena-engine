@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -33,7 +32,7 @@ func writeTarSplitFile(name string, tarContent []byte) error {
 		return err
 	}
 
-	if _, err := io.Copy(ioutil.Discard, rdr); err != nil {
+	if _, err := io.Copy(io.Discard, rdr); err != nil {
 		return err
 	}
 
@@ -45,7 +44,7 @@ func TestLayerMigration(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Failing on Windows")
 	}
-	td, err := ioutil.TempDir("", "migration-test-")
+	td, err := os.MkdirTemp("", "migration-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +89,12 @@ func TestLayerMigration(t *testing.T) {
 
 	tf1 := filepath.Join(td, "tar1.json.gz")
 	if err := writeTarSplitFile(tf1, tar1); err != nil {
+		t.Fatal(err)
+	}
+
+	root := filepath.Join(td, "layers")
+	ls, err := newStoreFromGraphDriver(root, graph)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -172,7 +177,7 @@ func tarFromFilesInGraph(graph graphdriver.Driver, graphID, parentID string, fil
 	}
 	defer ar.Close()
 
-	return ioutil.ReadAll(ar)
+	return io.ReadAll(ar)
 }
 
 func TestLayerMigrationNoTarsplit(t *testing.T) {
@@ -180,7 +185,7 @@ func TestLayerMigrationNoTarsplit(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Failing on Windows")
 	}
-	td, err := ioutil.TempDir("", "migration-test-")
+	td, err := os.MkdirTemp("", "migration-test-")
 	if err != nil {
 		t.Fatal(err)
 	}

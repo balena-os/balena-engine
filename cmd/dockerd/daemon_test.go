@@ -14,7 +14,7 @@ import (
 func defaultOptions(t *testing.T, configFile string) *daemonOptions {
 	opts := newDaemonOptions(&config.Config{})
 	opts.flags = &pflag.FlagSet{}
-	opts.InstallFlags(opts.flags)
+	opts.installFlags(opts.flags)
 	if err := installConfigFlags(opts.daemonConfig, opts.flags); err != nil {
 		t.Fatal(err)
 	}
@@ -167,9 +167,9 @@ func TestLoadDaemonConfigWithEmbeddedOptions(t *testing.T) {
 
 func TestLoadDaemonConfigWithRegistryOptions(t *testing.T) {
 	content := `{
-		"allow-nondistributable-artifacts": ["allow-nondistributable-artifacts.com"],
-		"registry-mirrors": ["https://mirrors.docker.com"],
-		"insecure-registries": ["https://insecure.docker.com"]
+		"allow-nondistributable-artifacts": ["allow-nondistributable-artifacts.example.com"],
+		"registry-mirrors": ["https://mirrors.example.com"],
+		"insecure-registries": ["https://insecure-registry.example.com"]
 	}`
 	tempFile := fs.NewFile(t, "config", fs.WithContent(content))
 	defer tempFile.Remove()
@@ -186,19 +186,15 @@ func TestLoadDaemonConfigWithRegistryOptions(t *testing.T) {
 
 func TestConfigureDaemonLogs(t *testing.T) {
 	conf := &config.Config{}
-	err := configureDaemonLogs(conf)
-	assert.NilError(t, err)
+	configureDaemonLogs(conf)
 	assert.Check(t, is.Equal(logrus.InfoLevel, logrus.GetLevel()))
 
 	conf.LogLevel = "warn"
-	err = configureDaemonLogs(conf)
-	assert.NilError(t, err)
+	configureDaemonLogs(conf)
 	assert.Check(t, is.Equal(logrus.WarnLevel, logrus.GetLevel()))
 
+	// log level should not be changed when passing an invalid value
 	conf.LogLevel = "foobar"
-	err = configureDaemonLogs(conf)
-	assert.Error(t, err, "unable to parse logging level: foobar")
-
-	// log level should not be changed after a failure
+	configureDaemonLogs(conf)
 	assert.Check(t, is.Equal(logrus.WarnLevel, logrus.GetLevel()))
 }

@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package main
@@ -5,7 +6,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -18,14 +18,14 @@ import (
 	"github.com/docker/docker/api/types/versions/v1p20"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/daemon"
+	"github.com/docker/docker/libnetwork/driverapi"
+	remoteapi "github.com/docker/docker/libnetwork/drivers/remote/api"
+	"github.com/docker/docker/libnetwork/ipamapi"
+	remoteipam "github.com/docker/docker/libnetwork/ipams/remote/api"
+	"github.com/docker/docker/libnetwork/netlabel"
 	"github.com/docker/docker/pkg/stringid"
 	"github.com/docker/docker/runconfig"
 	testdaemon "github.com/docker/docker/testutil/daemon"
-	"github.com/docker/libnetwork/driverapi"
-	remoteapi "github.com/docker/libnetwork/drivers/remote/api"
-	"github.com/docker/libnetwork/ipamapi"
-	remoteipam "github.com/docker/libnetwork/ipams/remote/api"
-	"github.com/docker/libnetwork/netlabel"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 	"gotest.tools/v3/assert"
@@ -202,11 +202,11 @@ func setupRemoteNetworkDrivers(c *testing.T, mux *http.ServeMux, url, netDrv, ip
 	assert.NilError(c, err)
 
 	fileName := fmt.Sprintf("/etc/docker/plugins/%s.spec", netDrv)
-	err = ioutil.WriteFile(fileName, []byte(url), 0644)
+	err = os.WriteFile(fileName, []byte(url), 0644)
 	assert.NilError(c, err)
 
 	ipamFileName := fmt.Sprintf("/etc/docker/plugins/%s.spec", ipamDrv)
-	err = ioutil.WriteFile(ipamFileName, []byte(url), 0644)
+	err = os.WriteFile(ipamFileName, []byte(url), 0644)
 	assert.NilError(c, err)
 }
 
@@ -1609,7 +1609,7 @@ func (s *DockerSuite) TestEmbeddedDNSInvalidInput(c *testing.T) {
 	dockerCmd(c, "network", "create", "-d", "bridge", "nw1")
 
 	// Sending garbage to embedded DNS shouldn't crash the daemon
-	dockerCmd(c, "run", "-i", "--net=nw1", "--name=c1", "debian:bullseye", "bash", "-c", "echo InvalidQuery > /dev/udp/127.0.0.11/53")
+	dockerCmd(c, "run", "-i", "--net=nw1", "--name=c1", "debian:bullseye-slim", "bash", "-c", "echo InvalidQuery > /dev/udp/127.0.0.11/53")
 }
 
 func (s *DockerSuite) TestDockerNetworkConnectFailsNoInspectChange(c *testing.T) {
@@ -1784,12 +1784,12 @@ func (s *DockerNetworkSuite) TestConntrackFlowsLeak(c *testing.T) {
 	assertNwIsAvailable(c, "testbind")
 
 	// Launch the server, this will remain listening on an exposed port and reply to any request in a ping/pong fashion
-	cmd := "while true; do echo hello | nc -w 1 -lu 8080; done"
-	cli.DockerCmd(c, "run", "-d", "--name", "server", "--net", "testbind", "-p", "8080:8080/udp", "appropriate/nc", "sh", "-c", cmd)
+	cmd := "while true; do echo hello | nc -w 1 -l -u -p 8080; done"
+	cli.DockerCmd(c, "run", "-d", "--name", "server", "--net", "testbind", "-p", "8080:8080/udp", "busybox", "sh", "-c", cmd)
 
 	// Launch a container client, here the objective is to create a flow that is natted in order to expose the bug
-	cmd = "echo world | nc -q 1 -u 192.168.10.1 8080"
-	cli.DockerCmd(c, "run", "-d", "--name", "client", "--net=host", "appropriate/nc", "sh", "-c", cmd)
+	cmd = "echo world | nc -w 1 -u 192.168.10.1 8080"
+	cli.DockerCmd(c, "run", "-d", "--name", "client", "--net=host", "busybox", "sh", "-c", cmd)
 
 	// Get all the flows using netlink
 	flows, err := netlink.ConntrackTableList(netlink.ConntrackTable, unix.AF_INET)

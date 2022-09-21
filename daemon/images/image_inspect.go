@@ -7,7 +7,6 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
-	"github.com/docker/docker/pkg/system"
 	"github.com/pkg/errors"
 )
 
@@ -18,9 +17,7 @@ func (i *ImageService) LookupImage(name string) (*types.ImageInspect, error) {
 	if err != nil {
 		return nil, errors.Wrapf(err, "no such image: %s", name)
 	}
-	if !system.IsOSSupported(img.OperatingSystem()) {
-		return nil, system.ErrNotSupportedOperatingSystem
-	}
+
 	refs := i.referenceStore.References(img.ID().Digest())
 	repoTags := []string{}
 	repoDigests := []string{}
@@ -37,16 +34,12 @@ func (i *ImageService) LookupImage(name string) (*types.ImageInspect, error) {
 	var layerMetadata map[string]string
 	layerID := img.RootFS.ChainID()
 	if layerID != "" {
-		l, err := i.layerStores[img.OperatingSystem()].Get(layerID)
+		l, err := i.layerStore.Get(layerID)
 		if err != nil {
 			return nil, err
 		}
-		defer layer.ReleaseAndLog(i.layerStores[img.OperatingSystem()], l)
-		size, err = l.Size()
-		if err != nil {
-			return nil, err
-		}
-
+		defer layer.ReleaseAndLog(i.layerStore, l)
+		size = l.Size()
 		layerMetadata, err = l.Metadata()
 		if err != nil {
 			return nil, err
@@ -63,7 +56,7 @@ func (i *ImageService) LookupImage(name string) (*types.ImageInspect, error) {
 		return nil, err
 	}
 
-	imageInspect := &types.ImageInspect{
+	return &types.ImageInspect{
 		ID:              img.ID().String(),
 		RepoTags:        repoTags,
 		RepoDigests:     repoDigests,
@@ -81,16 +74,15 @@ func (i *ImageService) LookupImage(name string) (*types.ImageInspect, error) {
 		OsVersion:       img.OSVersion,
 		Size:            size,
 		VirtualSize:     size, // TODO: field unused, deprecate
-		RootFS:          rootFSToAPIType(img.RootFS),
+		GraphDriver: types.GraphDriverData{
+			Name: i.layerStore.DriverName(),
+			Data: layerMetadata,
+		},
+		RootFS: rootFSToAPIType(img.RootFS),
 		Metadata: types.ImageMetadata{
 			LastTagTime: lastUpdated,
 		},
-	}
-
-	imageInspect.GraphDriver.Name = i.layerStores[img.OperatingSystem()].DriverName()
-	imageInspect.GraphDriver.Data = layerMetadata
-
-	return imageInspect, nil
+	}, nil
 }
 
 func rootFSToAPIType(rootfs *image.RootFS) types.RootFS {

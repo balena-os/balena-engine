@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package main
@@ -6,7 +7,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"strings"
@@ -26,7 +26,7 @@ func (s *DockerSuite) TestEventsRedirectStdout(c *testing.T) {
 	since := daemonUnixTime(c)
 	dockerCmd(c, "run", "busybox", "true")
 
-	file, err := ioutil.TempFile("", "")
+	file, err := os.CreateTemp("", "")
 	assert.NilError(c, err, "could not create temp file")
 	defer os.Remove(file.Name())
 
@@ -186,15 +186,14 @@ func (s *DockerSuite) TestVolumeEvents(c *testing.T) {
 	until := daemonUnixTime(c)
 	out, _ := dockerCmd(c, "events", "--since", since, "--until", until)
 	events := strings.Split(strings.TrimSpace(out), "\n")
-	assert.Assert(c, len(events) > 4)
+	assert.Assert(c, len(events) > 3)
 
 	volumeEvents := eventActionsByIDAndType(c, events, "test-event-volume-local", "volume")
-	assert.Equal(c, len(volumeEvents), 5)
+	assert.Equal(c, len(volumeEvents), 4)
 	assert.Equal(c, volumeEvents[0], "create")
-	assert.Equal(c, volumeEvents[1], "create")
-	assert.Equal(c, volumeEvents[2], "mount")
-	assert.Equal(c, volumeEvents[3], "unmount")
-	assert.Equal(c, volumeEvents[4], "destroy")
+	assert.Equal(c, volumeEvents[1], "mount")
+	assert.Equal(c, volumeEvents[2], "unmount")
+	assert.Equal(c, volumeEvents[3], "destroy")
 }
 
 func (s *DockerSuite) TestNetworkEvents(c *testing.T) {
@@ -400,14 +399,14 @@ func (s *DockerDaemonSuite) TestDaemonEvents(c *testing.T) {
 	defer os.Remove(configFilePath)
 
 	daemonConfig := `{"labels":["foo=bar"]}`
-	err := ioutil.WriteFile(configFilePath, []byte(daemonConfig), 0644)
+	err := os.WriteFile(configFilePath, []byte(daemonConfig), 0644)
 	assert.NilError(c, err)
 	s.d.Start(c, "--config-file="+configFilePath)
 
 	info := s.d.Info(c)
 
 	daemonConfig = `{"max-concurrent-downloads":1,"labels":["bar=foo"], "shutdown-timeout": 10}`
-	err = ioutil.WriteFile(configFilePath, []byte(daemonConfig), 0644)
+	err = os.WriteFile(configFilePath, []byte(daemonConfig), 0644)
 	assert.NilError(c, err)
 
 	assert.NilError(c, s.d.Signal(unix.SIGHUP))
@@ -421,9 +420,6 @@ func (s *DockerDaemonSuite) TestDaemonEvents(c *testing.T) {
 	expectedSubstrings := []string{
 		" daemon reload " + info.ID + " ",
 		"(allow-nondistributable-artifacts=[",
-		" cluster-advertise=, ",
-		" cluster-store=, ",
-		" cluster-store-opts=",
 		" debug=true, ",
 		" default-ipc-mode=",
 		" default-runtime=",
@@ -452,7 +448,7 @@ func (s *DockerDaemonSuite) TestDaemonEventsWithFilters(c *testing.T) {
 	defer os.Remove(configFilePath)
 
 	daemonConfig := `{"labels":["foo=bar"]}`
-	err := ioutil.WriteFile(configFilePath, []byte(daemonConfig), 0644)
+	err := os.WriteFile(configFilePath, []byte(daemonConfig), 0644)
 	assert.NilError(c, err)
 	s.d.Start(c, "--config-file="+configFilePath)
 

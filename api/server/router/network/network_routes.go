@@ -2,8 +2,6 @@ package network // import "github.com/docker/docker/api/server/router/network"
 
 import (
 	"context"
-	"encoding/json"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,7 +12,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/errdefs"
-	"github.com/docker/libnetwork"
+	"github.com/docker/docker/libnetwork"
 	"github.com/pkg/errors"
 )
 
@@ -29,7 +27,7 @@ func (n *networkRouter) getNetworksList(ctx context.Context, w http.ResponseWrit
 	}
 
 	if err := network.ValidateFilters(filter); err != nil {
-		return errdefs.InvalidParameter(err)
+		return err
 	}
 
 	var list []types.NetworkResource
@@ -149,21 +147,17 @@ func (n *networkRouter) getNetwork(ctx context.Context, w http.ResponseWriter, r
 }
 
 func (n *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
-	var create types.NetworkCreateRequest
-
 	if err := httputils.ParseForm(r); err != nil {
 		return err
 	}
 
-	if err := httputils.CheckForJSON(r); err != nil {
+	var create types.NetworkCreateRequest
+	if err := httputils.ReadJSON(r, &create); err != nil {
 		return err
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&create); err != nil {
-		if err == io.EOF {
-			return errdefs.InvalidParameter(errors.New("got EOF while reading request body"))
-		}
-		return errdefs.InvalidParameter(err)
+	if nws, err := n.cluster.GetNetworksByName(create.Name); err == nil && len(nws) > 0 {
+		return nameConflict(create.Name)
 	}
 
 	nw, err := n.backend.CreateNetwork(create)
@@ -182,20 +176,13 @@ func (n *networkRouter) postNetworkCreate(ctx context.Context, w http.ResponseWr
 }
 
 func (n *networkRouter) postNetworkConnect(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
-	var connect types.NetworkConnect
 	if err := httputils.ParseForm(r); err != nil {
 		return err
 	}
 
-	if err := httputils.CheckForJSON(r); err != nil {
+	var connect types.NetworkConnect
+	if err := httputils.ReadJSON(r, &connect); err != nil {
 		return err
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&connect); err != nil {
-		if err == io.EOF {
-			return errdefs.InvalidParameter(errors.New("got EOF while reading request body"))
-		}
-		return errdefs.InvalidParameter(err)
 	}
 
 	// Unlike other operations, we does not check ambiguity of the name/ID here.
@@ -206,20 +193,13 @@ func (n *networkRouter) postNetworkConnect(ctx context.Context, w http.ResponseW
 }
 
 func (n *networkRouter) postNetworkDisconnect(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
-	var disconnect types.NetworkDisconnect
 	if err := httputils.ParseForm(r); err != nil {
 		return err
 	}
 
-	if err := httputils.CheckForJSON(r); err != nil {
+	var disconnect types.NetworkDisconnect
+	if err := httputils.ReadJSON(r, &disconnect); err != nil {
 		return err
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&disconnect); err != nil {
-		if err == io.EOF {
-			return errdefs.InvalidParameter(errors.New("got EOF while reading request body"))
-		}
-		return errdefs.InvalidParameter(err)
 	}
 
 	return n.backend.DisconnectContainerFromNetwork(disconnect.Container, vars["id"], disconnect.Force)

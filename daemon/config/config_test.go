@@ -1,14 +1,12 @@
 package config // import "github.com/docker/docker/daemon/config"
 
 import (
-	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/docker/docker/daemon/discovery"
+	"github.com/docker/docker/libnetwork/ipamutils"
 	"github.com/docker/docker/opts"
-	"github.com/docker/libnetwork/ipamutils"
 	"github.com/spf13/pflag"
 	"gotest.tools/v3/assert"
 	is "gotest.tools/v3/assert/cmp"
@@ -24,7 +22,7 @@ func TestDaemonConfigurationNotFound(t *testing.T) {
 }
 
 func TestDaemonBrokenConfiguration(t *testing.T) {
-	f, err := ioutil.TempFile("", "docker-config-")
+	f, err := os.CreateTemp("", "docker-config-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,23 +34,6 @@ func TestDaemonBrokenConfiguration(t *testing.T) {
 	_, err = MergeDaemonConfigurations(&Config{}, nil, configFile)
 	if err == nil {
 		t.Fatalf("expected error, got %v", err)
-	}
-}
-
-func TestParseClusterAdvertiseSettings(t *testing.T) {
-	_, err := ParseClusterAdvertiseSettings("something", "")
-	if err != discovery.ErrDiscoveryDisabled {
-		t.Fatalf("expected discovery disabled error, got %v\n", err)
-	}
-
-	_, err = ParseClusterAdvertiseSettings("", "something")
-	if err == nil {
-		t.Fatalf("expected discovery store error, got %v\n", err)
-	}
-
-	_, err = ParseClusterAdvertiseSettings("etcd", "127.0.0.1:8080")
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -77,7 +58,7 @@ func TestFindConfigurationConflictsWithNamedOptions(t *testing.T) {
 }
 
 func TestDaemonConfigurationMergeConflicts(t *testing.T) {
-	f, err := ioutil.TempFile("", "docker-config-")
+	f, err := os.CreateTemp("", "docker-config-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +81,7 @@ func TestDaemonConfigurationMergeConflicts(t *testing.T) {
 }
 
 func TestDaemonConfigurationMergeConcurrent(t *testing.T) {
-	f, err := ioutil.TempFile("", "docker-config-")
+	f, err := os.CreateTemp("", "docker-config-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +97,7 @@ func TestDaemonConfigurationMergeConcurrent(t *testing.T) {
 }
 
 func TestDaemonConfigurationMergeConcurrentError(t *testing.T) {
-	f, err := ioutil.TempFile("", "docker-config-")
+	f, err := os.CreateTemp("", "docker-config-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +113,7 @@ func TestDaemonConfigurationMergeConcurrentError(t *testing.T) {
 }
 
 func TestDaemonConfigurationMergeConflictsWithInnerStructs(t *testing.T) {
-	f, err := ioutil.TempFile("", "docker-config-")
+	f, err := os.CreateTemp("", "docker-config-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,8 +213,6 @@ func TestFindConfigurationConflictsWithMergedValues(t *testing.T) {
 }
 
 func TestValidateConfigurationErrors(t *testing.T) {
-	intPtr := func(i int) *int { return &i }
-
 	testCases := []struct {
 		name        string
 		config      *Config
@@ -305,7 +284,7 @@ func TestValidateConfigurationErrors(t *testing.T) {
 			name: "negative max-concurrent-downloads",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxConcurrentDownloads: intPtr(-10),
+					MaxConcurrentDownloads: -10,
 				},
 			},
 			expectedErr: "invalid max concurrent downloads: -10",
@@ -314,7 +293,7 @@ func TestValidateConfigurationErrors(t *testing.T) {
 			name: "negative max-concurrent-uploads",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxConcurrentUploads: intPtr(-10),
+					MaxConcurrentUploads: -10,
 				},
 			},
 			expectedErr: "invalid max concurrent uploads: -10",
@@ -323,21 +302,59 @@ func TestValidateConfigurationErrors(t *testing.T) {
 			name: "negative max-download-attempts",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxDownloadAttempts: intPtr(-10),
+					MaxDownloadAttempts: -10,
 				},
 			},
 			expectedErr: "invalid max download attempts: -10",
 		},
+		// TODO(thaJeztah) temporarily excluding this test as it assumes defaults are set before validating and applying updated configs
+		/*
+			{
+				name: "zero max-download-attempts",
+				config: &Config{
+					CommonConfig: CommonConfig{
+						MaxDownloadAttempts: 0,
+					},
+				},
+				expectedErr: "invalid max download attempts: 0",
+			},
+		*/
 		{
-			name: "zero max-download-attempts",
+			name: "generic resource without =",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxDownloadAttempts: intPtr(0),
+					NodeGenericResources: []string{"foo"},
 				},
 			},
-			expectedErr: "invalid max download attempts: 0",
+			expectedErr: "could not parse GenericResource: incorrect term foo, missing '=' or malformed expression",
 		},
-		// remove swarm-specific test cases
+		{
+			name: "generic resource mixed named and discrete",
+			config: &Config{
+				CommonConfig: CommonConfig{
+					NodeGenericResources: []string{"foo=bar", "foo=1"},
+				},
+			},
+			expectedErr: "could not parse GenericResource: mixed discrete and named resources in expression 'foo=[bar 1]'",
+		},
+		{
+			name: "with invalid hosts",
+			config: &Config{
+				CommonConfig: CommonConfig{
+					Hosts: []string{"127.0.0.1:2375/path"},
+				},
+			},
+			expectedErr: "invalid bind address (127.0.0.1:2375/path): should not contain a path element",
+		},
+		{
+			name: "with invalid log-level",
+			config: &Config{
+				CommonConfig: CommonConfig{
+					LogLevel: "foobar",
+				},
+			},
+			expectedErr: "invalid logging level: foobar",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -348,8 +365,6 @@ func TestValidateConfigurationErrors(t *testing.T) {
 }
 
 func TestValidateConfiguration(t *testing.T) {
-	intPtr := func(i int) *int { return &i }
-
 	testCases := []struct {
 		name   string
 		config *Config
@@ -386,7 +401,7 @@ func TestValidateConfiguration(t *testing.T) {
 			name: "with max-concurrent-downloads",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxConcurrentDownloads: intPtr(4),
+					MaxConcurrentDownloads: 4,
 				},
 			},
 		},
@@ -394,7 +409,7 @@ func TestValidateConfiguration(t *testing.T) {
 			name: "with max-concurrent-uploads",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxConcurrentUploads: intPtr(4),
+					MaxConcurrentUploads: 4,
 				},
 			},
 		},
@@ -402,7 +417,7 @@ func TestValidateConfiguration(t *testing.T) {
 			name: "with max-download-attempts",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxDownloadAttempts: intPtr(4),
+					MaxDownloadAttempts: 4,
 				},
 			},
 		},
@@ -415,73 +430,28 @@ func TestValidateConfiguration(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "with hosts",
+			config: &Config{
+				CommonConfig: CommonConfig{
+					Hosts: []string{"tcp://127.0.0.1:2375"},
+				},
+			},
+		},
+		{
+			name: "with log-level warn",
+			config: &Config{
+				CommonConfig: CommonConfig{
+					LogLevel: "warn",
+				},
+			},
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := Validate(tc.config)
 			assert.NilError(t, err)
 		})
-	}
-}
-
-func TestModifiedDiscoverySettings(t *testing.T) {
-	cases := []struct {
-		current  *Config
-		modified *Config
-		expected bool
-	}{
-		{
-			current:  discoveryConfig("foo", "bar", map[string]string{}),
-			modified: discoveryConfig("foo", "bar", map[string]string{}),
-			expected: false,
-		},
-		{
-			current:  discoveryConfig("foo", "bar", map[string]string{"foo": "bar"}),
-			modified: discoveryConfig("foo", "bar", map[string]string{"foo": "bar"}),
-			expected: false,
-		},
-		{
-			current:  discoveryConfig("foo", "bar", map[string]string{}),
-			modified: discoveryConfig("foo", "bar", nil),
-			expected: false,
-		},
-		{
-			current:  discoveryConfig("foo", "bar", nil),
-			modified: discoveryConfig("foo", "bar", map[string]string{}),
-			expected: false,
-		},
-		{
-			current:  discoveryConfig("foo", "bar", nil),
-			modified: discoveryConfig("baz", "bar", nil),
-			expected: true,
-		},
-		{
-			current:  discoveryConfig("foo", "bar", nil),
-			modified: discoveryConfig("foo", "baz", nil),
-			expected: true,
-		},
-		{
-			current:  discoveryConfig("foo", "bar", nil),
-			modified: discoveryConfig("foo", "bar", map[string]string{"foo": "bar"}),
-			expected: true,
-		},
-	}
-
-	for _, c := range cases {
-		got := ModifiedDiscoverySettings(c.current, c.modified.ClusterStore, c.modified.ClusterAdvertise, c.modified.ClusterOpts)
-		if c.expected != got {
-			t.Fatalf("expected %v, got %v: current config %v, new config %v", c.expected, got, c.current, c.modified)
-		}
-	}
-}
-
-func discoveryConfig(backendAddr, advertiseAddr string, opts map[string]string) *Config {
-	return &Config{
-		CommonConfig: CommonConfig{
-			ClusterStore:     backendAddr,
-			ClusterAdvertise: advertiseAddr,
-			ClusterOpts:      opts,
-		},
 	}
 }
 
@@ -502,10 +472,10 @@ func TestReloadSetConfigFileNotExist(t *testing.T) {
 func TestReloadDefaultConfigNotExist(t *testing.T) {
 	skip.If(t, os.Getuid() != 0, "skipping test that requires root")
 	reloaded := false
-	configFile := "/etc/docker/daemon.json"
+	defaultConfigFile := "/tmp/blabla/not/exists/daemon.json"
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	flags.String("config-file", configFile, "")
-	err := Reload(configFile, flags, func(c *Config) {
+	flags.String("config-file", defaultConfigFile, "")
+	err := Reload(defaultConfigFile, flags, func(c *Config) {
 		reloaded = true
 	})
 	assert.Check(t, err)
@@ -515,7 +485,7 @@ func TestReloadDefaultConfigNotExist(t *testing.T) {
 // TestReloadBadDefaultConfig tests that when `--config-file` is not set
 // and the default configuration file exists and is bad return an error
 func TestReloadBadDefaultConfig(t *testing.T) {
-	f, err := ioutil.TempFile("", "docker-config-")
+	f, err := os.CreateTemp("", "docker-config-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -554,4 +524,50 @@ func TestReloadWithDuplicateLabels(t *testing.T) {
 	flags.StringSlice("labels", lbls, "")
 	err := Reload(configFile, flags, func(c *Config) {})
 	assert.Check(t, err)
+}
+
+func TestMaskURLCredentials(t *testing.T) {
+	tests := []struct {
+		rawURL    string
+		maskedURL string
+	}{
+		{
+			rawURL:    "",
+			maskedURL: "",
+		}, {
+			rawURL:    "invalidURL",
+			maskedURL: "invalidURL",
+		}, {
+			rawURL:    "http://proxy.example.com:80/",
+			maskedURL: "http://proxy.example.com:80/",
+		}, {
+			rawURL:    "http://USER:PASSWORD@proxy.example.com:80/",
+			maskedURL: "http://xxxxx:xxxxx@proxy.example.com:80/",
+		}, {
+			rawURL:    "http://PASSWORD:PASSWORD@proxy.example.com:80/",
+			maskedURL: "http://xxxxx:xxxxx@proxy.example.com:80/",
+		}, {
+			rawURL:    "http://USER:@proxy.example.com:80/",
+			maskedURL: "http://xxxxx:xxxxx@proxy.example.com:80/",
+		}, {
+			rawURL:    "http://:PASSWORD@proxy.example.com:80/",
+			maskedURL: "http://xxxxx:xxxxx@proxy.example.com:80/",
+		}, {
+			rawURL:    "http://USER@docker:password@proxy.example.com:80/",
+			maskedURL: "http://xxxxx:xxxxx@proxy.example.com:80/",
+		}, {
+			rawURL:    "http://USER%40docker:password@proxy.example.com:80/",
+			maskedURL: "http://xxxxx:xxxxx@proxy.example.com:80/",
+		}, {
+			rawURL:    "http://USER%40docker:pa%3Fsword@proxy.example.com:80/",
+			maskedURL: "http://xxxxx:xxxxx@proxy.example.com:80/",
+		}, {
+			rawURL:    "http://USER%40docker:pa%3Fsword@proxy.example.com:80/hello%20world",
+			maskedURL: "http://xxxxx:xxxxx@proxy.example.com:80/hello%20world",
+		},
+	}
+	for _, test := range tests {
+		maskedURL := MaskCredentials(test.rawURL)
+		assert.Equal(t, maskedURL, test.maskedURL)
+	}
 }

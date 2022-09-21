@@ -3,7 +3,6 @@ package jsonmessage // import "github.com/docker/docker/pkg/jsonmessage"
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -252,7 +251,7 @@ func TestDisplayJSONMessagesStream(t *testing.T) {
 		// Without progress, with ID
 		"{ \"id\": \"ID\",\"status\": \"status\" }": {
 			"ID: status\n",
-			fmt.Sprintf("ID: status\n"),
+			"ID: status\n",
 		},
 		// With progress
 		"{ \"id\": \"ID\", \"status\": \"status\", \"progress\": \"ProgressMessage\" }": {
@@ -268,8 +267,7 @@ func TestDisplayJSONMessagesStream(t *testing.T) {
 
 	// Use $TERM which is unlikely to exist, forcing DisplayJSONMessageStream to
 	// (hopefully) use &noTermInfo.
-	origTerm := os.Getenv("TERM")
-	os.Setenv("TERM", "xyzzy-non-existent-terminfo")
+	t.Setenv("TERM", "xyzzy-non-existent-terminfo")
 
 	for jsonMessage, expectedMessages := range messages {
 		data := bytes.NewBuffer([]byte{})
@@ -294,6 +292,4 @@ func TestDisplayJSONMessagesStream(t *testing.T) {
 			t.Fatalf("\nExpected %q\n     got %q", expectedMessages[1], data.String())
 		}
 	}
-	os.Setenv("TERM", origTerm)
-
 }

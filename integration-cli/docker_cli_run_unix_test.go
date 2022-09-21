@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package main
@@ -7,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,7 +62,7 @@ func (s *DockerSuite) TestRunRedirectStdout(c *testing.T) {
 func (s *DockerSuite) TestRunWithVolumesIsRecursive(c *testing.T) {
 	// /tmp gets permission denied
 	testRequires(c, NotUserNamespace, testEnv.IsLocalDaemon)
-	tmpDir, err := ioutil.TempDir("", "docker_recursive_mount_test")
+	tmpDir, err := os.MkdirTemp("", "docker_recursive_mount_test")
 	assert.NilError(c, err)
 
 	defer os.RemoveAll(tmpDir)
@@ -72,7 +72,7 @@ func (s *DockerSuite) TestRunWithVolumesIsRecursive(c *testing.T) {
 	assert.Assert(c, os.MkdirAll(tmpfsDir, 0777) == nil, "failed to mkdir at %s", tmpfsDir)
 	assert.Assert(c, mount.Mount("tmpfs", tmpfsDir, "tmpfs", "") == nil, "failed to create a tmpfs mount at %s", tmpfsDir)
 
-	f, err := ioutil.TempFile(tmpfsDir, "touch-me")
+	f, err := os.CreateTemp(tmpfsDir, "touch-me")
 	assert.NilError(c, err)
 	defer f.Close()
 
@@ -245,9 +245,7 @@ func (s *DockerSuite) TestRunAttachDetachFromConfig(c *testing.T) {
 	keyA := []byte{97}
 
 	// Setup config
-	homeKey := homedir.Key()
-	homeVal := homedir.Get()
-	tmpDir, err := ioutil.TempDir("", "fake-home")
+	tmpDir, err := os.MkdirTemp("", "fake-home")
 	assert.NilError(c, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -255,14 +253,13 @@ func (s *DockerSuite) TestRunAttachDetachFromConfig(c *testing.T) {
 	os.Mkdir(dotDocker, 0600)
 	tmpCfg := filepath.Join(dotDocker, "config.json")
 
-	defer func() { os.Setenv(homeKey, homeVal) }()
-	os.Setenv(homeKey, tmpDir)
+	c.Setenv(homedir.Key(), tmpDir)
 
 	data := `{
 		"detachKeys": "ctrl-a,a"
 	}`
 
-	err = ioutil.WriteFile(tmpCfg, []byte(data), 0600)
+	err = os.WriteFile(tmpCfg, []byte(data), 0600)
 	assert.NilError(c, err)
 
 	// Then do the work
@@ -328,9 +325,7 @@ func (s *DockerSuite) TestRunAttachDetachKeysOverrideConfig(c *testing.T) {
 	keyA := []byte{97}
 
 	// Setup config
-	homeKey := homedir.Key()
-	homeVal := homedir.Get()
-	tmpDir, err := ioutil.TempDir("", "fake-home")
+	tmpDir, err := os.MkdirTemp("", "fake-home")
 	assert.NilError(c, err)
 	defer os.RemoveAll(tmpDir)
 
@@ -338,14 +333,13 @@ func (s *DockerSuite) TestRunAttachDetachKeysOverrideConfig(c *testing.T) {
 	os.Mkdir(dotDocker, 0600)
 	tmpCfg := filepath.Join(dotDocker, "config.json")
 
-	defer func() { os.Setenv(homeKey, homeVal) }()
-	os.Setenv(homeKey, tmpDir)
+	c.Setenv(homedir.Key(), tmpDir)
 
 	data := `{
 		"detachKeys": "ctrl-e,e"
 	}`
 
-	err = ioutil.WriteFile(tmpCfg, []byte(data), 0600)
+	err = os.WriteFile(tmpCfg, []byte(data), 0600)
 	assert.NilError(c, err)
 
 	// Then do the work
@@ -705,7 +699,7 @@ func (s *DockerSuite) TestRunSwapLessThanMemoryLimit(c *testing.T) {
 func (s *DockerSuite) TestRunInvalidCpusetCpusFlagValue(c *testing.T) {
 	testRequires(c, cgroupCpuset, testEnv.IsLocalDaemon)
 
-	sysInfo := sysinfo.New(true)
+	sysInfo := sysinfo.New()
 	cpus, err := parsers.ParseUintList(sysInfo.Cpus)
 	assert.NilError(c, err)
 	var invalid int
@@ -724,7 +718,7 @@ func (s *DockerSuite) TestRunInvalidCpusetCpusFlagValue(c *testing.T) {
 func (s *DockerSuite) TestRunInvalidCpusetMemsFlagValue(c *testing.T) {
 	testRequires(c, cgroupCpuset)
 
-	sysInfo := sysinfo.New(true)
+	sysInfo := sysinfo.New()
 	mems, err := parsers.ParseUintList(sysInfo.Mems)
 	assert.NilError(c, err)
 	var invalid int
@@ -785,7 +779,7 @@ func (s *DockerSuite) TestRunWithShmSize(c *testing.T) {
 }
 
 func (s *DockerSuite) TestRunTmpfsMountsEnsureOrdered(c *testing.T) {
-	tmpFile, err := ioutil.TempFile("", "test")
+	tmpFile, err := os.CreateTemp("", "test")
 	assert.NilError(c, err)
 	defer tmpFile.Close()
 	out, _ := dockerCmd(c, "run", "--tmpfs", "/run", "-v", tmpFile.Name()+":/run/test", "busybox", "ls", "/run")
@@ -852,12 +846,12 @@ func (s *DockerSuite) TestRunTmpfsMountsWithOptions(c *testing.T) {
 		assert.Assert(c, strings.Contains(out, option))
 	}
 
-	// We use debian:bullseye as there is no findmnt in busybox. Also the output will be in the format of
+	// We use debian:bullseye-slim as there is no findmnt in busybox. Also the output will be in the format of
 	// TARGET PROPAGATION
 	// /tmp   shared
 	// so we only capture `shared` here.
 	expectedOptions = []string{"shared"}
-	out, _ = dockerCmd(c, "run", "--tmpfs", "/tmp:shared", "debian:bullseye", "findmnt", "-o", "TARGET,PROPAGATION", "/tmp")
+	out, _ = dockerCmd(c, "run", "--tmpfs", "/tmp:shared", "debian:bullseye-slim", "findmnt", "-o", "TARGET,PROPAGATION", "/tmp")
 	for _, option := range expectedOptions {
 		assert.Assert(c, strings.Contains(out, option))
 	}
@@ -893,7 +887,7 @@ func (s *DockerSuite) TestRunSysctls(c *testing.T) {
 	})
 }
 
-// TestRunSeccompProfileDenyUnshare checks that 'docker run --security-opt seccomp=/tmp/profile.json debian:bullseye unshare' exits with operation not permitted.
+// TestRunSeccompProfileDenyUnshare checks that 'docker run --security-opt seccomp=/tmp/profile.json debian:bullseye-slim unshare' exits with operation not permitted.
 func (s *DockerSuite) TestRunSeccompProfileDenyUnshare(c *testing.T) {
 	testRequires(c, testEnv.IsLocalDaemon, seccompEnabled, NotArm, Apparmor)
 	jsonData := `{
@@ -905,7 +899,7 @@ func (s *DockerSuite) TestRunSeccompProfileDenyUnshare(c *testing.T) {
 		}
 	]
 }`
-	tmpFile, err := ioutil.TempFile("", "profile.json")
+	tmpFile, err := os.CreateTemp("", "profile.json")
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -916,7 +910,7 @@ func (s *DockerSuite) TestRunSeccompProfileDenyUnshare(c *testing.T) {
 	}
 	icmd.RunCommand(dockerBinary, "run", "--security-opt", "apparmor=unconfined",
 		"--security-opt", "seccomp="+tmpFile.Name(),
-		"debian:bullseye", "unshare", "-p", "-m", "-f", "-r", "mount", "-t", "proc", "none", "/proc").Assert(c, icmd.Expected{
+		"debian:bullseye-slim", "unshare", "-p", "-m", "-f", "-r", "mount", "-t", "proc", "none", "/proc").Assert(c, icmd.Expected{
 		ExitCode: 1,
 		Err:      "Operation not permitted",
 	})
@@ -942,7 +936,7 @@ func (s *DockerSuite) TestRunSeccompProfileDenyChmod(c *testing.T) {
 		}
 	]
 }`
-	tmpFile, err := ioutil.TempFile("", "profile.json")
+	tmpFile, err := os.CreateTemp("", "profile.json")
 	assert.NilError(c, err)
 	defer tmpFile.Close()
 
@@ -956,7 +950,7 @@ func (s *DockerSuite) TestRunSeccompProfileDenyChmod(c *testing.T) {
 	})
 }
 
-// TestRunSeccompProfileDenyUnshareUserns checks that 'docker run debian:bullseye unshare --map-root-user --user sh -c whoami' with a specific profile to
+// TestRunSeccompProfileDenyUnshareUserns checks that 'docker run debian:bullseye-slim unshare --map-root-user --user sh -c whoami' with a specific profile to
 // deny unshare of a userns exits with operation not permitted.
 func (s *DockerSuite) TestRunSeccompProfileDenyUnshareUserns(c *testing.T) {
 	testRequires(c, testEnv.IsLocalDaemon, seccompEnabled, NotArm, Apparmor)
@@ -977,7 +971,7 @@ func (s *DockerSuite) TestRunSeccompProfileDenyUnshareUserns(c *testing.T) {
 		}
 	]
 }`, uint64(0x10000000))
-	tmpFile, err := ioutil.TempFile("", "profile.json")
+	tmpFile, err := os.CreateTemp("", "profile.json")
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -988,7 +982,7 @@ func (s *DockerSuite) TestRunSeccompProfileDenyUnshareUserns(c *testing.T) {
 	}
 	icmd.RunCommand(dockerBinary, "run",
 		"--security-opt", "apparmor=unconfined", "--security-opt", "seccomp="+tmpFile.Name(),
-		"debian:bullseye", "unshare", "--map-root-user", "--user", "sh", "-c", "whoami").Assert(c, icmd.Expected{
+		"debian:bullseye-slim", "unshare", "--map-root-user", "--user", "sh", "-c", "whoami").Assert(c, icmd.Expected{
 		ExitCode: 1,
 		Err:      "Operation not permitted",
 	})
@@ -1040,12 +1034,12 @@ func (s *DockerSuite) TestRunSeccompProfileAllow32Bit(c *testing.T) {
 	icmd.RunCommand(dockerBinary, "run", "syscall-test", "exit32-test").Assert(c, icmd.Success)
 }
 
-// TestRunSeccompAllowSetrlimit checks that 'docker run debian:bullseye ulimit -v 1048510' succeeds.
+// TestRunSeccompAllowSetrlimit checks that 'docker run debian:bullseye-slim ulimit -v 1048510' succeeds.
 func (s *DockerSuite) TestRunSeccompAllowSetrlimit(c *testing.T) {
 	testRequires(c, testEnv.IsLocalDaemon, seccompEnabled)
 
 	// ulimit uses setrlimit, so we want to make sure we don't break it
-	icmd.RunCommand(dockerBinary, "run", "debian:bullseye", "bash", "-c", "ulimit -v 1048510").Assert(c, icmd.Success)
+	icmd.RunCommand(dockerBinary, "run", "debian:bullseye-slim", "bash", "-c", "ulimit -v 1048510").Assert(c, icmd.Success)
 }
 
 func (s *DockerSuite) TestRunSeccompDefaultProfileAcct(c *testing.T) {
@@ -1227,7 +1221,7 @@ func (s *DockerSuite) TestUserNoEffectiveCapabilitiesSetgid(c *testing.T) {
 // sysctlExists checks if a sysctl exists; runc will error if we add any that do not actually
 // exist, so do not add the default ones if running on an old kernel.
 func sysctlExists(s string) bool {
-	f := filepath.Join("/proc", "sys", strings.Replace(s, ".", "/", -1))
+	f := filepath.Join("/proc", "sys", strings.ReplaceAll(s, ".", "/"))
 	_, err := os.Stat(f)
 	return err == nil
 }
@@ -1341,7 +1335,7 @@ func (s *DockerSuite) TestRunApparmorProcDirectory(c *testing.T) {
 func (s *DockerSuite) TestRunSeccompWithDefaultProfile(c *testing.T) {
 	testRequires(c, testEnv.IsLocalDaemon, seccompEnabled)
 
-	out, _, err := dockerCmdWithError("run", "--security-opt", "seccomp=../profiles/seccomp/default.json", "debian:bullseye", "unshare", "--map-root-user", "--user", "sh", "-c", "whoami")
+	out, _, err := dockerCmdWithError("run", "--security-opt", "seccomp=../profiles/seccomp/default.json", "debian:bullseye-slim", "unshare", "--map-root-user", "--user", "sh", "-c", "whoami")
 	assert.ErrorContains(c, err, "", out)
 	assert.Equal(c, strings.TrimSpace(out), "unshare: unshare failed: Operation not permitted")
 }
@@ -1354,7 +1348,7 @@ func (s *DockerSuite) TestRunDeviceSymlink(c *testing.T) {
 	}
 
 	// Create a temporary directory to create symlink
-	tmpDir, err := ioutil.TempDir("", "docker_device_follow_symlink_tests")
+	tmpDir, err := os.MkdirTemp("", "docker_device_follow_symlink_tests")
 	assert.NilError(c, err)
 
 	defer os.RemoveAll(tmpDir)
@@ -1367,7 +1361,7 @@ func (s *DockerSuite) TestRunDeviceSymlink(c *testing.T) {
 	// Create a temporary file "temp" inside tmpDir, write some data to "tmpDir/temp",
 	// then create a symlink "tmpDir/file" to the temporary file "tmpDir/temp".
 	tmpFile := filepath.Join(tmpDir, "temp")
-	err = ioutil.WriteFile(tmpFile, []byte("temp"), 0666)
+	err = os.WriteFile(tmpFile, []byte("temp"), 0666)
 	assert.NilError(c, err)
 	symFile := filepath.Join(tmpDir, "file")
 	err = os.Symlink(tmpFile, symFile)
@@ -1447,7 +1441,7 @@ func (s *DockerDaemonSuite) TestRunSeccompJSONNewFormat(c *testing.T) {
 		}
 	]
 }`
-	tmpFile, err := ioutil.TempFile("", "profile.json")
+	tmpFile, err := os.CreateTemp("", "profile.json")
 	assert.NilError(c, err)
 	defer tmpFile.Close()
 	_, err = tmpFile.Write([]byte(jsonData))
@@ -1475,7 +1469,7 @@ func (s *DockerDaemonSuite) TestRunSeccompJSONNoNameAndNames(c *testing.T) {
 		}
 	]
 }`
-	tmpFile, err := ioutil.TempFile("", "profile.json")
+	tmpFile, err := os.CreateTemp("", "profile.json")
 	assert.NilError(c, err)
 	defer tmpFile.Close()
 	_, err = tmpFile.Write([]byte(jsonData))
@@ -1483,7 +1477,7 @@ func (s *DockerDaemonSuite) TestRunSeccompJSONNoNameAndNames(c *testing.T) {
 
 	out, err := s.d.Cmd("run", "--security-opt", "seccomp="+tmpFile.Name(), "busybox", "chmod", "777", ".")
 	assert.ErrorContains(c, err, "")
-	assert.Assert(c, strings.Contains(out, "'name' and 'names' were specified in the seccomp profile, use either 'name' or 'names'"))
+	assert.Assert(c, strings.Contains(out, "use either 'name' or 'names'"))
 }
 
 func (s *DockerDaemonSuite) TestRunSeccompJSONNoArchAndArchMap(c *testing.T) {
@@ -1514,7 +1508,7 @@ func (s *DockerDaemonSuite) TestRunSeccompJSONNoArchAndArchMap(c *testing.T) {
 		}
 	]
 }`
-	tmpFile, err := ioutil.TempFile("", "profile.json")
+	tmpFile, err := os.CreateTemp("", "profile.json")
 	assert.NilError(c, err)
 	defer tmpFile.Close()
 	_, err = tmpFile.Write([]byte(jsonData))
@@ -1522,7 +1516,7 @@ func (s *DockerDaemonSuite) TestRunSeccompJSONNoArchAndArchMap(c *testing.T) {
 
 	out, err := s.d.Cmd("run", "--security-opt", "seccomp="+tmpFile.Name(), "busybox", "chmod", "777", ".")
 	assert.ErrorContains(c, err, "")
-	assert.Assert(c, strings.Contains(out, "'architectures' and 'archMap' were specified in the seccomp profile, use either 'architectures' or 'archMap'"))
+	assert.Assert(c, strings.Contains(out, "use either 'architectures' or 'archMap'"))
 }
 
 func (s *DockerDaemonSuite) TestRunWithDaemonDefaultSeccompProfile(c *testing.T) {
@@ -1549,7 +1543,7 @@ func (s *DockerDaemonSuite) TestRunWithDaemonDefaultSeccompProfile(c *testing.T)
 		}
 	]
 }`
-	tmpFile, err := ioutil.TempFile("", "profile.json")
+	tmpFile, err := os.CreateTemp("", "profile.json")
 	assert.NilError(c, err)
 	defer tmpFile.Close()
 	_, err = tmpFile.Write([]byte(jsonData))

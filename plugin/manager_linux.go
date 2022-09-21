@@ -18,7 +18,7 @@ import (
 	"github.com/docker/docker/pkg/stringid"
 	v2 "github.com/docker/docker/plugin/v2"
 	"github.com/moby/sys/mount"
-	digest "github.com/opencontainers/go-digest"
+	"github.com/opencontainers/go-digest"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -154,31 +154,30 @@ const shutdownTimeout = 10 * time.Second
 func shutdownPlugin(p *v2.Plugin, ec chan bool, executor Executor) {
 	pluginID := p.GetID()
 
-	err := executor.Signal(pluginID, int(unix.SIGTERM))
-	if err != nil {
+	if err := executor.Signal(pluginID, unix.SIGTERM); err != nil {
 		logrus.Errorf("Sending SIGTERM to plugin failed with error: %v", err)
-	} else {
+		return
+	}
 
-		timeout := time.NewTimer(shutdownTimeout)
-		defer timeout.Stop()
+	timeout := time.NewTimer(shutdownTimeout)
+	defer timeout.Stop()
+
+	select {
+	case <-ec:
+		logrus.Debug("Clean shutdown of plugin")
+	case <-timeout.C:
+		logrus.Debug("Force shutdown plugin")
+		if err := executor.Signal(pluginID, unix.SIGKILL); err != nil {
+			logrus.Errorf("Sending SIGKILL to plugin failed with error: %v", err)
+		}
+
+		timeout.Reset(shutdownTimeout)
 
 		select {
 		case <-ec:
-			logrus.Debug("Clean shutdown of plugin")
+			logrus.Debug("SIGKILL plugin shutdown")
 		case <-timeout.C:
-			logrus.Debug("Force shutdown plugin")
-			if err := executor.Signal(pluginID, int(unix.SIGKILL)); err != nil {
-				logrus.Errorf("Sending SIGKILL to plugin failed with error: %v", err)
-			}
-
-			timeout.Reset(shutdownTimeout)
-
-			select {
-			case <-ec:
-				logrus.Debug("SIGKILL plugin shutdown")
-			case <-timeout.C:
-				logrus.WithField("plugin", p.Name).Warn("Force shutdown plugin FAILED")
-			}
+			logrus.WithField("plugin", p.Name).Warn("Force shutdown plugin FAILED")
 		}
 	}
 }
@@ -217,7 +216,7 @@ func (pm *Manager) Shutdown() {
 }
 
 func (pm *Manager) upgradePlugin(p *v2.Plugin, configDigest, manifestDigest digest.Digest, blobsums []digest.Digest, tmpRootFSDir string, privileges *types.PluginPrivileges) (err error) {
-	config, err := pm.setupNewPlugin(configDigest, blobsums, privileges)
+	config, err := pm.setupNewPlugin(configDigest, privileges)
 	if err != nil {
 		return err
 	}
@@ -269,7 +268,7 @@ func (pm *Manager) upgradePlugin(p *v2.Plugin, configDigest, manifestDigest dige
 	return errors.Wrap(err, "error saving upgraded plugin config")
 }
 
-func (pm *Manager) setupNewPlugin(configDigest digest.Digest, blobsums []digest.Digest, privileges *types.PluginPrivileges) (types.PluginConfig, error) {
+func (pm *Manager) setupNewPlugin(configDigest digest.Digest, privileges *types.PluginPrivileges) (types.PluginConfig, error) {
 	configRA, err := pm.blobStore.ReaderAt(context.TODO(), specs.Descriptor{Digest: configDigest})
 	if err != nil {
 		return types.PluginConfig{}, err
@@ -303,7 +302,7 @@ func (pm *Manager) createPlugin(name string, configDigest, manifestDigest digest
 		return nil, errdefs.InvalidParameter(err)
 	}
 
-	config, err := pm.setupNewPlugin(configDigest, blobsums, privileges)
+	config, err := pm.setupNewPlugin(configDigest, privileges)
 	if err != nil {
 		return nil, err
 	}

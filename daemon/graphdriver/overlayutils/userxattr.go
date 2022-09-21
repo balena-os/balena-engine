@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 // Forked from https://github.com/containerd/containerd/blob/9ade247b38b5a685244e1391c86ff41ab109556e/snapshots/overlay/check.go
@@ -21,12 +22,11 @@ package overlayutils
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/sys"
+	"github.com/containerd/containerd/pkg/userns"
 	"github.com/docker/docker/pkg/parsers/kernel"
 	"github.com/sirupsen/logrus"
 )
@@ -51,7 +51,7 @@ import (
 //
 // The "userxattr" support is not exposed in "/sys/module/overlay/parameters".
 func NeedsUserXAttr(d string) (bool, error) {
-	if !sys.RunningInUserNS() {
+	if !userns.RunningInUserNS() {
 		// we are the real root (i.e., the root in the initial user NS),
 		// so we do never need "userxattr" opt.
 		return false, nil
@@ -80,7 +80,7 @@ func NeedsUserXAttr(d string) (bool, error) {
 		}
 	}()
 
-	td, err := ioutil.TempDir(tdRoot, "")
+	td, err := os.MkdirTemp(tdRoot, "")
 	if err != nil {
 		return false, err
 	}

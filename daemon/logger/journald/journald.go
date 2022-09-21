@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 // Package journald provides the log driver for forwarding server logs
@@ -7,29 +8,27 @@ package journald // import "github.com/docker/docker/daemon/logger/journald"
 import (
 	"fmt"
 	"strconv"
-	"sync"
 	"unicode"
 
 	"github.com/coreos/go-systemd/v22/journal"
 	"github.com/docker/docker/daemon/logger"
 	"github.com/docker/docker/daemon/logger/loggerutils"
-	"github.com/sirupsen/logrus"
 )
 
 const name = "journald"
 
 type journald struct {
-	mu      sync.Mutex        //nolint:structcheck,unused
-	vars    map[string]string // additional variables and values to send to the journal along with the log message
-	readers map[*logger.LogWatcher]struct{}
+	vars map[string]string // additional variables and values to send to the journal along with the log message
+
+	closed chan struct{}
 }
 
 func init() {
 	if err := logger.RegisterLogDriver(name, New); err != nil {
-		logrus.Fatal(err)
+		panic(err)
 	}
 	if err := logger.RegisterLogOptValidator(name, validateLogOpt); err != nil {
-		logrus.Fatal(err)
+		panic(err)
 	}
 }
 
@@ -81,7 +80,7 @@ func New(info logger.Info) (logger.Logger, error) {
 	for k, v := range extraAttrs {
 		vars[k] = v
 	}
-	return &journald{vars: vars, readers: make(map[*logger.LogWatcher]struct{})}, nil
+	return &journald{vars: vars, closed: make(chan struct{})}, nil
 }
 
 // We don't actually accept any options, but we have to supply a callback for
@@ -127,4 +126,9 @@ func (s *journald) Log(msg *logger.Message) error {
 
 func (s *journald) Name() string {
 	return name
+}
+
+func (s *journald) Close() error {
+	close(s.closed)
+	return nil
 }
