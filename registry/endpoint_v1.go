@@ -63,7 +63,7 @@ func validateEndpoint(endpoint *v1Endpoint) error {
 		if endpoint.IsSecure {
 			// If registry is secure and HTTPS failed, show user the error and tell them about `--insecure-registry`
 			// in case that's what they need. DO NOT accept unknown CA certificates, and DO NOT fallback to HTTP.
-			return invalidParamf("invalid registry endpoint %s: %v. If this private registry supports only HTTP or HTTPS with an unknown CA certificate, please add `--insecure-registry %s` to the daemon's arguments. In the case of HTTPS, if you have access to the registry's CA certificate, no need for the flag; simply place the CA certificate at /etc/docker/certs.d/%s/ca.crt", endpoint, err, endpoint.URL.Host, endpoint.URL.Host)
+			return invalidParamf("invalid registry endpoint %s: %v. If this private registry supports only HTTP or HTTPS with an unknown CA certificate, please add `--insecure-registry %s` to the daemon's arguments. In the case of HTTPS, if you have access to the registry's CA certificate, no need for the flag; simply place the CA certificate at /etc/balena-engine/certs.d/%s/ca.crt", endpoint, err, endpoint.URL.Host, endpoint.URL.Host)
 		}
 
 		// If registry is insecure and HTTPS failed, fallback to HTTP.
