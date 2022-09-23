@@ -1,6 +1,6 @@
 // docker-proxy provides a network Proxy interface and implementations for TCP
 // and UDP.
-package main
+package proxy
 
 import (
 	"net"
