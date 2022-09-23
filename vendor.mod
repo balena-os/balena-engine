@@ -68,7 +68,7 @@ require (
 	github.com/prometheus/client_golang v1.12.1
 	github.com/rootless-containers/rootlesskit v1.0.0
 	github.com/sirupsen/logrus v1.8.1
-	github.com/spf13/cobra v1.1.3
+	github.com/spf13/cobra v1.4.0 // As required by balena-engine-cli
 	github.com/spf13/pflag v1.0.5
 	github.com/tchap/go-patricia v2.3.0+incompatible
 	github.com/tonistiigi/fsutil v0.0.0-20220115021204-b19f7f9cb274
