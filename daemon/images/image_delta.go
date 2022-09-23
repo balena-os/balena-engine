@@ -39,8 +39,8 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 		return errors.Wrapf(err, "no such image: %s", deltaDest)
 	}
 
-	is := i.ImageStore()
-	ls := i.LayerStore(dstImg.OperatingSystem())
+	is := i.imageStore
+	ls := i.layerStore
 
 	srcData, err := is.GetTarSeekStream(srcImg.ID())
 	if err != nil {
@@ -115,10 +115,7 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 			}
 			defer input.Close()
 
-			inputSize, err := l.DiffSize()
-			if err != nil {
-				return err
-			}
+			inputSize := l.DiffSize()
 
 			statTotalSize += inputSize
 
@@ -191,10 +188,7 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 		if commonLayer {
 			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Skipping common layer")
 		} else {
-			deltaSize, err := newLayer.DiffSize()
-			if err != nil {
-				return err
-			}
+			deltaSize := newLayer.DiffSize()
 			statDeltaSize += deltaSize
 			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Delta complete")
 		}
@@ -273,7 +267,7 @@ func newImageLock(ls layer.Store, img *image.Image) (*imglock, error) {
 		if err != nil {
 			// free previously leased layers
 			lock.unlock(ls)
-			return nil, errors.Wrapf(err, "failed to aquire lease on %v", l.DiffID())
+			return nil, errors.Wrapf(err, "failed to acquire lease on %v", l.DiffID())
 		}
 		lock.layers = append(lock.layers, l)
 	}

@@ -975,7 +975,6 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 			IDMapping:                 idMapping,
 			PluginGetter:              nil,
 			ExperimentalEnabled:       false,
-			OS:                        runtime.GOOS,
 		})
 		if err != nil {
 			return nil, err
@@ -987,15 +986,13 @@ func NewDaemon(ctx context.Context, config *config.Config, pluginStore *plugin.S
 			return nil, err
 		}
 
-		lgrMap := make(map[string]image.LayerGetReleaser)
-		lgrMap[runtime.GOOS] = ls
-		ds, err := image.NewImageStore(ifs, lgrMap)
+		ds, err := image.NewImageStore(ifs, ls)
 		if err != nil {
 			return nil, err
 		}
 
 		deltaStore = ds
-		d.graphDrivers[runtime.GOOS] = ls.DriverName()
+		d.graphDriver = ls.DriverName()
 	}
 
 	// Configure and validate the kernels security support. Note this is a Linux/FreeBSD

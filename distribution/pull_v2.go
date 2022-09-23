@@ -285,7 +285,7 @@ func (ld *layerDescriptor) Download(ctx context.Context, progressOutput progress
 	return ioutils.NewReadCloserWrapper(ld, func() error { return nil }), ld.src.Size, nil
 }
 
-func (ld *v2LayerDescriptor) Close() {
+func (ld *layerDescriptor) Close() {
 	if ld.layerDownload != nil {
 		ld.layerDownload.Close()
 	}
@@ -296,7 +296,7 @@ func (ld *layerDescriptor) Registered(diffID layer.DiffID) {
 	_ = ld.metadataService.Add(diffID, metadata.V2Metadata{Digest: ld.digest, SourceRepository: ld.repoInfo.Name.Name()})
 }
 
-func (ld *v2LayerDescriptor) Size() int64 {
+func (ld *layerDescriptor) Size() int64 {
 	return ld.src.Size
 }
 
@@ -568,7 +568,7 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 	// Pull the image config
 	configJSON, err := p.pullSchema2Config(ctx, target.Digest)
 	if err != nil {
-		return "", ImageConfigPullError{Err: err}
+		return "", imageConfigPullError{Err: err}
 	}
 
 	var deltaBase io.ReadSeeker
@@ -608,7 +608,7 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 		}
 	}
 
-	configRootFS, err := p.config.ImageStore.RootFSFromConfig(configJSON)
+	configRootFS, err := rootFSFromConfig(configJSON)
 	if err == nil && configRootFS == nil {
 		return "", errRootFSInvalid
 	}

@@ -336,10 +336,6 @@ func (p *puller) CacheKey(ctx context.Context, g session.Group, index int) (stri
 		return "", "", nil, false, errors.Errorf("invalid empty config file resolved for %s", p.src.Reference.String())
 	}
 
-	if len(p.config) == 0 && p.desc.MediaType != images.MediaTypeDockerSchema1Manifest {
-		return "", nil, false, errors.Errorf("invalid empty config file resolved for %s", p.src.Reference.String())
-	}
-
 	k := cacheKeyFromConfig(p.config).String()
 	if k == "" || p.desc.MediaType == images.MediaTypeDockerSchema1Manifest {
 		dgst, err := p.mainManifestKey(p.platform)

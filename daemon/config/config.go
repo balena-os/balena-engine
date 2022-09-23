@@ -219,7 +219,7 @@ type CommonConfig struct {
 
 	// MaxUploadAttempts is the maximum number of attempts that
 	// may take place at a time for each push.
-	MaxUploadAttempts *int `json:"max-upload-attempts,omitempty"`
+	MaxUploadAttempts int `json:"max-upload-attempts,omitempty"`
 
 	// ShutdownTimeout is the timeout value (in seconds) the daemon will wait for the container
 	// to stop when daemon is being shutdown
@@ -667,8 +667,8 @@ func (conf *Config) GetDefaultRuntimeName() string {
 
 // ValidateMaxUploadAttempts validates if the max-upload-attempts is within the valid range
 func ValidateMaxUploadAttempts(config *Config) error {
-	if config.MaxUploadAttempts != nil && *config.MaxUploadAttempts <= 0 {
-		return fmt.Errorf("invalid max download attempts: %d", *config.MaxUploadAttempts)
+	if config.MaxUploadAttempts <= 0 {
+		return fmt.Errorf("invalid max download attempts: %d", config.MaxUploadAttempts)
 	}
 	return nil
 }

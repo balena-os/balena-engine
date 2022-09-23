@@ -37,10 +37,6 @@ func Init(home string, options []string, idMap idtools.IdentityMapping) (graphdr
 	if err := d.parseOptions(options); err != nil {
 		return nil, err
 	}
-	_, rootGID, err := idtools.GetRootUIDGID(uidMaps, gidMaps)
-	if err != nil {
-		return nil, err
-	}
 
 	dirID := idtools.Identity{
 		UID: idtools.CurrentIdentity().UID,

@@ -58,11 +58,7 @@ func (daemon *Daemon) Reload(conf *config.Config) (err error) {
 	daemon.reloadDebug(conf, attributes)
 	daemon.reloadMaxConcurrentDownloadsAndUploads(conf, attributes)
 	daemon.reloadMaxDownloadAttempts(conf, attributes)
-	if err := daemon.reloadMaxUploadAttempts(conf, attributes); err != nil {
-		// TODO: Refactor `reloadMaxUploadAttempts()` so it can't return an
-		// error (as was done to `reloadMaxDownloadAttempts()` upstream).
-		return err
-	}
+	daemon.reloadMaxUploadAttempts(conf, attributes)
 	daemon.reloadShutdownTimeout(conf, attributes)
 	daemon.reloadFeatures(conf, attributes)
 
@@ -138,23 +134,16 @@ func (daemon *Daemon) reloadMaxDownloadAttempts(conf *config.Config, attributes 
 
 // reloadMaxUploadAttempts updates configuration with max concurrent
 // upload attempts when a connection is lost and updates the passed attributes
-func (daemon *Daemon) reloadMaxUploadAttempts(conf *config.Config, attributes map[string]string) error {
-	if err := config.ValidateMaxUploadAttempts(conf); err != nil {
-		return err
-	}
-
-	// If no value is set for max-upload-attempts we assume it is the default value
+func (daemon *Daemon) reloadMaxUploadAttempts(conf *config.Config, attributes map[string]string) {
 	// We always "reset" as the cost is lightweight and easy to maintain.
-	maxUploadAttempts := config.DefaultUploadAttempts
-	if conf.IsValueSet("max-upload-attempts") && conf.MaxUploadAttempts != nil {
-		maxUploadAttempts = *conf.MaxUploadAttempts
+	daemon.configStore.MaxUploadAttempts = config.DefaultUploadAttempts
+	if conf.IsValueSet("max-upload-attempts") && conf.MaxUploadAttempts != 0 {
+		daemon.configStore.MaxUploadAttempts = conf.MaxUploadAttempts
 	}
-	daemon.configStore.MaxUploadAttempts = &maxUploadAttempts
-	logrus.Debugf("Reset Max Upload Attempts: %d", *daemon.configStore.MaxUploadAttempts)
 
 	// prepare reload event attributes with updatable configurations
-	attributes["max-upload-attempts"] = fmt.Sprintf("%d", *daemon.configStore.MaxUploadAttempts)
-	return nil
+	attributes["max-upload-attempts"] = strconv.Itoa(daemon.configStore.MaxUploadAttempts)
+	logrus.Debug("Reset Max Upload Attempts: ", attributes["max-upload-attempts"])
 }
 
 // reloadShutdownTimeout updates configuration with daemon shutdown timeout option
