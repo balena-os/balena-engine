@@ -116,7 +116,6 @@ FROM cross-${CROSS} AS dev-base
 
 FROM dev-base AS runtime-dev-cross-false
 ARG DEBIAN_FRONTEND
-RUN echo 'deb http://deb.debian.org/debian buster-backports main' > /etc/apt/sources.list.d/backports.list
 RUN --mount=type=cache,sharing=locked,id=moby-cross-false-aptlib,target=/var/lib/apt \
     --mount=type=cache,sharing=locked,id=moby-cross-false-aptcache,target=/var/cache/apt \
         apt-get update && apt-get install -y --no-install-recommends \
@@ -125,7 +124,7 @@ RUN --mount=type=cache,sharing=locked,id=moby-cross-false-aptlib,target=/var/lib
             libapparmor-dev \
             libbtrfs-dev \
             libdevmapper-dev \
-            libseccomp-dev/buster-backports \
+            libseccomp-dev \
             libsystemd-dev \
             libudev-dev
 
