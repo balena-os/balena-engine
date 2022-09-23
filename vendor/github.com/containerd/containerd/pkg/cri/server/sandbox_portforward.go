@@ -17,9 +17,11 @@
 package server
 
 import (
-	"github.com/pkg/errors"
+	"errors"
+	"fmt"
+
 	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	sandboxstore "github.com/containerd/containerd/pkg/cri/store/sandbox"
 )
@@ -28,7 +30,7 @@ import (
 func (c *criService) PortForward(ctx context.Context, r *runtime.PortForwardRequest) (retRes *runtime.PortForwardResponse, retErr error) {
 	sandbox, err := c.sandboxStore.Get(r.GetPodSandboxId())
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to find sandbox %q", r.GetPodSandboxId())
+		return nil, fmt.Errorf("failed to find sandbox %q: %w", r.GetPodSandboxId(), err)
 	}
 	if sandbox.Status.Get().State != sandboxstore.StateReady {
 		return nil, errors.New("sandbox container is not running")

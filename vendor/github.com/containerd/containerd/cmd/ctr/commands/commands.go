@@ -37,6 +37,12 @@ var (
 		},
 	}
 
+	// SnapshotterLabels are cli flags specifying labels which will be add to the new snapshot for container.
+	SnapshotterLabels = cli.StringSliceFlag{
+		Name:  "snapshotter-label",
+		Usage: "labels added to the new snapshot for this container.",
+	}
+
 	// LabelFlag is a cli flag specifying labels
 	LabelFlag = cli.StringSliceFlag{
 		Name:  "label",
@@ -78,6 +84,14 @@ var (
 			Name:  "tlskey",
 			Usage: "path to TLS client key",
 		},
+		cli.BoolFlag{
+			Name:  "http-dump",
+			Usage: "dump all HTTP request/responses when interacting with container registry",
+		},
+		cli.BoolFlag{
+			Name:  "http-trace",
+			Usage: "enable HTTP tracing for registry interactions",
+		},
 	}
 
 	// ContainerFlags are cli flags specifying container options
@@ -92,19 +106,19 @@ var (
 		},
 		cli.StringSliceFlag{
 			Name:  "env",
-			Usage: "specify additional container environment variables (i.e. FOO=bar)",
+			Usage: "specify additional container environment variables (e.g. FOO=bar)",
 		},
 		cli.StringFlag{
 			Name:  "env-file",
-			Usage: "specify additional container environment variables in a file(i.e. FOO=bar, one per line)",
+			Usage: "specify additional container environment variables in a file(e.g. FOO=bar, one per line)",
 		},
 		cli.StringSliceFlag{
 			Name:  "label",
-			Usage: "specify additional labels (i.e. foo=bar)",
+			Usage: "specify additional labels (e.g. foo=bar)",
 		},
 		cli.StringSliceFlag{
 			Name:  "mount",
-			Usage: "specify additional container mount (ex: type=bind,src=/tmp,dst=/host,options=rbind:ro)",
+			Usage: "specify additional container mount (e.g. type=bind,src=/tmp,dst=/host,options=rbind:ro)",
 		},
 		cli.BoolFlag{
 			Name:  "net-host",
@@ -139,7 +153,7 @@ var (
 			Name:  "pid-file",
 			Usage: "file path to write the task's pid",
 		},
-		cli.IntFlag{
+		cli.IntSliceFlag{
 			Name:  "gpus",
 			Usage: "add gpus to the container",
 		},
@@ -153,7 +167,15 @@ var (
 		},
 		cli.StringSliceFlag{
 			Name:  "device",
-			Usage: "add a device to a container",
+			Usage: "file path to a device to add to the container; or a path to a directory tree of devices to add to the container",
+		},
+		cli.StringSliceFlag{
+			Name:  "cap-add",
+			Usage: "add Linux capabilities (Set capabilities with 'CAP_' prefix)",
+		},
+		cli.StringSliceFlag{
+			Name:  "cap-drop",
+			Usage: "drop Linux capabilities (Set capabilities with 'CAP_' prefix)",
 		},
 		cli.BoolFlag{
 			Name:  "seccomp",
@@ -170,6 +192,10 @@ var (
 		cli.StringFlag{
 			Name:  "apparmor-profile",
 			Usage: "enable AppArmor with an existing custom profile",
+		},
+		cli.StringFlag{
+			Name:  "rdt-class",
+			Usage: "name of the RDT class to associate the container with. Specifies a Class of Service (CLOS) for cache and memory bandwidth management.",
 		},
 	}
 )

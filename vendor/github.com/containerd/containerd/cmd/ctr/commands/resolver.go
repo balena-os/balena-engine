@@ -21,15 +21,20 @@ import (
 	gocontext "context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"net/http"
+	"net/http/httptrace"
+	"net/http/httputil"
+	"os"
 	"strings"
 
 	"github.com/containerd/console"
+	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/remotes/docker/config"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
@@ -41,12 +46,12 @@ func passwordPrompt() (string, error) {
 	defer c.Reset()
 
 	if err := c.DisableEcho(); err != nil {
-		return "", errors.Wrap(err, "failed to disable echo")
+		return "", fmt.Errorf("failed to disable echo: %w", err)
 	}
 
 	line, _, err := bufio.NewReader(c).ReadLine()
 	if err != nil {
-		return "", errors.Wrap(err, "failed to read line")
+		return "", fmt.Errorf("failed to read line: %w", err)
 	}
 	return string(line), nil
 }
@@ -96,6 +101,16 @@ func GetResolver(ctx gocontext.Context, clicontext *cli.Context) (remotes.Resolv
 		hostOptions.HostDir = config.HostDirFromRoot(hostDir)
 	}
 
+	if clicontext.Bool("http-dump") {
+		hostOptions.UpdateClient = func(client *http.Client) error {
+			client.Transport = &DebugTransport{
+				transport: client.Transport,
+				writer:    log.G(ctx).Writer(),
+			}
+			return nil
+		}
+	}
+
 	options.Hosts = config.ConfigureHosts(ctx, hostOptions)
 
 	return docker.NewResolver(options), nil
@@ -109,9 +124,9 @@ func resolverDefaultTLS(clicontext *cli.Context) (*tls.Config, error) {
 	}
 
 	if tlsRootPath := clicontext.String("tlscacert"); tlsRootPath != "" {
-		tlsRootData, err := ioutil.ReadFile(tlsRootPath)
+		tlsRootData, err := os.ReadFile(tlsRootPath)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to read %q", tlsRootPath)
+			return nil, fmt.Errorf("failed to read %q: %w", tlsRootPath, err)
 		}
 
 		config.RootCAs = x509.NewCertPool()
@@ -128,10 +143,64 @@ func resolverDefaultTLS(clicontext *cli.Context) (*tls.Config, error) {
 		}
 		keyPair, err := tls.LoadX509KeyPair(tlsCertPath, tlsKeyPath)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to load TLS client credentials (cert=%q, key=%q)", tlsCertPath, tlsKeyPath)
+			return nil, fmt.Errorf("failed to load TLS client credentials (cert=%q, key=%q): %w", tlsCertPath, tlsKeyPath, err)
 		}
 		config.Certificates = []tls.Certificate{keyPair}
 	}
 
 	return config, nil
+}
+
+// DebugTransport wraps the underlying http.RoundTripper interface and dumps all requests/responses to the writer.
+type DebugTransport struct {
+	transport http.RoundTripper
+	writer    io.Writer
+}
+
+// RoundTrip dumps request/responses and executes the request using the underlying transport.
+func (t DebugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	in, err := httputil.DumpRequest(req, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dump request: %w", err)
+	}
+
+	if _, err := t.writer.Write(in); err != nil {
+		return nil, err
+	}
+
+	resp, err := t.transport.RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := httputil.DumpResponse(resp, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dump response: %w", err)
+	}
+
+	if _, err := t.writer.Write(out); err != nil {
+		return nil, err
+	}
+
+	return resp, err
+}
+
+// NewDebugClientTrace returns a Go http trace client predefined to write DNS and connection
+// information to the log. This is used via the --http-trace flag on push and pull operations in ctr.
+func NewDebugClientTrace(ctx gocontext.Context) *httptrace.ClientTrace {
+	return &httptrace.ClientTrace{
+		DNSStart: func(dnsInfo httptrace.DNSStartInfo) {
+			log.G(ctx).WithField("host", dnsInfo.Host).Debugf("DNS lookup")
+		},
+		DNSDone: func(dnsInfo httptrace.DNSDoneInfo) {
+			if dnsInfo.Err != nil {
+				log.G(ctx).WithField("lookup_err", dnsInfo.Err).Debugf("DNS lookup error")
+			} else {
+				log.G(ctx).WithField("result", dnsInfo.Addrs[0].String()).WithField("coalesced", dnsInfo.Coalesced).Debugf("DNS lookup complete")
+			}
+		},
+		GotConn: func(connInfo httptrace.GotConnInfo) {
+			log.G(ctx).WithField("reused", connInfo.Reused).WithField("remote_addr", connInfo.Conn.RemoteAddr().String()).Debugf("Connection successful")
+		},
+	}
 }

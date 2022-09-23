@@ -22,10 +22,6 @@ import (
 	"github.com/spf13/pflag"
 )
 
-var allowedAliases = map[string]struct{}{
-	"builder": {},
-}
-
 func newDockerCommand(dockerCli *command.DockerCli) *cli.TopLevelCommand {
 	var (
 		opts    *cliflags.ClientOptions
@@ -51,10 +47,15 @@ func newDockerCommand(dockerCli *command.DockerCli) *cli.TopLevelCommand {
 		},
 		Version:               fmt.Sprintf("%s, build %s", version.Version, version.GitCommit),
 		DisableFlagsInUseLine: true,
+		CompletionOptions: cobra.CompletionOptions{
+			DisableDefaultCmd:   false,
+			HiddenDefaultCmd:    true,
+			DisableDescriptions: true,
+		},
 	}
 	opts, flags, helpCmd = cli.SetupRootCommand(cmd)
+	registerCompletionFuncForGlobalFlags(dockerCli, cmd)
 	flags.BoolP("version", "v", false, "Print version information and quit")
-
 	setFlagErrorFunc(dockerCli, cmd)
 
 	setupHelpCommand(dockerCli, cmd, helpCmd)
@@ -99,13 +100,10 @@ func setupHelpCommand(dockerCli command.Cli, rootCmd, helpCmd *cobra.Command) {
 		if len(args) > 0 {
 			helpcmd, err := pluginmanager.PluginRunCommand(dockerCli, args[0], rootCmd)
 			if err == nil {
-				err = helpcmd.Run()
-				if err != nil {
-					return err
-				}
+				return helpcmd.Run()
 			}
 			if !pluginmanager.IsNotFound(err) {
-				return err
+				return errors.Errorf("unknown help topic: %v", strings.Join(args, " "))
 			}
 		}
 		if origRunE != nil {
@@ -133,25 +131,13 @@ func tryRunPluginHelp(dockerCli command.Cli, ccmd *cobra.Command, cargs []string
 func setHelpFunc(dockerCli command.Cli, cmd *cobra.Command) {
 	defaultHelpFunc := cmd.HelpFunc()
 	cmd.SetHelpFunc(func(ccmd *cobra.Command, args []string) {
-		// Add a stub entry for every plugin so they are
-		// included in the help output and so that
-		// `tryRunPluginHelp` can find them or if we fall
-		// through they will be included in the default help
-		// output.
-		if err := pluginmanager.AddPluginCommandStubs(dockerCli, ccmd.Root()); err != nil {
-			ccmd.Println(err)
-			return
-		}
-
-		if len(args) >= 1 {
+		if ccmd.Annotations[pluginmanager.CommandAnnotationPlugin] == "true" {
 			err := tryRunPluginHelp(dockerCli, ccmd, args)
-			if err == nil { // Successfully ran the plugin
-				return
-			}
 			if !pluginmanager.IsNotFound(err) {
 				ccmd.Println(err)
-				return
 			}
+			cmd.PrintErrf("unknown help topic: %v\n", ccmd.Name())
+			return
 		}
 
 		if err := isSupported(ccmd, dockerCli); err != nil {
@@ -167,7 +153,7 @@ func setHelpFunc(dockerCli command.Cli, cmd *cobra.Command) {
 	})
 }
 
-func setValidateArgs(dockerCli *command.DockerCli, cmd *cobra.Command) {
+func setValidateArgs(dockerCli command.Cli, cmd *cobra.Command) {
 	// The Args is handled by ValidateArgs in cobra, which does not allows a pre-hook.
 	// As a result, here we replace the existing Args validation func to a wrapper,
 	// where the wrapper will check to see if the feature is supported or not.
@@ -220,38 +206,6 @@ func tryPluginRun(dockerCli command.Cli, cmd *cobra.Command, subcommand string) 
 	return nil
 }
 
-func processAliases(dockerCli command.Cli, cmd *cobra.Command, args, osArgs []string) ([]string, []string, error) {
-	aliasMap := dockerCli.ConfigFile().Aliases
-	aliases := make([][2][]string, 0, len(aliasMap))
-
-	for k, v := range aliasMap {
-		if _, ok := allowedAliases[k]; !ok {
-			return args, osArgs, errors.Errorf("Not allowed to alias %q. Allowed aliases: %#v", k, allowedAliases)
-		}
-		if _, _, err := cmd.Find(strings.Split(v, " ")); err == nil {
-			return args, osArgs, errors.Errorf("Not allowed to alias with builtin %q as target", v)
-		}
-		aliases = append(aliases, [2][]string{{k}, {v}})
-	}
-
-	if v, ok := aliasMap["builder"]; ok {
-		aliases = append(aliases,
-			[2][]string{{"build"}, {v, "build"}},
-			[2][]string{{"image", "build"}, {v, "build"}},
-		)
-	}
-	for _, al := range aliases {
-		var didChange bool
-		args, didChange = command.StringSliceReplaceAt(args, al[0], al[1], 0)
-		if didChange {
-			osArgs, _ = command.StringSliceReplaceAt(osArgs, al[0], al[1], -1)
-			break
-		}
-	}
-
-	return args, osArgs, nil
-}
-
 func runDocker(dockerCli *command.DockerCli) error {
 	tcmd := newDockerCommand(dockerCli)
 
@@ -264,13 +218,19 @@ func runDocker(dockerCli *command.DockerCli) error {
 		return err
 	}
 
+	err = pluginmanager.AddPluginCommandStubs(dockerCli, cmd)
+	if err != nil {
+		return err
+	}
+
 	args, os.Args, err = processAliases(dockerCli, cmd, args, os.Args)
 	if err != nil {
 		return err
 	}
 
 	if len(args) > 0 {
-		if _, _, err := cmd.Find(args); err != nil {
+		command, _, err := cmd.Find(args)
+		if err != nil || command.Annotations[pluginmanager.CommandAnnotationPlugin] == "true" {
 			err := tryPluginRun(dockerCli, cmd, args[0])
 			if !pluginmanager.IsNotFound(err) {
 				return err
@@ -314,7 +274,6 @@ func Main() {
 
 type versionDetails interface {
 	Client() client.APIClient
-	ClientInfo() command.ClientInfo
 	ServerInfo() command.ServerInfo
 }
 
@@ -346,10 +305,33 @@ func hideSubcommandIf(subcmd *cobra.Command, condition func(string) bool, annota
 
 func hideUnsupportedFeatures(cmd *cobra.Command, details versionDetails) error {
 	var (
-		buildKitDisabled = func(_ string) bool { v, _ := command.BuildKitEnabled(details.ServerInfo()); return !v }
-		buildKitEnabled  = func(_ string) bool { v, _ := command.BuildKitEnabled(details.ServerInfo()); return v }
-		notExperimental  = func(_ string) bool { return !details.ServerInfo().HasExperimental }
-		notOSType        = func(v string) bool { return v != details.ServerInfo().OSType }
+		notExperimental = func(_ string) bool { return !details.ServerInfo().HasExperimental }
+		notOSType       = func(v string) bool { return v != details.ServerInfo().OSType }
+		notSwarmStatus  = func(v string) bool {
+			s := details.ServerInfo().SwarmStatus
+			if s == nil {
+				// engine did not return swarm status header
+				return false
+			}
+			switch v {
+			case "manager":
+				// requires the node to be a manager
+				return !s.ControlAvailable
+			case "active":
+				// requires swarm to be active on the node (e.g. for swarm leave)
+				// only hide the command if we're sure the node is "inactive"
+				// for any other status, assume the "leave" command can still
+				// be used.
+				return s.NodeState == "inactive"
+			case "":
+				// some swarm commands, such as "swarm init" and "swarm join"
+				// are swarm-related, but do not require swarm to be active
+				return false
+			default:
+				// ignore any other value for the "swarm" annotation
+				return false
+			}
+		}
 		versionOlderThan = func(v string) bool { return versions.LessThan(details.Client().ClientVersion(), v) }
 	)
 
@@ -365,18 +347,16 @@ func hideUnsupportedFeatures(cmd *cobra.Command, details versionDetails) error {
 			}
 		}
 
-		hideFlagIf(f, buildKitDisabled, "buildkit")
-		hideFlagIf(f, buildKitEnabled, "no-buildkit")
 		hideFlagIf(f, notExperimental, "experimental")
 		hideFlagIf(f, notOSType, "ostype")
+		hideFlagIf(f, notSwarmStatus, "swarm")
 		hideFlagIf(f, versionOlderThan, "version")
 	})
 
 	for _, subcmd := range cmd.Commands() {
-		hideSubcommandIf(subcmd, buildKitDisabled, "buildkit")
-		hideSubcommandIf(subcmd, buildKitEnabled, "no-buildkit")
 		hideSubcommandIf(subcmd, notExperimental, "experimental")
 		hideSubcommandIf(subcmd, notOSType, "ostype")
+		hideSubcommandIf(subcmd, notSwarmStatus, "swarm")
 		hideSubcommandIf(subcmd, versionOlderThan, "version")
 	}
 	return nil

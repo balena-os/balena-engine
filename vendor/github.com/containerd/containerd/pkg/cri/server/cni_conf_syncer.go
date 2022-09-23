@@ -17,12 +17,12 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"sync"
 
 	cni "github.com/containerd/go-cni"
 	"github.com/fsnotify/fsnotify"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,22 +36,22 @@ type cniNetConfSyncer struct {
 	watcher   *fsnotify.Watcher
 	confDir   string
 	netPlugin cni.CNI
-	loadOpts  []cni.CNIOpt
+	loadOpts  []cni.Opt
 }
 
 // newCNINetConfSyncer creates cni network conf syncer.
-func newCNINetConfSyncer(confDir string, netPlugin cni.CNI, loadOpts []cni.CNIOpt) (*cniNetConfSyncer, error) {
+func newCNINetConfSyncer(confDir string, netPlugin cni.CNI, loadOpts []cni.Opt) (*cniNetConfSyncer, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create fsnotify watcher")
+		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
 	}
 
 	if err := os.MkdirAll(confDir, 0700); err != nil {
-		return nil, errors.Wrapf(err, "failed to create cni conf dir=%s for watch", confDir)
+		return nil, fmt.Errorf("failed to create cni conf dir=%s for watch: %w", confDir, err)
 	}
 
 	if err := watcher.Add(confDir); err != nil {
-		return nil, errors.Wrapf(err, "failed to watch cni conf dir %s", confDir)
+		return nil, fmt.Errorf("failed to watch cni conf dir %s: %w", confDir, err)
 	}
 
 	syncer := &cniNetConfSyncer{
@@ -73,7 +73,11 @@ func newCNINetConfSyncer(confDir string, netPlugin cni.CNI, loadOpts []cni.CNIOp
 func (syncer *cniNetConfSyncer) syncLoop() error {
 	for {
 		select {
-		case event := <-syncer.watcher.Events:
+		case event, ok := <-syncer.watcher.Events:
+			if !ok {
+				logrus.Debugf("cni watcher channel is closed")
+				return nil
+			}
 			// Only reload config when receiving write/rename/remove
 			// events
 			//

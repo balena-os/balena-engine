@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -20,10 +21,11 @@ package process
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	runc "github.com/containerd/go-runc"
 	google_protobuf "github.com/gogo/protobuf/types"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -53,17 +55,17 @@ func (s *createdState) transition(name string) error {
 	case "deleted":
 		s.p.initState = &deletedState{}
 	default:
-		return errors.Errorf("invalid state transition %q to %q", stateName(s), name)
+		return fmt.Errorf("invalid state transition %q to %q", stateName(s), name)
 	}
 	return nil
 }
 
 func (s *createdState) Pause(ctx context.Context) error {
-	return errors.Errorf("cannot pause task in created state")
+	return errors.New("cannot pause task in created state")
 }
 
 func (s *createdState) Resume(ctx context.Context) error {
-	return errors.Errorf("cannot resume task in created state")
+	return errors.New("cannot resume task in created state")
 }
 
 func (s *createdState) Update(ctx context.Context, r *google_protobuf.Any) error {
@@ -71,7 +73,7 @@ func (s *createdState) Update(ctx context.Context, r *google_protobuf.Any) error
 }
 
 func (s *createdState) Checkpoint(ctx context.Context, r *CheckpointConfig) error {
-	return errors.Errorf("cannot checkpoint a task in created state")
+	return errors.New("cannot checkpoint a task in created state")
 }
 
 func (s *createdState) Start(ctx context.Context) error {
@@ -122,17 +124,17 @@ func (s *createdCheckpointState) transition(name string) error {
 	case "deleted":
 		s.p.initState = &deletedState{}
 	default:
-		return errors.Errorf("invalid state transition %q to %q", stateName(s), name)
+		return fmt.Errorf("invalid state transition %q to %q", stateName(s), name)
 	}
 	return nil
 }
 
 func (s *createdCheckpointState) Pause(ctx context.Context) error {
-	return errors.Errorf("cannot pause task in created state")
+	return errors.New("cannot pause task in created state")
 }
 
 func (s *createdCheckpointState) Resume(ctx context.Context) error {
-	return errors.Errorf("cannot resume task in created state")
+	return errors.New("cannot resume task in created state")
 }
 
 func (s *createdCheckpointState) Update(ctx context.Context, r *google_protobuf.Any) error {
@@ -140,7 +142,7 @@ func (s *createdCheckpointState) Update(ctx context.Context, r *google_protobuf.
 }
 
 func (s *createdCheckpointState) Checkpoint(ctx context.Context, r *CheckpointConfig) error {
-	return errors.Errorf("cannot checkpoint a task in created state")
+	return errors.New("cannot checkpoint a task in created state")
 }
 
 func (s *createdCheckpointState) Start(ctx context.Context) error {
@@ -153,7 +155,7 @@ func (s *createdCheckpointState) Start(ctx context.Context) error {
 	)
 	if sio.Terminal {
 		if socket, err = runc.NewTempConsoleSocket(); err != nil {
-			return errors.Wrap(err, "failed to create OCI runtime console socket")
+			return fmt.Errorf("failed to create OCI runtime console socket: %w", err)
 		}
 		defer socket.Close()
 		s.opts.ConsoleSocket = socket
@@ -164,27 +166,27 @@ func (s *createdCheckpointState) Start(ctx context.Context) error {
 	}
 	if sio.Stdin != "" {
 		if err := p.openStdin(sio.Stdin); err != nil {
-			return errors.Wrapf(err, "failed to open stdin fifo %s", sio.Stdin)
+			return fmt.Errorf("failed to open stdin fifo %s: %w", sio.Stdin, err)
 		}
 	}
 	if socket != nil {
 		console, err := socket.ReceiveMaster()
 		if err != nil {
-			return errors.Wrap(err, "failed to retrieve console master")
+			return fmt.Errorf("failed to retrieve console master: %w", err)
 		}
 		console, err = p.Platform.CopyConsole(ctx, console, p.id, sio.Stdin, sio.Stdout, sio.Stderr, &p.wg)
 		if err != nil {
-			return errors.Wrap(err, "failed to start console copy")
+			return fmt.Errorf("failed to start console copy: %w", err)
 		}
 		p.console = console
 	} else {
 		if err := p.io.Copy(ctx, &p.wg); err != nil {
-			return errors.Wrap(err, "failed to start io pipe copy")
+			return fmt.Errorf("failed to start io pipe copy: %w", err)
 		}
 	}
 	pid, err := runc.ReadPidFile(s.opts.PidFile)
 	if err != nil {
-		return errors.Wrap(err, "failed to retrieve OCI runtime container pid")
+		return fmt.Errorf("failed to retrieve OCI runtime container pid: %w", err)
 	}
 	p.pid = pid
 	return s.transition("running")
@@ -210,7 +212,7 @@ func (s *createdCheckpointState) SetExited(status int) {
 }
 
 func (s *createdCheckpointState) Exec(ctx context.Context, path string, r *ExecConfig) (Process, error) {
-	return nil, errors.Errorf("cannot exec in a created state")
+	return nil, errors.New("cannot exec in a created state")
 }
 
 func (s *createdCheckpointState) Status(ctx context.Context) (string, error) {
@@ -228,7 +230,7 @@ func (s *runningState) transition(name string) error {
 	case "paused":
 		s.p.initState = &pausedState{p: s.p}
 	default:
-		return errors.Errorf("invalid state transition %q to %q", stateName(s), name)
+		return fmt.Errorf("invalid state transition %q to %q", stateName(s), name)
 	}
 	return nil
 }
@@ -249,7 +251,7 @@ func (s *runningState) Pause(ctx context.Context) error {
 }
 
 func (s *runningState) Resume(ctx context.Context) error {
-	return errors.Errorf("cannot resume a running process")
+	return errors.New("cannot resume a running process")
 }
 
 func (s *runningState) Update(ctx context.Context, r *google_protobuf.Any) error {
@@ -261,11 +263,11 @@ func (s *runningState) Checkpoint(ctx context.Context, r *CheckpointConfig) erro
 }
 
 func (s *runningState) Start(ctx context.Context) error {
-	return errors.Errorf("cannot start a running process")
+	return errors.New("cannot start a running process")
 }
 
 func (s *runningState) Delete(ctx context.Context) error {
-	return errors.Errorf("cannot delete a running process")
+	return errors.New("cannot delete a running process")
 }
 
 func (s *runningState) Kill(ctx context.Context, sig uint32, all bool) error {
@@ -299,13 +301,13 @@ func (s *pausedState) transition(name string) error {
 	case "stopped":
 		s.p.initState = &stoppedState{p: s.p}
 	default:
-		return errors.Errorf("invalid state transition %q to %q", stateName(s), name)
+		return fmt.Errorf("invalid state transition %q to %q", stateName(s), name)
 	}
 	return nil
 }
 
 func (s *pausedState) Pause(ctx context.Context) error {
-	return errors.Errorf("cannot pause a paused container")
+	return errors.New("cannot pause a paused container")
 }
 
 func (s *pausedState) Resume(ctx context.Context) error {
@@ -325,11 +327,11 @@ func (s *pausedState) Checkpoint(ctx context.Context, r *CheckpointConfig) error
 }
 
 func (s *pausedState) Start(ctx context.Context) error {
-	return errors.Errorf("cannot start a paused process")
+	return errors.New("cannot start a paused process")
 }
 
 func (s *pausedState) Delete(ctx context.Context) error {
-	return errors.Errorf("cannot delete a paused process")
+	return errors.New("cannot delete a paused process")
 }
 
 func (s *pausedState) Kill(ctx context.Context, sig uint32, all bool) error {
@@ -349,7 +351,7 @@ func (s *pausedState) SetExited(status int) {
 }
 
 func (s *pausedState) Exec(ctx context.Context, path string, r *ExecConfig) (Process, error) {
-	return nil, errors.Errorf("cannot exec in a paused state")
+	return nil, errors.New("cannot exec in a paused state")
 }
 
 func (s *pausedState) Status(ctx context.Context) (string, error) {
@@ -365,29 +367,29 @@ func (s *stoppedState) transition(name string) error {
 	case "deleted":
 		s.p.initState = &deletedState{}
 	default:
-		return errors.Errorf("invalid state transition %q to %q", stateName(s), name)
+		return fmt.Errorf("invalid state transition %q to %q", stateName(s), name)
 	}
 	return nil
 }
 
 func (s *stoppedState) Pause(ctx context.Context) error {
-	return errors.Errorf("cannot pause a stopped container")
+	return errors.New("cannot pause a stopped container")
 }
 
 func (s *stoppedState) Resume(ctx context.Context) error {
-	return errors.Errorf("cannot resume a stopped container")
+	return errors.New("cannot resume a stopped container")
 }
 
 func (s *stoppedState) Update(ctx context.Context, r *google_protobuf.Any) error {
-	return errors.Errorf("cannot update a stopped container")
+	return errors.New("cannot update a stopped container")
 }
 
 func (s *stoppedState) Checkpoint(ctx context.Context, r *CheckpointConfig) error {
-	return errors.Errorf("cannot checkpoint a stopped container")
+	return errors.New("cannot checkpoint a stopped container")
 }
 
 func (s *stoppedState) Start(ctx context.Context) error {
-	return errors.Errorf("cannot start a stopped process")
+	return errors.New("cannot start a stopped process")
 }
 
 func (s *stoppedState) Delete(ctx context.Context) error {
@@ -406,7 +408,7 @@ func (s *stoppedState) SetExited(status int) {
 }
 
 func (s *stoppedState) Exec(ctx context.Context, path string, r *ExecConfig) (Process, error) {
-	return nil, errors.Errorf("cannot exec in a stopped state")
+	return nil, errors.New("cannot exec in a stopped state")
 }
 
 func (s *stoppedState) Status(ctx context.Context) (string, error) {

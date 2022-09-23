@@ -18,15 +18,15 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
-	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
-	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
-
-	"github.com/containerd/containerd/pkg/cri/store"
 	imagestore "github.com/containerd/containerd/pkg/cri/store/image"
+
+	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/net/context"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // ImageStatus returns the status of the image, returns nil if the image isn't present.
@@ -35,11 +35,11 @@ import (
 func (c *criService) ImageStatus(ctx context.Context, r *runtime.ImageStatusRequest) (*runtime.ImageStatusResponse, error) {
 	image, err := c.localResolve(r.GetImage().GetImage())
 	if err != nil {
-		if err == store.ErrNotExist {
+		if errdefs.IsNotFound(err) {
 			// return empty without error when image not found.
 			return &runtime.ImageStatusResponse{}, nil
 		}
-		return nil, errors.Wrapf(err, "can not resolve %q locally", r.GetImage().GetImage())
+		return nil, fmt.Errorf("can not resolve %q locally: %w", r.GetImage().GetImage(), err)
 	}
 	// TODO(random-liu): [P0] Make sure corresponding snapshot exists. What if snapshot
 	// doesn't exist?
@@ -47,7 +47,7 @@ func (c *criService) ImageStatus(ctx context.Context, r *runtime.ImageStatusRequ
 	runtimeImage := toCRIImage(image)
 	info, err := c.toCRIImageInfo(ctx, &image, r.GetVerbose())
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to generate image info")
+		return nil, fmt.Errorf("failed to generate image info: %w", err)
 	}
 
 	return &runtime.ImageStatusResponse{

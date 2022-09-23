@@ -2,10 +2,11 @@ package source
 
 import (
 	"net/url"
+	"path"
 	"strings"
 
+	srctypes "github.com/moby/buildkit/source/types"
 	"github.com/moby/buildkit/util/sshutil"
-	"github.com/pkg/errors"
 )
 
 type GitIdentifier struct {
@@ -27,8 +28,8 @@ func NewGitIdentifier(remoteURL string) (*GitIdentifier, error) {
 	}
 
 	var fragment string
-	if strings.HasPrefix(remoteURL, "git@") {
-		// git@.. is not an URL, so cannot be parsed as URL
+	if sshutil.IsImplicitSSHTransport(remoteURL) {
+		// implicit ssh urls such as "git@.." are not actually a URL, so cannot be parsed as URL
 		parts := strings.SplitN(remoteURL, "#", 2)
 
 		repo.Remote = parts[0]
@@ -46,25 +47,25 @@ func NewGitIdentifier(remoteURL string) (*GitIdentifier, error) {
 		u.Fragment = ""
 		repo.Remote = u.String()
 	}
-	if repo.Subdir != "" {
-		return nil, errors.Errorf("subdir not supported yet")
+	if sd := path.Clean(repo.Subdir); sd == "/" || sd == "." {
+		repo.Subdir = ""
 	}
 	return &repo, nil
 }
 
 func (i *GitIdentifier) ID() string {
-	return "git"
+	return srctypes.GitScheme
 }
 
 // isGitTransport returns true if the provided str is a git transport by inspecting
 // the prefix of the string for known protocols used in git.
 func isGitTransport(str string) bool {
-	return strings.HasPrefix(str, "http://") || strings.HasPrefix(str, "https://") || strings.HasPrefix(str, "git://") || sshutil.IsSSHTransport(str)
+	return strings.HasPrefix(str, "http://") || strings.HasPrefix(str, "https://") || strings.HasPrefix(str, "git://") || strings.HasPrefix(str, "ssh://") || sshutil.IsImplicitSSHTransport(str)
 }
 
 func getRefAndSubdir(fragment string) (ref string, subdir string) {
 	refAndDir := strings.SplitN(fragment, ":", 2)
-	ref = "master"
+	ref = ""
 	if len(refAndDir[0]) != 0 {
 		ref = refAndDir[0]
 	}

@@ -5,7 +5,9 @@ import (
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/completion"
 	"github.com/docker/cli/cli/command/inspect"
+	flagsHelper "github.com/docker/cli/cli/flags"
 	"github.com/docker/docker/api/types"
 	"github.com/spf13/cobra"
 )
@@ -27,9 +29,10 @@ func newInspectCommand(dockerCli command.Cli) *cobra.Command {
 			opts.names = args
 			return runInspect(dockerCli, opts)
 		},
+		ValidArgsFunction: completion.NetworkNames(dockerCli),
 	}
 
-	cmd.Flags().StringVarP(&opts.format, "format", "f", "", "Format the output using the given Go template")
+	cmd.Flags().StringVarP(&opts.format, "format", "f", "", flagsHelper.InspectFormatHelp)
 	cmd.Flags().BoolVarP(&opts.verbose, "verbose", "v", false, "Verbose output for diagnostics")
 
 	return cmd

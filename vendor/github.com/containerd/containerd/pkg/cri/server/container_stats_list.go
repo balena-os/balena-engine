@@ -17,11 +17,12 @@
 package server
 
 import (
+	"fmt"
+
 	tasks "github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/api/types"
-	"github.com/pkg/errors"
 	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
 )
@@ -33,15 +34,15 @@ func (c *criService) ListContainerStats(
 ) (*runtime.ListContainerStatsResponse, error) {
 	request, containers, err := c.buildTaskMetricsRequest(in)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to build metrics request")
+		return nil, fmt.Errorf("failed to build metrics request: %w", err)
 	}
 	resp, err := c.client.TaskService().Metrics(ctx, &request)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch metrics for tasks")
+		return nil, fmt.Errorf("failed to fetch metrics for tasks: %w", err)
 	}
 	criStats, err := c.toCRIContainerStats(resp.Metrics, containers)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to convert to cri containerd stats format")
+		return nil, fmt.Errorf("failed to convert to cri containerd stats format: %w", err)
 	}
 	return criStats, nil
 }
@@ -57,8 +58,8 @@ func (c *criService) toCRIContainerStats(
 	containerStats := new(runtime.ListContainerStatsResponse)
 	for _, cntr := range containers {
 		cs, err := c.containerMetrics(cntr.Metadata, statsMap[cntr.ID])
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to decode container metrics for %q", cntr.ID)
+		if err != nil { //nolint:staticcheck // Ignore SA4023 as some platforms always return nil (metrics unimplemented)
+			return nil, fmt.Errorf("failed to decode container metrics for %q: %w", cntr.ID, err)
 		}
 		containerStats.Stats = append(containerStats.Stats, cs)
 	}
@@ -81,7 +82,7 @@ func (c *criService) buildTaskMetricsRequest(
 ) (tasks.MetricsRequest, []containerstore.Container, error) {
 	var req tasks.MetricsRequest
 	if r.GetFilter() == nil {
-		return req, nil, nil
+		return req, c.containerStore.List(), nil
 	}
 	c.normalizeContainerStatsFilter(r.GetFilter())
 	var containers []containerstore.Container

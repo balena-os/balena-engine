@@ -36,7 +36,8 @@ import (
 )
 
 var (
-	isUserNS  = runningInUserNS()
+	nsOnce    sync.Once
+	inUserNS  bool
 	checkMode sync.Once
 	cgMode    CGMode
 )
@@ -81,33 +82,37 @@ func Mode() CGMode {
 	return cgMode
 }
 
-// runningInUserNS detects whether we are currently running in a user namespace.
+// RunningInUserNS detects whether we are currently running in a user namespace.
 // Copied from github.com/lxc/lxd/shared/util.go
-func runningInUserNS() bool {
-	file, err := os.Open("/proc/self/uid_map")
-	if err != nil {
-		// This kernel-provided file only exists if user namespaces are supported
-		return false
-	}
-	defer file.Close()
+func RunningInUserNS() bool {
+	nsOnce.Do(func() {
+		file, err := os.Open("/proc/self/uid_map")
+		if err != nil {
+			// This kernel-provided file only exists if user namespaces are supported
+			return
+		}
+		defer file.Close()
 
-	buf := bufio.NewReader(file)
-	l, _, err := buf.ReadLine()
-	if err != nil {
-		return false
-	}
+		buf := bufio.NewReader(file)
+		l, _, err := buf.ReadLine()
+		if err != nil {
+			return
+		}
 
-	line := string(l)
-	var a, b, c int64
-	fmt.Sscanf(line, "%d %d %d", &a, &b, &c)
-	/*
-	 * We assume we are in the initial user namespace if we have a full
-	 * range - 4294967295 uids starting at uid 0.
-	 */
-	if a == 0 && b == 0 && c == 4294967295 {
-		return false
-	}
-	return true
+		line := string(l)
+		var a, b, c int64
+		fmt.Sscanf(line, "%d %d %d", &a, &b, &c)
+
+		/*
+		 * We assume we are in the initial user namespace if we have a full
+		 * range - 4294967295 uids starting at uid 0.
+		 */
+		if a == 0 && b == 0 && c == 4294967295 {
+			return
+		}
+		inUserNS = true
+	})
+	return inUserNS
 }
 
 // defaults returns all known groups
@@ -132,7 +137,7 @@ func defaults(root string) ([]Subsystem, error) {
 	}
 	// only add the devices cgroup if we are not in a user namespace
 	// because modifications are not allowed
-	if !isUserNS {
+	if !RunningInUserNS() {
 		s = append(s, NewDevices(root))
 	}
 	// add the hugetlb cgroup if error wasn't due to missing hugetlb
@@ -159,9 +164,9 @@ func remove(path string) error {
 	return fmt.Errorf("cgroups: unable to remove path %q", path)
 }
 
-// readPids will read all the pids of processes in a cgroup by the provided path
-func readPids(path string, subsystem Name) ([]Process, error) {
-	f, err := os.Open(filepath.Join(path, cgroupProcs))
+// readPids will read all the pids of processes or tasks in a cgroup by the provided path
+func readPids(path string, subsystem Name, pType procType) ([]Process, error) {
+	f, err := os.Open(filepath.Join(path, pType))
 	if err != nil {
 		return nil, err
 	}
@@ -185,36 +190,6 @@ func readPids(path string, subsystem Name) ([]Process, error) {
 	}
 	if err := s.Err(); err != nil {
 		// failed to read all pids?
-		return nil, err
-	}
-	return out, nil
-}
-
-// readTasksPids will read all the pids of tasks in a cgroup by the provided path
-func readTasksPids(path string, subsystem Name) ([]Task, error) {
-	f, err := os.Open(filepath.Join(path, cgroupTasks))
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	var (
-		out []Task
-		s   = bufio.NewScanner(f)
-	)
-	for s.Scan() {
-		if t := s.Text(); t != "" {
-			pid, err := strconv.Atoi(t)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, Task{
-				Pid:       pid,
-				Subsystem: subsystem,
-				Path:      path,
-			})
-		}
-	}
-	if err := s.Err(); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -280,18 +255,34 @@ func parseKV(raw string) (string, uint64, error) {
 	}
 }
 
-func parseCgroupFile(path string) (map[string]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return parseCgroupFromReader(f)
+// ParseCgroupFile parses the given cgroup file, typically /proc/self/cgroup
+// or /proc/<pid>/cgroup, into a map of subsystems to cgroup paths, e.g.
+//   "cpu": "/user.slice/user-1000.slice"
+//   "pids": "/user.slice/user-1000.slice"
+// etc.
+//
+// The resulting map does not have an element for cgroup v2 unified hierarchy.
+// Use ParseCgroupFileUnified to get the unified path.
+func ParseCgroupFile(path string) (map[string]string, error) {
+	x, _, err := ParseCgroupFileUnified(path)
+	return x, err
 }
 
-func parseCgroupFromReader(r io.Reader) (map[string]string, error) {
+// ParseCgroupFileUnified returns legacy subsystem paths as the first value,
+// and returns the unified path as the second value.
+func ParseCgroupFileUnified(path string) (map[string]string, string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, "", err
+	}
+	defer f.Close()
+	return parseCgroupFromReaderUnified(f)
+}
+
+func parseCgroupFromReaderUnified(r io.Reader) (map[string]string, string, error) {
 	var (
 		cgroups = make(map[string]string)
+		unified = ""
 		s       = bufio.NewScanner(r)
 	)
 	for s.Scan() {
@@ -300,18 +291,20 @@ func parseCgroupFromReader(r io.Reader) (map[string]string, error) {
 			parts = strings.SplitN(text, ":", 3)
 		)
 		if len(parts) < 3 {
-			return nil, fmt.Errorf("invalid cgroup entry: %q", text)
+			return nil, unified, fmt.Errorf("invalid cgroup entry: %q", text)
 		}
 		for _, subs := range strings.Split(parts[1], ",") {
-			if subs != "" {
+			if subs == "" {
+				unified = parts[2]
+			} else {
 				cgroups[subs] = parts[2]
 			}
 		}
 	}
 	if err := s.Err(); err != nil {
-		return nil, err
+		return nil, unified, err
 	}
-	return cgroups, nil
+	return cgroups, unified, nil
 }
 
 func getCgroupDestination(subsystem string) (string, error) {

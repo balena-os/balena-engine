@@ -1,5 +1,3 @@
-// +build windows
-
 /*
    Copyright The containerd Authors.
 
@@ -20,6 +18,8 @@ package opts
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -27,8 +27,7 @@ import (
 	"github.com/containerd/containerd/containers"
 	"github.com/containerd/containerd/oci"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	osinterface "github.com/containerd/containerd/pkg/os"
 )
@@ -121,19 +120,28 @@ func WithWindowsMounts(osi osinterface.OS, config *runtime.ContainerConfig, extr
 			// paths, so don't use it.
 			if !namedPipePath(src) {
 				if _, err := osi.Stat(src); err != nil {
-					// If the source doesn't exist, return an error instead
-					// of creating the source. This aligns with Docker's
-					// behavior on windows.
-					return errors.Wrapf(err, "failed to stat %q", src)
+					// Create the host path if it doesn't exist. This will align
+					// the behavior with the Linux implementation, but it doesn't
+					// align with Docker's behavior on Windows.
+					if !os.IsNotExist(err) {
+						return fmt.Errorf("failed to stat %q: %w", src, err)
+					}
+					if err := osi.MkdirAll(src, 0755); err != nil {
+						return fmt.Errorf("failed to mkdir %q: %w", src, err)
+					}
 				}
 				var err error
 				src, err = osi.ResolveSymbolicLink(src)
 				if err != nil {
-					return errors.Wrapf(err, "failed to resolve symlink %q", src)
+					return fmt.Errorf("failed to resolve symlink %q: %w", src, err)
 				}
-				// hcsshim requires clean path, especially '/' -> '\'.
+				// hcsshim requires clean path, especially '/' -> '\'. Additionally,
+				// for the destination, absolute paths should have the C: prefix.
 				src = filepath.Clean(src)
 				dst = filepath.Clean(dst)
+				if dst[0] == '\\' {
+					dst = "C:" + dst
+				}
 			}
 
 			var options []string
@@ -166,9 +174,6 @@ func WithWindowsResources(resources *runtime.WindowsContainerResources) oci.Spec
 		if s.Windows.Resources == nil {
 			s.Windows.Resources = &runtimespec.WindowsResources{}
 		}
-		if s.Windows.Resources.CPU == nil {
-			s.Windows.Resources.CPU = &runtimespec.WindowsCPUResources{}
-		}
 		if s.Windows.Resources.Memory == nil {
 			s.Windows.Resources.Memory = &runtimespec.WindowsMemoryResources{}
 		}
@@ -179,6 +184,9 @@ func WithWindowsResources(resources *runtime.WindowsContainerResources) oci.Spec
 			max    = uint16(resources.GetCpuMaximum())
 			limit  = uint64(resources.GetMemoryLimitInBytes())
 		)
+		if s.Windows.Resources.CPU == nil && (count != 0 || shares != 0 || max != 0) {
+			s.Windows.Resources.CPU = &runtimespec.WindowsCPUResources{}
+		}
 		if count != 0 {
 			s.Windows.Resources.CPU.Count = &count
 		}

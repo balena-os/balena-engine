@@ -2,7 +2,6 @@ package registry
 
 import (
 	"context"
-	"sort"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
@@ -27,11 +26,14 @@ func NewSearchCommand(dockerCli command.Cli) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "search [OPTIONS] TERM",
-		Short: "Search the Docker Hub for images",
+		Short: "Search Docker Hub for images",
 		Args:  cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			options.term = args[0]
 			return runSearch(dockerCli, options)
+		},
+		Annotations: map[string]string{
+			"category-top": "10",
 		},
 	}
 
@@ -39,7 +41,7 @@ func NewSearchCommand(dockerCli command.Cli) *cobra.Command {
 
 	flags.BoolVar(&options.noTrunc, "no-trunc", false, "Don't truncate output")
 	flags.VarP(&options.filter, "filter", "f", "Filter output based on conditions provided")
-	flags.IntVar(&options.limit, "limit", registry.DefaultSearchLimit, "Max number of search results")
+	flags.IntVar(&options.limit, "limit", 0, "Max number of search results")
 	flags.StringVar(&options.format, "format", "", "Pretty-print search using a Go template")
 
 	return cmd
@@ -75,9 +77,6 @@ func runSearch(dockerCli command.Cli, options searchOptions) error {
 		return err
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[j].StarCount < results[i].StarCount
-	})
 	searchCtx := formatter.Context{
 		Output: dockerCli.Out(),
 		Format: NewSearchFormat(options.format),

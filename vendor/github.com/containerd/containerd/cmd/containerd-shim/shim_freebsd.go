@@ -1,5 +1,3 @@
-// +build freebsd
-
 /*
    Copyright The containerd Authors.
 
@@ -22,7 +20,8 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/containerd/containerd/runtime/v1/shim"
+	"github.com/containerd/containerd/sys/reaper"
+
 	runc "github.com/containerd/go-runc"
 	"github.com/containerd/ttrpc"
 )
@@ -34,7 +33,7 @@ func setupSignals() (chan os.Signal, error) {
 	signal.Notify(signals)
 	// make sure runc is setup to use the monitor
 	// for waiting on processes
-	runc.Monitor = shim.Default
+	runc.Monitor = reaper.Default
 	return signals, nil
 }
 

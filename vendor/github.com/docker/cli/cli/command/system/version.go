@@ -5,12 +5,13 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
-	"text/tabwriter"
 	"text/template"
 	"time"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/completion"
+	"github.com/docker/cli/cli/command/formatter/tabwriter"
 	"github.com/docker/cli/cli/version"
 	"github.com/docker/cli/templates"
 	"github.com/docker/docker/api/types"
@@ -28,7 +29,6 @@ Client:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
  Built:	{{.BuildTime}}
  OS/Arch:	{{.Os}}/{{.Arch}}
  Context:	{{.Context}}
- Experimental:	{{.Experimental}}
 {{- end}}
 
 {{- if .ServerOK}}{{with .Server}}
@@ -55,8 +55,7 @@ Server:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
  {{- end}}{{- end}}`
 
 type versionOptions struct {
-	format     string
-	kubeConfig string
+	format string
 }
 
 // versionInfo contains version information of both the Client, and Server
@@ -77,7 +76,6 @@ type clientVersion struct {
 	Arch              string
 	BuildTime         string `json:",omitempty"`
 	Context           string
-	Experimental      bool `json:",omitempty"` // Deprecated: experimental CLI features always enabled. This field is kept for backward-compatibility, and is always "true"
 }
 
 // ServerOK returns true when the client could connect to the docker server
@@ -97,6 +95,10 @@ func NewVersionCommand(dockerCli command.Cli) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runVersion(dockerCli, &opts)
 		},
+		Annotations: map[string]string{
+			"category-top": "10",
+		},
+		ValidArgsFunction: completion.NoComplete,
 	}
 
 	flags := cmd.Flags()
@@ -128,6 +130,8 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 		return cli.StatusError{StatusCode: 64, Status: err.Error()}
 	}
 
+	// TODO print error if kubernetes is used?
+
 	vd := versionInfo{
 		Client: clientVersion{
 			Platform:          struct{ Name string }{version.PlatformName},
@@ -139,7 +143,6 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 			BuildTime:         reformatDate(version.BuildTime),
 			Os:                runtime.GOOS,
 			Arch:              arch(),
-			Experimental:      true,
 			Context:           dockerCli.CurrentContext(),
 		},
 	}
@@ -197,7 +200,7 @@ func newVersionTemplate(templateFormat string) (*template.Template, error) {
 	tmpl := templates.New("version").Funcs(template.FuncMap{"getDetailsOrder": getDetailsOrder})
 	tmpl, err := tmpl.Parse(templateFormat)
 
-	return tmpl, errors.Wrap(err, "Template parsing error")
+	return tmpl, errors.Wrap(err, "template parsing error")
 }
 
 func getDetailsOrder(v types.ComponentVersion) []string {

@@ -6,6 +6,8 @@ import (
 	"io"
 )
 
+//go:generate stringer -linecomment -output=btf_types_string.go -type=FuncLinkage,VarLinkage
+
 // btfKind describes a Type.
 type btfKind uint8
 
@@ -29,21 +31,36 @@ const (
 	// Added ~5.1
 	kindVar
 	kindDatasec
+	// Added ~5.13
+	kindFloat
 )
 
-type btfFuncLinkage uint8
+// FuncLinkage describes BTF function linkage metadata.
+type FuncLinkage int
+
+// Equivalent of enum btf_func_linkage.
+const (
+	StaticFunc FuncLinkage = iota // static
+	GlobalFunc                    // global
+	ExternFunc                    // extern
+)
+
+// VarLinkage describes BTF variable linkage metadata.
+type VarLinkage int
 
 const (
-	linkageStatic btfFuncLinkage = iota
-	linkageGlobal
-	linkageExtern
+	StaticVar VarLinkage = iota // static
+	GlobalVar                   // global
+	ExternVar                   // extern
 )
 
 const (
-	btfTypeKindShift = 24
-	btfTypeKindLen   = 4
-	btfTypeVlenShift = 0
-	btfTypeVlenMask  = 16
+	btfTypeKindShift     = 24
+	btfTypeKindLen       = 5
+	btfTypeVlenShift     = 0
+	btfTypeVlenMask      = 16
+	btfTypeKindFlagShift = 31
+	btfTypeKindFlagMask  = 1
 )
 
 // btfType is equivalent to struct btf_type in Documentation/bpf/btf.rst.
@@ -52,8 +69,8 @@ type btfType struct {
 	/* "info" bits arrangement
 	 * bits  0-15: vlen (e.g. # of struct's members), linkage
 	 * bits 16-23: unused
-	 * bits 24-27: kind (e.g. int, ptr, array...etc)
-	 * bits 28-30: unused
+	 * bits 24-28: kind (e.g. int, ptr, array...etc)
+	 * bits 29-30: unused
 	 * bit     31: kind_flag, currently used by
 	 *             struct, union and fwd
 	 */
@@ -102,6 +119,8 @@ func (k btfKind) String() string {
 		return "Variable"
 	case kindDatasec:
 		return "Section"
+	case kindFloat:
+		return "Float"
 	default:
 		return fmt.Sprintf("Unknown (%d)", k)
 	}
@@ -136,11 +155,15 @@ func (bt *btfType) SetVlen(vlen int) {
 	bt.setInfo(uint32(vlen), btfTypeVlenMask, btfTypeVlenShift)
 }
 
-func (bt *btfType) Linkage() btfFuncLinkage {
-	return btfFuncLinkage(bt.info(btfTypeVlenMask, btfTypeVlenShift))
+func (bt *btfType) KindFlag() bool {
+	return bt.info(btfTypeKindFlagMask, btfTypeKindFlagShift) == 1
 }
 
-func (bt *btfType) SetLinkage(linkage btfFuncLinkage) {
+func (bt *btfType) Linkage() FuncLinkage {
+	return FuncLinkage(bt.info(btfTypeVlenMask, btfTypeVlenShift))
+}
+
+func (bt *btfType) SetLinkage(linkage FuncLinkage) {
 	bt.setInfo(uint32(linkage), btfTypeVlenMask, btfTypeVlenShift)
 }
 
@@ -241,6 +264,7 @@ func readTypes(r io.Reader, bo binary.ByteOrder) ([]rawType, error) {
 			data = new(btfVariable)
 		case kindDatasec:
 			data = make([]btfVarSecinfo, header.Vlen())
+		case kindFloat:
 		default:
 			return nil, fmt.Errorf("type id %v: unknown kind: %v", id, header.Kind())
 		}
@@ -256,4 +280,8 @@ func readTypes(r io.Reader, bo binary.ByteOrder) ([]rawType, error) {
 
 		types = append(types, rawType{header, data})
 	}
+}
+
+func intEncoding(raw uint32) (IntEncoding, uint32, byte) {
+	return IntEncoding((raw & 0x0f000000) >> 24), (raw & 0x00ff0000) >> 16, byte(raw & 0x000000ff)
 }

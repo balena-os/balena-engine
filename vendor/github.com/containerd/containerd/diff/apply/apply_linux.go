@@ -1,5 +1,3 @@
-// +build linux
-
 /*
    Copyright The containerd Authors.
 
@@ -20,14 +18,14 @@ package apply
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
 	"github.com/containerd/containerd/archive"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/sys"
-	"github.com/pkg/errors"
+	"github.com/containerd/containerd/pkg/userns"
 )
 
 func apply(ctx context.Context, mounts []mount.Mount, r io.Reader) error {
@@ -35,7 +33,7 @@ func apply(ctx context.Context, mounts []mount.Mount, r io.Reader) error {
 	case len(mounts) == 1 && mounts[0].Type == "overlay":
 		// OverlayConvertWhiteout (mknod c 0 0) doesn't work in userns.
 		// https://github.com/containerd/containerd/issues/3762
-		if sys.RunningInUserNS() {
+		if userns.RunningInUserNS() {
 			break
 		}
 		path, parents, err := getOverlayPath(mounts[0].Options)
@@ -88,7 +86,7 @@ func getOverlayPath(options []string) (upper string, lower []string, err error) 
 		}
 	}
 	if upper == "" {
-		return "", nil, errors.Wrap(errdefs.ErrInvalidArgument, "upperdir not found")
+		return "", nil, fmt.Errorf("upperdir not found: %w", errdefs.ErrInvalidArgument)
 	}
 
 	return
@@ -113,22 +111,22 @@ func getAufsPath(options []string) (upper string, lower []string, err error) {
 		for _, b := range strings.Split(o, sep) {
 			if strings.HasSuffix(b, rwSuffix) {
 				if upper != "" {
-					return "", nil, errors.Wrap(errdefs.ErrInvalidArgument, "multiple rw branch found")
+					return "", nil, fmt.Errorf("multiple rw branch found: %w", errdefs.ErrInvalidArgument)
 				}
 				upper = strings.TrimSuffix(b, rwSuffix)
 			} else if strings.HasSuffix(b, roSuffix) {
 				if upper == "" {
-					return "", nil, errors.Wrap(errdefs.ErrInvalidArgument, "rw branch be first")
+					return "", nil, fmt.Errorf("rw branch be first: %w", errdefs.ErrInvalidArgument)
 				}
 				lower = append(lower, strings.TrimSuffix(b, roSuffix))
 			} else {
-				return "", nil, errors.Wrap(errdefs.ErrInvalidArgument, "unhandled aufs suffix")
+				return "", nil, fmt.Errorf("unhandled aufs suffix: %w", errdefs.ErrInvalidArgument)
 			}
 
 		}
 	}
 	if upper == "" {
-		return "", nil, errors.Wrap(errdefs.ErrInvalidArgument, "rw branch not found")
+		return "", nil, fmt.Errorf("rw branch not found: %w", errdefs.ErrInvalidArgument)
 	}
 	return
 }

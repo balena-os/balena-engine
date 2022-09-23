@@ -23,7 +23,7 @@ import (
 
 	"github.com/containerd/containerd/log"
 	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // networkNotReadyReason is the reason reported when network is not ready.
@@ -41,11 +41,14 @@ func (c *criService) Status(ctx context.Context, r *runtime.StatusRequest) (*run
 		Type:   runtime.NetworkReady,
 		Status: true,
 	}
+	netPlugin := c.netPlugin[defaultNetworkPlugin]
 	// Check the status of the cni initialization
-	if err := c.netPlugin.Status(); err != nil {
-		networkCondition.Status = false
-		networkCondition.Reason = networkNotReadyReason
-		networkCondition.Message = fmt.Sprintf("Network plugin returns error: %v", err)
+	if netPlugin != nil {
+		if err := netPlugin.Status(); err != nil {
+			networkCondition.Status = false
+			networkCondition.Reason = networkNotReadyReason
+			networkCondition.Message = fmt.Sprintf("Network plugin returns error: %v", err)
+		}
 	}
 
 	resp := &runtime.StatusResponse{
@@ -67,17 +70,29 @@ func (c *criService) Status(ctx context.Context, r *runtime.StatusRequest) (*run
 		}
 		resp.Info["golang"] = string(versionByt)
 
-		cniConfig, err := json.Marshal(c.netPlugin.GetConfig())
-		if err != nil {
-			log.G(ctx).WithError(err).Errorf("Failed to marshal CNI config %v", err)
+		if netPlugin != nil {
+			cniConfig, err := json.Marshal(netPlugin.GetConfig())
+			if err != nil {
+				log.G(ctx).WithError(err).Errorf("Failed to marshal CNI config %v", err)
+			}
+			resp.Info["cniconfig"] = string(cniConfig)
 		}
-		resp.Info["cniconfig"] = string(cniConfig)
 
-		lastCNILoadStatus := "OK"
-		if lerr := c.cniNetConfMonitor.lastStatus(); lerr != nil {
-			lastCNILoadStatus = lerr.Error()
+		defaultStatus := "OK"
+		for name, h := range c.cniNetConfMonitor {
+			s := "OK"
+			if h == nil {
+				continue
+			}
+			if lerr := h.lastStatus(); lerr != nil {
+				s = lerr.Error()
+			}
+			resp.Info[fmt.Sprintf("lastCNILoadStatus.%s", name)] = s
+			if name == defaultNetworkPlugin {
+				defaultStatus = s
+			}
 		}
-		resp.Info["lastCNILoadStatus"] = lastCNILoadStatus
+		resp.Info["lastCNILoadStatus"] = defaultStatus
 	}
 	return resp, nil
 }

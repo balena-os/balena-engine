@@ -10,6 +10,7 @@ import (
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/completion"
 	"github.com/docker/cli/cli/command/image"
 	"github.com/docker/cli/opts"
 	"github.com/docker/distribution/reference"
@@ -36,7 +37,8 @@ type createOptions struct {
 	name      string
 	platform  string
 	untrusted bool
-	pull      string // alway, missing, never
+	pull      string // always, missing, never
+	quiet     bool
 }
 
 // NewCreateCommand creates a new cobra.Command for `docker create`
@@ -55,6 +57,7 @@ func NewCreateCommand(dockerCli command.Cli) *cobra.Command {
 			}
 			return runCreate(dockerCli, cmd.Flags(), &opts, copts)
 		},
+		ValidArgsFunction: completion.ImageNames(dockerCli),
 	}
 
 	flags := cmd.Flags()
@@ -63,6 +66,7 @@ func NewCreateCommand(dockerCli command.Cli) *cobra.Command {
 	flags.StringVar(&opts.name, "name", "", "Assign a name to the container")
 	flags.StringVar(&opts.pull, "pull", PullImageMissing,
 		`Pull image before creating ("`+PullImageAlways+`"|"`+PullImageMissing+`"|"`+PullImageNever+`")`)
+	flags.BoolVarP(&opts.quiet, "quiet", "q", false, "Suppress the pull output")
 
 	// Add an explicit help that doesn't have a `-h` to prevent the conflict
 	// with hostname
@@ -155,7 +159,7 @@ func (cid *cidFile) Close() error {
 		return nil
 	}
 	if err := os.Remove(cid.path); err != nil {
-		return errors.Errorf("failed to remove the CID file '%s': %s \n", cid.path, err)
+		return errors.Wrapf(err, "failed to remove the CID file '%s'", cid.path)
 	}
 
 	return nil
@@ -166,7 +170,7 @@ func (cid *cidFile) Write(id string) error {
 		return nil
 	}
 	if _, err := cid.file.Write([]byte(id)); err != nil {
-		return errors.Errorf("Failed to write the container ID to the file: %s", err)
+		return errors.Wrap(err, "failed to write the container ID to the file")
 	}
 	cid.written = true
 	return nil
@@ -177,19 +181,19 @@ func newCIDFile(path string) (*cidFile, error) {
 		return &cidFile{}, nil
 	}
 	if _, err := os.Stat(path); err == nil {
-		return nil, errors.Errorf("Container ID file found, make sure the other container isn't running or delete %s", path)
+		return nil, errors.Errorf("container ID file found, make sure the other container isn't running or delete %s", path)
 	}
 
 	f, err := os.Create(path)
 	if err != nil {
-		return nil, errors.Errorf("Failed to create the container ID file: %s", err)
+		return nil, errors.Wrap(err, "failed to create the container ID file")
 	}
 
 	return &cidFile{path: path, file: f}, nil
 }
 
 // nolint: gocyclo
-func createContainer(ctx context.Context, dockerCli command.Cli, containerConfig *containerConfig, opts *createOptions) (*container.ContainerCreateCreatedBody, error) {
+func createContainer(ctx context.Context, dockerCli command.Cli, containerConfig *containerConfig, opts *createOptions) (*container.CreateResponse, error) {
 	config := containerConfig.Config
 	hostConfig := containerConfig.HostConfig
 	networkingConfig := containerConfig.NetworkingConfig
@@ -227,7 +231,11 @@ func createContainer(ctx context.Context, dockerCli command.Cli, containerConfig
 	}
 
 	pullAndTagImage := func() error {
-		if err := pullImage(ctx, dockerCli, config.Image, opts.platform, stderr); err != nil {
+		pullOut := stderr
+		if opts.quiet {
+			pullOut = io.Discard
+		}
+		if err := pullImage(ctx, dockerCli, config.Image, opts.platform, pullOut); err != nil {
 			return err
 		}
 		if taggedRef, ok := namedRef.(reference.NamedTagged); ok && trustedRef != nil {
@@ -255,12 +263,17 @@ func createContainer(ctx context.Context, dockerCli command.Cli, containerConfig
 		}
 	}
 
+	hostConfig.ConsoleSize[0], hostConfig.ConsoleSize[1] = dockerCli.Out().GetTtySize()
+
 	response, err := dockerCli.Client().ContainerCreate(ctx, config, hostConfig, networkingConfig, platform, opts.name)
 	if err != nil {
 		// Pull image if it does not exist locally and we have the PullImageMissing option. Default behavior.
 		if apiclient.IsErrNotFound(err) && namedRef != nil && opts.pull == PullImageMissing {
-			// we don't want to write to stdout anything apart from container.ID
-			fmt.Fprintf(stderr, "Unable to find image '%s' locally\n", reference.FamiliarString(namedRef))
+			if !opts.quiet {
+				// we don't want to write to stdout anything apart from container.ID
+				fmt.Fprintf(stderr, "Unable to find image '%s' locally\n", reference.FamiliarString(namedRef))
+			}
+
 			if err := pullAndTagImage(); err != nil {
 				return nil, err
 			}

@@ -17,6 +17,7 @@
 package namespaces
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -26,7 +27,6 @@ import (
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
@@ -47,7 +47,7 @@ var createCommand = cli.Command{
 	Name:        "create",
 	Aliases:     []string{"c"},
 	Usage:       "create a new namespace",
-	ArgsUsage:   "<name> [<key>=<value]",
+	ArgsUsage:   "<name> [<key>=<value>]",
 	Description: "create a new namespace. it must be unique",
 	Action: func(context *cli.Context) error {
 		namespace, labels := commands.ObjectWithLabelArgs(context)
@@ -68,7 +68,7 @@ var setLabelsCommand = cli.Command{
 	Name:        "label",
 	Usage:       "set and clear labels for a namespace",
 	ArgsUsage:   "<name> [<key>=<value>, ...]",
-	Description: "set and clear labels for a namespace",
+	Description: "set and clear labels for a namespace. empty value clears the label",
 	Action: func(context *cli.Context) error {
 		namespace, labels := commands.ObjectWithLabelArgs(context)
 		if namespace == "" {
@@ -167,7 +167,7 @@ var removeCommand = cli.Command{
 			if err := namespaces.Delete(ctx, target, opts...); err != nil {
 				if !errdefs.IsNotFound(err) {
 					if exitErr == nil {
-						exitErr = errors.Wrapf(err, "unable to delete %v", target)
+						exitErr = fmt.Errorf("unable to delete %v: %w", target, err)
 					}
 					log.G(ctx).WithError(err).Errorf("unable to delete %v", target)
 					continue

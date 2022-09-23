@@ -89,14 +89,18 @@ func copyFileContent(dst, src *os.File) error {
 
 		n, err := unix.CopyFileRange(int(src.Fd()), nil, int(dst.Fd()), nil, desired, 0)
 		if err != nil {
-			if (err != unix.ENOSYS && err != unix.EXDEV && err != unix.EPERM) || !first {
+			// matches go/src/internal/poll/copy_file_range_linux.go
+			if (err != unix.ENOSYS && err != unix.EXDEV && err != unix.EPERM && err != syscall.EIO && err != unix.EOPNOTSUPP && err != syscall.EINVAL) || !first {
 				return errors.Wrap(err, "copy file range failed")
 			}
 
 			buf := bufferPool.Get().(*[]byte)
 			_, err = io.CopyBuffer(dst, src, *buf)
 			bufferPool.Put(buf)
-			return errors.Wrap(err, "userspace copy failed")
+			if err != nil {
+				return errors.Wrap(err, "userspace copy failed")
+			}
+			return nil
 		}
 
 		first = false

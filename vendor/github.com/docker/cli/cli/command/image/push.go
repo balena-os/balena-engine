@@ -3,10 +3,11 @@ package image
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/completion"
 	"github.com/docker/cli/cli/streams"
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
@@ -29,16 +30,20 @@ func NewPushCommand(dockerCli command.Cli) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "push [OPTIONS] NAME[:TAG]",
-		Short: "Push an image or a repository to a registry",
+		Short: "Upload an image to a registry",
 		Args:  cli.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.remote = args[0]
 			return RunPush(dockerCli, opts)
 		},
+		Annotations: map[string]string{
+			"category-top": "6",
+		},
+		ValidArgsFunction: completion.ImageNames(dockerCli),
 	}
 
 	flags := cmd.Flags()
-	flags.BoolVarP(&opts.all, "all-tags", "a", false, "Push all tagged images in the repository")
+	flags.BoolVarP(&opts.all, "all-tags", "a", false, "Push all tags of an image to the repository")
 	flags.BoolVarP(&opts.quiet, "quiet", "q", false, "Suppress verbose output")
 	command.AddTrustSigningFlags(flags, &opts.untrusted, dockerCli.ContentTrustEnabled())
 
@@ -93,7 +98,7 @@ func RunPush(dockerCli command.Cli, opts pushOptions) error {
 	}
 
 	if opts.quiet {
-		err = jsonmessage.DisplayJSONMessagesToStream(responseBody, streams.NewOut(ioutil.Discard), nil)
+		err = jsonmessage.DisplayJSONMessagesToStream(responseBody, streams.NewOut(io.Discard), nil)
 		if err == nil {
 			fmt.Fprintln(dockerCli.Out(), ref.String())
 		}

@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -15,11 +16,11 @@ import (
 	"github.com/docker/cli/cli/compose/loader"
 	"github.com/docker/cli/opts"
 	"github.com/docker/docker/api/types/container"
+	mounttypes "github.com/docker/docker/api/types/mount"
 	networktypes "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/errdefs"
-	"github.com/docker/docker/pkg/signal"
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -184,7 +185,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
 	flags.Var(&copts.labelsFile, "label-file", "Read in a line delimited file of labels")
 	flags.BoolVar(&copts.readonlyRootfs, "read-only", false, "Mount the container's root filesystem as read only")
 	flags.StringVar(&copts.restartPolicy, "restart", "no", "Restart policy to apply when a container exits")
-	flags.StringVar(&copts.stopSignal, "stop-signal", signal.DefaultStopSignal, "Signal to stop a container")
+	flags.StringVar(&copts.stopSignal, "stop-signal", "", "Signal to stop the container")
 	flags.IntVar(&copts.stopTimeout, "stop-timeout", 0, "Timeout (in seconds) to stop a container")
 	flags.SetAnnotation("stop-timeout", "version", []string{"1.25"})
 	flags.Var(copts.sysctls, "sysctl", "Sysctl options")
@@ -351,10 +352,25 @@ func parse(flags *pflag.FlagSet, copts *containerOptions, serverOS string) (*con
 	// add any bind targets to the list of container volumes
 	for bind := range copts.volumes.GetMap() {
 		parsed, _ := loader.ParseVolume(bind)
+
 		if parsed.Source != "" {
+			toBind := bind
+
+			if parsed.Type == string(mounttypes.TypeBind) {
+				if arr := strings.SplitN(bind, ":", 2); len(arr) == 2 {
+					hostPart := arr[0]
+					if strings.HasPrefix(hostPart, "."+string(filepath.Separator)) || hostPart == "." {
+						if absHostPart, err := filepath.Abs(hostPart); err == nil {
+							hostPart = absHostPart
+						}
+					}
+					toBind = hostPart + ":" + arr[1]
+				}
+			}
+
 			// after creating the bind mount we want to delete it from the copts.volumes values because
 			// we do not want bind mounts being committed to image configs
-			binds = append(binds, bind)
+			binds = append(binds, toBind)
 			// We should delete from the map (`volumes`) here, as deleting from copts.volumes will not work if
 			// there are duplicates entries.
 			delete(volumes, bind)
@@ -601,10 +617,8 @@ func parse(flags *pflag.FlagSet, copts *containerOptions, serverOS string) (*con
 		Entrypoint:      entrypoint,
 		WorkingDir:      copts.workingDir,
 		Labels:          opts.ConvertKVStringsToMap(labels),
+		StopSignal:      copts.stopSignal,
 		Healthcheck:     healthConfig,
-	}
-	if flags.Changed("stop-signal") {
-		config.StopSignal = copts.stopSignal
 	}
 	if flags.Changed("stop-timeout") {
 		config.StopTimeout = &copts.stopTimeout
@@ -851,7 +865,7 @@ func parseSecurityOpts(securityOpts []string) ([]string, error) {
 			}
 		}
 		if con[0] == "seccomp" && con[1] != "unconfined" {
-			f, err := ioutil.ReadFile(con[1])
+			f, err := os.ReadFile(con[1])
 			if err != nil {
 				return securityOpts, errors.Errorf("opening seccomp profile (%s) failed: %v", con[1], err)
 			}

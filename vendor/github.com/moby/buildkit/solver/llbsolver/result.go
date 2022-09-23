@@ -5,10 +5,10 @@ import (
 	"context"
 	"path"
 
+	cacheconfig "github.com/moby/buildkit/cache/config"
 	"github.com/moby/buildkit/cache/contenthash"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/solver"
-	"github.com/moby/buildkit/util/compression"
 	"github.com/moby/buildkit/worker"
 	digest "github.com/opencontainers/go-digest"
 	"github.com/pkg/errors"
@@ -16,9 +16,15 @@ import (
 )
 
 type Selector struct {
-	Path        string
-	Wildcard    bool
-	FollowLinks bool
+	Path            string
+	Wildcard        bool
+	FollowLinks     bool
+	IncludePatterns []string
+	ExcludePatterns []string
+}
+
+func (sel Selector) HasWildcardOrFilters() bool {
+	return sel.Wildcard || len(sel.IncludePatterns) != 0 || len(sel.ExcludePatterns) != 0
 }
 
 func UnlazyResultFunc(ctx context.Context, res solver.Result, g session.Group) error {
@@ -50,19 +56,20 @@ func NewContentHashFunc(selectors []Selector) solver.ResultBasedCacheFunc {
 		for i, sel := range selectors {
 			i, sel := i, sel
 			eg.Go(func() error {
-				if !sel.Wildcard {
-					dgst, err := contenthash.Checksum(ctx, ref.ImmutableRef, path.Join("/", sel.Path), sel.FollowLinks, s)
-					if err != nil {
-						return err
-					}
-					dgsts[i] = []byte(dgst)
-				} else {
-					dgst, err := contenthash.ChecksumWildcard(ctx, ref.ImmutableRef, path.Join("/", sel.Path), sel.FollowLinks, s)
-					if err != nil {
-						return err
-					}
-					dgsts[i] = []byte(dgst)
+				dgst, err := contenthash.Checksum(
+					ctx, ref.ImmutableRef, path.Join("/", sel.Path),
+					contenthash.ChecksumOpts{
+						Wildcard:        sel.Wildcard,
+						FollowLinks:     sel.FollowLinks,
+						IncludePatterns: sel.IncludePatterns,
+						ExcludePatterns: sel.ExcludePatterns,
+					},
+					s,
+				)
+				if err != nil {
+					return errors.Wrapf(err, "failed to calculate checksum of ref %s", ref.ID())
 				}
+				dgsts[i] = []byte(dgst)
 				return nil
 			})
 		}
@@ -75,13 +82,13 @@ func NewContentHashFunc(selectors []Selector) solver.ResultBasedCacheFunc {
 	}
 }
 
-func workerRefConverter(g session.Group) func(ctx context.Context, res solver.Result) (*solver.Remote, error) {
-	return func(ctx context.Context, res solver.Result) (*solver.Remote, error) {
+func workerRefResolver(refCfg cacheconfig.RefConfig, all bool, g session.Group) func(ctx context.Context, res solver.Result) ([]*solver.Remote, error) {
+	return func(ctx context.Context, res solver.Result) ([]*solver.Remote, error) {
 		ref, ok := res.Sys().(*worker.WorkerRef)
 		if !ok {
 			return nil, errors.Errorf("invalid result: %T", res.Sys())
 		}
 
-		return ref.GetRemote(ctx, true, compression.Default, g)
+		return ref.GetRemotes(ctx, true, refCfg, all, g)
 	}
 }

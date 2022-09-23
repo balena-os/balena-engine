@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/docker/cli/cli"
 	pluginmanager "github.com/docker/cli/cli-plugins/manager"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/completion"
 	"github.com/docker/cli/cli/debug"
 	"github.com/docker/cli/templates"
 	"github.com/docker/docker/api/types"
@@ -53,6 +55,10 @@ func NewInfoCommand(dockerCli command.Cli) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runInfo(cmd, dockerCli, &opts)
 		},
+		Annotations: map[string]string{
+			"category-top": "12",
+		},
+		ValidArgsFunction: completion.NoComplete,
 	}
 
 	flags := cmd.Flags()
@@ -63,23 +69,36 @@ func NewInfoCommand(dockerCli command.Cli) *cobra.Command {
 }
 
 func runInfo(cmd *cobra.Command, dockerCli command.Cli, opts *infoOptions) error {
-	var info info
-
-	ctx := context.Background()
-	if dinfo, err := dockerCli.Client().Info(ctx); err == nil {
-		info.Info = &dinfo
-	} else {
-		info.ServerErrors = append(info.ServerErrors, err.Error())
-	}
-
-	info.ClientInfo = &clientInfo{
-		Context: dockerCli.CurrentContext(),
-		Debug:   debug.IsEnabled(),
+	info := info{
+		ClientInfo: &clientInfo{
+			Context: dockerCli.CurrentContext(),
+			Debug:   debug.IsEnabled(),
+		},
+		Info: &types.Info{},
 	}
 	if plugins, err := pluginmanager.ListPlugins(dockerCli, cmd.Root()); err == nil {
 		info.ClientInfo.Plugins = plugins
 	} else {
 		info.ClientErrors = append(info.ClientErrors, err.Error())
+	}
+
+	if needsServerInfo(opts.format, info) {
+		ctx := context.Background()
+		if dinfo, err := dockerCli.Client().Info(ctx); err == nil {
+			info.Info = &dinfo
+		} else {
+			info.ServerErrors = append(info.ServerErrors, err.Error())
+			if opts.format == "" {
+				// reset the server info to prevent printing "empty" Server info
+				// and warnings, but don't reset it if a custom format was specified
+				// to prevent errors from Go's template parsing during format.
+				info.Info = nil
+			} else {
+				// if a format is provided, print the error, as it may be hidden
+				// otherwise if the template doesn't include the ServerErrors field.
+				fmt.Fprintln(dockerCli.Err(), err)
+			}
+		}
 	}
 
 	if opts.format == "" {
@@ -88,13 +107,52 @@ func runInfo(cmd *cobra.Command, dockerCli command.Cli, opts *infoOptions) error
 	return formatInfo(dockerCli, info, opts.format)
 }
 
+// placeHolders does a rudimentary match for possible placeholders in a
+// template, matching a '.', followed by an letter (a-z/A-Z).
+var placeHolders = regexp.MustCompile(`\.[a-zA-Z]`)
+
+// needsServerInfo detects if the given template uses any server information.
+// If only client-side information is used in the template, we can skip
+// connecting to the daemon. This allows (e.g.) to only get cli-plugin
+// information, without also making a (potentially expensive) API call.
+func needsServerInfo(template string, info info) bool {
+	if len(template) == 0 || placeHolders.FindString(template) == "" {
+		// The template is empty, or does not contain formatting fields
+		// (e.g. `table` or `raw` or `{{ json .}}`). Assume we need server-side
+		// information to render it.
+		return true
+	}
+
+	// A template is provided and has at least one field set.
+	tmpl, err := templates.NewParse("", template)
+	if err != nil {
+		// ignore parsing errors here, and let regular code handle them
+		return true
+	}
+
+	type sparseInfo struct {
+		ClientInfo   *clientInfo `json:",omitempty"`
+		ClientErrors []string    `json:",omitempty"`
+	}
+
+	// This constructs an "info" object that only has the client-side fields.
+	err = tmpl.Execute(io.Discard, sparseInfo{
+		ClientInfo:   info.ClientInfo,
+		ClientErrors: info.ClientErrors,
+	})
+	// If executing the template failed, it means the template needs
+	// server-side information as well. If it succeeded without server-side
+	// information, we don't need to make API calls to collect that information.
+	return err != nil
+}
+
 func prettyPrintInfo(dockerCli command.Cli, info info) error {
 	fmt.Fprintln(dockerCli.Out(), "Client:")
 	if info.ClientInfo != nil {
 		prettyPrintClientInfo(dockerCli, *info.ClientInfo)
 	}
 	for _, err := range info.ClientErrors {
-		fmt.Fprintln(dockerCli.Out(), "ERROR:", err)
+		fmt.Fprintln(dockerCli.Err(), "ERROR:", err)
 	}
 
 	fmt.Fprintln(dockerCli.Out())
@@ -105,7 +163,7 @@ func prettyPrintInfo(dockerCli command.Cli, info info) error {
 		}
 	}
 	for _, err := range info.ServerErrors {
-		fmt.Fprintln(dockerCli.Out(), "ERROR:", err)
+		fmt.Fprintln(dockerCli.Err(), "ERROR:", err)
 	}
 
 	if len(info.ServerErrors) > 0 || len(info.ClientErrors) > 0 {
@@ -122,11 +180,9 @@ func prettyPrintClientInfo(dockerCli command.Cli, info clientInfo) {
 		fmt.Fprintln(dockerCli.Out(), " Plugins:")
 		for _, p := range info.Plugins {
 			if p.Err == nil {
-				var version string
-				if p.Version != "" {
-					version = ", " + p.Version
-				}
-				fmt.Fprintf(dockerCli.Out(), "  %s: %s (%s%s)\n", p.Name, p.ShortDescription, p.Vendor, version)
+				fmt.Fprintf(dockerCli.Out(), "  %s: %s (%s)\n", p.Name, p.ShortDescription, p.Vendor)
+				fprintlnNonEmpty(dockerCli.Out(), "    Version: ", p.Version)
+				fprintlnNonEmpty(dockerCli.Out(), "    Path:    ", p.Path)
 			} else {
 				info.Warnings = append(info.Warnings, fmt.Sprintf("WARNING: Plugin %q is not valid: %s", p.Path, p.Err))
 			}
@@ -263,8 +319,6 @@ func prettyPrintServerInfo(dockerCli command.Cli, info types.Info) []error {
 	}
 
 	fmt.Fprintln(dockerCli.Out(), " Experimental:", info.ExperimentalBuild)
-	fprintlnNonEmpty(dockerCli.Out(), " Cluster Store:", info.ClusterStore)
-	fprintlnNonEmpty(dockerCli.Out(), " Cluster Advertise:", info.ClusterAdvertise)
 
 	if info.RegistryConfig != nil && (len(info.RegistryConfig.InsecureRegistryCIDRs) > 0 || len(info.RegistryConfig.IndexConfigs) > 0) {
 		fmt.Fprintln(dockerCli.Out(), " Insecure Registries:")
@@ -384,7 +438,6 @@ func printServerWarnings(dockerCli command.Cli, info types.Info) {
 		return
 	}
 	// daemon didn't return warnings. Fallback to old behavior
-	printStorageDriverWarnings(dockerCli, info)
 	printServerWarningsLegacy(dockerCli, info)
 }
 
@@ -452,51 +505,6 @@ func printServerWarningsLegacy(dockerCli command.Cli, info types.Info) {
 	}
 }
 
-// printStorageDriverWarnings generates warnings based on storage-driver information
-// returned by the daemon.
-// DEPRECATED: warnings are now generated by the daemon, and returned in
-// info.Warnings. This function is used to provide backward compatibility with
-// daemons that do not provide these warnings. No new warnings should be added
-// here.
-func printStorageDriverWarnings(dockerCli command.Cli, info types.Info) {
-	if info.OSType == "windows" {
-		return
-	}
-	if info.DriverStatus == nil {
-		return
-	}
-	for _, pair := range info.DriverStatus {
-		if pair[0] == "Data loop file" {
-			fmt.Fprintf(dockerCli.Err(), "WARNING: %s: usage of loopback devices is "+
-				"strongly discouraged for production use.\n         "+
-				"Use `--storage-opt dm.thinpooldev` to specify a custom block storage device.\n", info.Driver)
-		}
-		if pair[0] == "Supports d_type" && pair[1] == "false" {
-			backingFs := getBackingFs(info)
-
-			msg := fmt.Sprintf("WARNING: %s: the backing %s filesystem is formatted without d_type support, which leads to incorrect behavior.\n", info.Driver, backingFs)
-			if backingFs == "xfs" {
-				msg += "         Reformat the filesystem with ftype=1 to enable d_type support.\n"
-			}
-			msg += "         Running without d_type support will not be supported in future releases."
-			fmt.Fprintln(dockerCli.Err(), msg)
-		}
-	}
-}
-
-func getBackingFs(info types.Info) string {
-	if info.DriverStatus == nil {
-		return ""
-	}
-
-	for _, pair := range info.DriverStatus {
-		if pair[0] == "Backing Filesystem" {
-			return pair[1]
-		}
-	}
-	return ""
-}
-
 func formatInfo(dockerCli command.Cli, info info, format string) error {
 	// Ensure slice/array fields render as `[]` not `null`
 	if info.ClientInfo != nil && info.ClientInfo.Plugins == nil {
@@ -506,7 +514,7 @@ func formatInfo(dockerCli command.Cli, info info, format string) error {
 	tmpl, err := templates.Parse(format)
 	if err != nil {
 		return cli.StatusError{StatusCode: 64,
-			Status: "Template parsing error: " + err.Error()}
+			Status: "template parsing error: " + err.Error()}
 	}
 	err = tmpl.Execute(dockerCli.Out(), info)
 	dockerCli.Out().Write([]byte{'\n'})

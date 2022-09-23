@@ -3,11 +3,12 @@ package registry
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"strings"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/completion"
 	configtypes "github.com/docker/cli/cli/config/types"
 	"github.com/docker/docker/api/types"
 	registrytypes "github.com/docker/docker/api/types/registry"
@@ -35,8 +36,8 @@ func NewLoginCommand(dockerCli command.Cli) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "login [OPTIONS] [SERVER]",
-		Short: "Log in to a Docker registry",
-		Long:  "Log in to a Docker registry.\nIf no server is specified, the default is defined by the daemon.",
+		Short: "Log in to a registry",
+		Long:  "Log in to a registry.\nIf no server is specified, the default is defined by the daemon.",
 		Args:  cli.RequiresMaxArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
@@ -44,6 +45,10 @@ func NewLoginCommand(dockerCli command.Cli) *cobra.Command {
 			}
 			return runLogin(dockerCli, opts)
 		},
+		Annotations: map[string]string{
+			"category-top": "8",
+		},
+		ValidArgsFunction: completion.NoComplete,
 	}
 
 	flags := cmd.Flags()
@@ -84,7 +89,7 @@ func verifyloginOptions(dockerCli command.Cli, opts *loginOptions) error {
 			return errors.New("Must provide --username with --password-stdin")
 		}
 
-		contents, err := ioutil.ReadAll(dockerCli.In())
+		contents, err := io.ReadAll(dockerCli.In())
 		if err != nil {
 			return err
 		}
@@ -103,16 +108,15 @@ func runLogin(dockerCli command.Cli, opts loginOptions) error { //nolint: gocycl
 	}
 	var (
 		serverAddress string
-		authServer    = command.ElectAuthServer(ctx, dockerCli)
+		response      registrytypes.AuthenticateOKBody
 	)
 	if opts.serverAddress != "" && opts.serverAddress != registry.DefaultNamespace {
 		serverAddress = opts.serverAddress
 	} else {
-		serverAddress = authServer
+		serverAddress = registry.IndexServer
 	}
 
-	var response registrytypes.AuthenticateOKBody
-	isDefaultRegistry := serverAddress == authServer
+	isDefaultRegistry := serverAddress == registry.IndexServer
 	authConfig, err := command.GetDefaultAuthConfig(dockerCli, opts.user == "" && opts.password == "", serverAddress, isDefaultRegistry)
 	if err == nil && authConfig.Username != "" && authConfig.Password != "" {
 		response, err = loginWithCredStoreCreds(ctx, dockerCli, &authConfig)

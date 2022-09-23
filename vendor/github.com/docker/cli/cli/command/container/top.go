@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/completion"
+	"github.com/docker/cli/cli/command/formatter/tabwriter"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +31,7 @@ func NewTopCommand(dockerCli command.Cli) *cobra.Command {
 			opts.args = args[1:]
 			return runTop(dockerCli, &opts)
 		},
+		ValidArgsFunction: completion.ContainerNames(dockerCli, false),
 	}
 
 	flags := cmd.Flags()

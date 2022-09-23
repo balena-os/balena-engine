@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"io"
 	"strings"
-	"text/tabwriter"
 	"text/template"
 
+	"github.com/docker/cli/cli/command/formatter/tabwriter"
 	"github.com/docker/cli/templates"
 	"github.com/pkg/errors"
 )
@@ -16,8 +16,10 @@ const (
 	TableFormatKey  = "table"
 	RawFormatKey    = "raw"
 	PrettyFormatKey = "pretty"
+	JSONFormatKey   = "json"
 
 	DefaultQuietFormat = "{{.ID}}"
+	jsonFormat         = "{{json .}}"
 )
 
 // Format is the format string rendered using the Context
@@ -26,6 +28,11 @@ type Format string
 // IsTable returns true if the format is a table-type format
 func (f Format) IsTable() bool {
 	return strings.HasPrefix(string(f), TableFormatKey)
+}
+
+// IsJSON returns true if the format is the json format
+func (f Format) IsJSON() bool {
+	return string(f) == JSONFormatKey
 }
 
 // Contains returns true if the format contains the substring
@@ -50,10 +57,12 @@ type Context struct {
 
 func (c *Context) preFormat() {
 	c.finalFormat = string(c.Format)
-
 	// TODO: handle this in the Format type
-	if c.Format.IsTable() {
+	switch {
+	case c.Format.IsTable():
 		c.finalFormat = c.finalFormat[len(TableFormatKey):]
+	case c.Format.IsJSON():
+		c.finalFormat = jsonFormat
 	}
 
 	c.finalFormat = strings.Trim(c.finalFormat, " ")
@@ -64,7 +73,7 @@ func (c *Context) preFormat() {
 func (c *Context) parseFormat() (*template.Template, error) {
 	tmpl, err := templates.Parse(c.finalFormat)
 	if err != nil {
-		return tmpl, errors.Errorf("Template parsing error: %v\n", err)
+		return tmpl, errors.Wrap(err, "template parsing error")
 	}
 	return tmpl, err
 }
@@ -85,7 +94,7 @@ func (c *Context) postFormat(tmpl *template.Template, subContext SubContext) {
 
 func (c *Context) contextFormat(tmpl *template.Template, subContext SubContext) error {
 	if err := tmpl.Execute(c.buffer, subContext); err != nil {
-		return errors.Errorf("Template parsing error: %v\n", err)
+		return errors.Wrap(err, "template parsing error")
 	}
 	if c.Format.IsTable() && c.header != nil {
 		c.header = subContext.FullHeader()

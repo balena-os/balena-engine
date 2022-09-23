@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"sort"
 	"strings"
 	"text/template"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/docker/cli/cli"
 	"github.com/docker/cli/cli/command"
+	"github.com/docker/cli/cli/command/completion"
 	"github.com/docker/cli/opts"
 	"github.com/docker/cli/templates"
 	"github.com/docker/docker/api/types"
@@ -37,6 +37,7 @@ func NewEventsCommand(dockerCli command.Cli) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runEvents(dockerCli, &options)
 		},
+		ValidArgsFunction: completion.NoComplete,
 	}
 
 	flags := cmd.Flags()
@@ -100,7 +101,7 @@ func makeTemplate(format string) (*template.Template, error) {
 	}
 	// we execute the template for an empty message, so as to validate
 	// a bad template like "{{.badFieldString}}"
-	return tmpl, tmpl.Execute(ioutil.Discard, &eventtypes.Message{})
+	return tmpl, tmpl.Execute(io.Discard, &eventtypes.Message{})
 }
 
 // rfc3339NanoFixed is similar to time.RFC3339Nano, except it pads nanoseconds
