@@ -10,9 +10,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/docker/docker/pkg/mount"
-	"golang.org/x/sys/unix"
 	"github.com/docker/docker/cmd/mobynit/hostapp"
+	"github.com/moby/sys/mountinfo"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -62,7 +62,7 @@ func main() {
 	flag.Parse()
 
 	// Any mounts done by initrd will be transfered in the new root
-	mounts, err := mount.GetMounts(nil)
+	mounts, err := mountinfo.GetMounts(nil)
 	if err != nil {
 		log.Fatal("could not get mounts:", err)
 	}
