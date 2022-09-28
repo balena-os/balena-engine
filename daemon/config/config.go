@@ -622,8 +622,8 @@ func Validate(config *Config) error {
 	if config.MaxDownloadAttempts < 0 {
 		return fmt.Errorf("invalid max download attempts: %d", config.MaxDownloadAttempts)
 	}
-	if err := ValidateMaxUploadAttempts(config); err != nil {
-		return err
+	if config.MaxUploadAttempts < 0 {
+		return fmt.Errorf("invalid max upload attempts: %d", config.MaxUploadAttempts)
 	}
 
 	// validate that "default" runtime is not reset
@@ -663,14 +663,6 @@ func (conf *Config) GetDefaultRuntimeName() string {
 	conf.Unlock()
 
 	return rt
-}
-
-// ValidateMaxUploadAttempts validates if the max-upload-attempts is within the valid range
-func ValidateMaxUploadAttempts(config *Config) error {
-	if config.MaxUploadAttempts <= 0 {
-		return fmt.Errorf("invalid max download attempts: %d", config.MaxUploadAttempts)
-	}
-	return nil
 }
 
 // MaskCredentials masks credentials that are in an URL.
