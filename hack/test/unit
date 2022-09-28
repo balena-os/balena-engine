@@ -22,8 +22,11 @@ base_pkg_list=$(echo "${pkg_list}" | grep --fixed-strings -v "/libnetwork" || :)
 libnetwork_pkg_list=$(echo "${pkg_list}" | grep --fixed-strings "/libnetwork" || :)
 
 echo "${libnetwork_pkg_list}" | grep --fixed-strings "libnetwork/drivers/bridge" \
-	&& if ! type docker-proxy; then
-		hack/make.sh binary-proxy install-proxy
+	&& if ! type balena-engine-proxy; then
+		# balenaEngine: `binary` builds our unified executable and symlinks
+		# `balena-engine-proxy`; hence, no need to invoke the `binary-proxy` and
+		# `install-proxy` targets as Moby does.
+		hack/make.sh binary
 	fi
 
 mkdir -p bundles
