@@ -73,8 +73,9 @@ func TestLayerMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	root := filepath.Join(td, "layers")
-	ls, err := newStoreFromGraphDriver(root, graph, runtime.GOOS)
+	ls, err := newStoreFromGraphDriver(root, graph)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,12 +90,6 @@ func TestLayerMigration(t *testing.T) {
 
 	tf1 := filepath.Join(td, "tar1.json.gz")
 	if err := writeTarSplitFile(tf1, tar1); err != nil {
-		t.Fatal(err)
-	}
-
-	root := filepath.Join(td, "layers")
-	ls, err := newStoreFromGraphDriver(root, graph)
-	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,8 +199,9 @@ func TestLayerMigrationNoTarsplit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	root := filepath.Join(td, "layers")
-	ls, err := newStoreFromGraphDriver(root, graph, runtime.GOOS)
+	ls, err := newStoreFromGraphDriver(root, graph)
 	if err != nil {
 		t.Fatal(err)
 	}

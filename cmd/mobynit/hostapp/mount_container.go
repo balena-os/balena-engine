@@ -15,9 +15,8 @@ func MountContainer(layer_root, containerID, graphDriver string) string {
 	ls, err := layer.NewStoreFromOptions(layer.StoreOptions{
 		Root:                      layer_root,
 		MetadataStorePathTemplate: filepath.Join(layer_root, "image", "%s", "layerdb"),
-		IDMapping:                 &idtools.IdentityMapping{},
+		IDMapping:                 idtools.IdentityMapping{},
 		GraphDriver:               graphDriver,
-		OS:                        "linux",
 	})
 	if err != nil {
 		log.Fatal("error loading layer store:", err)

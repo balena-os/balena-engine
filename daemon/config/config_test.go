@@ -326,7 +326,8 @@ func TestValidateConfigurationErrors(t *testing.T) {
 					NodeGenericResources: []string{"foo"},
 				},
 			},
-			expectedErr: "could not parse GenericResource: incorrect term foo, missing '=' or malformed expression",
+			// Generic resources are part of swarm, not supported by balenaEngine
+			expectedErr: "Unsupported feature",
 		},
 		{
 			name: "generic resource mixed named and discrete",
@@ -335,7 +336,8 @@ func TestValidateConfigurationErrors(t *testing.T) {
 					NodeGenericResources: []string{"foo=bar", "foo=1"},
 				},
 			},
-			expectedErr: "could not parse GenericResource: mixed discrete and named resources in expression 'foo=[bar 1]'",
+			// Generic resources are part of swarm, not supported by balenaEngine
+			expectedErr: "Unsupported feature",
 		},
 		{
 			name: "with invalid hosts",
@@ -426,7 +428,7 @@ func TestValidateConfiguration(t *testing.T) {
 			name: "with max-upload-attempts",
 			config: &Config{
 				CommonConfig: CommonConfig{
-					MaxUploadAttempts: intPtr(4),
+					MaxUploadAttempts: 4,
 				},
 			},
 		},
