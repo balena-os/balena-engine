@@ -1,0 +1,15 @@
+---
+version: "2.4"
+
+services:
+  sut:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev-systemd-false
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/go/src/github.com/docker/docker
+    privileged: true
+    command: hack/test/unit
+    working_dir: /go/src/github.com/docker/docker
