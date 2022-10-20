@@ -1,3 +1,0 @@
-docker:
-  publish: false
-  builds: []

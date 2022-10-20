@@ -27,6 +27,12 @@ for platform in ${DOCKER_CROSSPLATFORMS}; do
 			export GOARM
 		fi
 
+		# FIXME: package breaks arm* builds
+		if [[ "${GOARCH}" = "386" ]]; then
+			apt-get update \
+			  && apt-get install -y --no-install-recommends gcc-multilib
+		fi
+
 		echo "Cross building: ${DEST}"
 		mkdir -p "${DEST}"
 		ABS_DEST="$(cd "${DEST}" && pwd -P)"
