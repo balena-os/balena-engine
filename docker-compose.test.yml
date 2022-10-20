@@ -1,0 +1,15 @@
+---
+version: "2.4"
+
+services:
+  sut:
+    build: .
+    command:
+      - |
+        set -uaxe
+        echo "-------- BUILDING --------"
+        hack/make.sh dynbinary
+
+
+#       echo "-------- UNIT TESTING --------"
+#       hack/dind hack/test/unit
