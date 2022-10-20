@@ -1,0 +1,52 @@
+---
+name: publish GitHub release
+# https://github.com/product-os/flowzone/tree/master/.github/actions
+inputs:
+  json:
+    description: "JSON stringified object containing all the inputs from the calling workflow"
+    required: true
+  secrets:
+    description: "JSON stringified object containing all the secrets from the calling workflow"
+    required: true
+
+  # --- custom environment
+  VERBOSE:
+    type: string
+    default: "true"
+
+runs:
+  # https://docs.github.com/en/actions/creating-actions/creating-a-composite-action
+  using: "composite"
+  steps:
+    # https://docs.github.com/en/rest/releases
+    - name: Finalize release
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -ea
+
+        [[ '${{ inputs.VERBOSE }}' =~ on|On|Yes|yes|true|True ]] && set -x
+
+        # prevent git from existing with 141
+        set +o pipefail
+
+        current_version="v$(yq e '.[0].version' .versionbot/CHANGELOG.yml)"
+        previous_version="v$(yq e '.[1].version' .versionbot/CHANGELOG.yml)"
+        release_notes="$(git log ${previous_version}..HEAD --pretty=reference)"
+
+        gh release edit '${{ github.event.pull_request.head.ref }}' \
+          --notes "${release_notes}" \
+          --title "${current_version}" \
+          --tag "${current_version}" \
+          --prerelease=false \
+          --draft=false
+
+        release_id="$(gh api "/repos/${{ github.repository }}/releases/tags/${current_version}" \
+          -H 'Accept: application/vnd.github+json' | jq -r .id)"
+
+        gh api --method PATCH "/repos/${{ github.repository }}/releases/${release_id}" \
+          -H 'Accept: application/vnd.github+json' \
+          -F make_latest="true"
+
+      env:
+        GITHUB_TOKEN: ${{ fromJSON(inputs.secrets).FLOWZONE_TOKEN }}

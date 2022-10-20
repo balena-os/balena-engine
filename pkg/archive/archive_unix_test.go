@@ -254,15 +254,15 @@ func TestTarUntarWithXattr(t *testing.T) {
 		t.Skip("getcap not installed")
 	}
 
-	origin, err := ioutil.TempDir("", "docker-test-untar-origin")
+	origin, err := os.MkdirTemp("", "docker-test-untar-origin")
 	assert.NilError(t, err)
 	defer os.RemoveAll(origin)
-	err = ioutil.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0700)
+	err = os.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0700)
 	assert.NilError(t, err)
 
-	err = ioutil.WriteFile(filepath.Join(origin, "2"), []byte("welcome!"), 0700)
+	err = os.WriteFile(filepath.Join(origin, "2"), []byte("welcome!"), 0700)
 	assert.NilError(t, err)
-	err = ioutil.WriteFile(filepath.Join(origin, "3"), []byte("will be ignored"), 0700)
+	err = os.WriteFile(filepath.Join(origin, "3"), []byte("will be ignored"), 0700)
 	assert.NilError(t, err)
 	// there is no known Go implementation of setcap/getcap with support for v3 file capability
 	out, err := exec.Command("setcap", "cap_block_suspend+ep", filepath.Join(origin, "2")).CombinedOutput()
@@ -286,7 +286,7 @@ func TestTarUntarWithXattr(t *testing.T) {
 		}
 		out, err := exec.Command("getcap", filepath.Join(origin, "2")).CombinedOutput()
 		assert.NilError(t, err, string(out))
-		assert.Check(t, is.Contains(string(out), "= cap_block_suspend+ep"), "untar should have kept the 'security.capability' xattr")
+		assert.Check(t, is.Contains(string(out), "cap_block_suspend=ep"), "untar should have kept the 'security.capability' xattr")
 	}
 }
 
