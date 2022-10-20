@@ -1,0 +1,67 @@
+---
+name: build and draft GitHub release
+# https://github.com/product-os/flowzone/tree/master/.github/actions
+inputs:
+  json:
+    description: "JSON stringified object containing all the inputs from the calling workflow"
+    required: true
+  secrets:
+    description: "JSON stringified object containing all the secrets from the calling workflow"
+    required: true
+
+  # --- custom environment
+  VERBOSE:
+    type: string
+    default: "true"
+
+runs:
+  # https://docs.github.com/en/actions/creating-actions/creating-a-composite-action
+  using: "composite"
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    # https://github.com/moby/moby/blob/master/.github/workflows
+    - name: Build release
+      uses: docker/bake-action@v2
+      with:
+        targets: cross
+      env:
+        DOCKER_CROSSPLATFORMS: ${{ env.matrix_value }}
+
+    # https://github.com/product-os/scripts/tree/master/balena-engine
+    # https://github.com/product-os/ci-images/tree/master/pipelines/balena-engine
+    # https://github.com/product-os/balena-concourse/blob/master/pipelines/github-events/template.yml
+    - name: Package release
+      shell: bash
+      run: |
+        set -ea
+
+        [[ '${{ inputs.VERBOSE }}' =~ on|On|Yes|yes|true|True ]] && set -x
+
+        version="v$(yq e '.[0].version' .versionbot/CHANGELOG.yml)"
+
+        arch="$(echo '${{ env.matrix_value }}' \
+          | sed 's#linux/##g' \
+          | sed 's#arm/v#armv#g' \
+          | sed 's#v5#v5e#g' \
+          | sed 's#v6#v6l#g' \
+          | sed 's#v7#v7hf#g')"
+
+        mkdir -p dist
+
+        tar -czvf dist/balena-engine-${version}-${arch}.tar.gz \
+          -C bundles/cross/${{ env.matrix_value }} .
+
+    # https://github.com/softprops/action-gh-release#-customizing
+    - name: Publish release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        # use PR branch name for draft releases
+        name: ${{ github.event.pull_request.head.ref }}
+        tag_name: ${{ github.event.pull_request.head.ref }}
+        draft: true
+        prerelease: true
+        token: ${{ fromJSON(inputs.secrets).FLOWZONE_TOKEN }}
+        files: |
+          dist/*.tar.gz
