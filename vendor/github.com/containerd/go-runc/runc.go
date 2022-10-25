@@ -611,7 +611,7 @@ func (r *Runc) Update(context context.Context, id string, resources *specs.Linux
 	if err := json.NewEncoder(buf).Encode(resources); err != nil {
 		return err
 	}
-	args := []string{"update", "--resources", "-", id}
+	args := []string{"update", "--resources=-", id}
 	cmd := r.command(context, args...)
 	cmd.Stdin = buf
 	return r.runOrError(cmd)
