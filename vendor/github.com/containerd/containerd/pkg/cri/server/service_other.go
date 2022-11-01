@@ -1,3 +1,4 @@
+//go:build !windows && !linux
 // +build !windows,!linux
 
 /*
@@ -28,6 +29,6 @@ func (c *criService) initPlatform() error {
 }
 
 // cniLoadOptions returns cni load options for the linux.
-func (c *criService) cniLoadOptions() []cni.CNIOpt {
-	return []cni.CNIOpt{}
+func (c *criService) cniLoadOptions() []cni.Opt {
+	return []cni.Opt{}
 }

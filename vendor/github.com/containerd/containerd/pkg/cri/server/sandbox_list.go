@@ -17,14 +17,17 @@
 package server
 
 import (
+	"time"
+
 	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	sandboxstore "github.com/containerd/containerd/pkg/cri/store/sandbox"
 )
 
 // ListPodSandbox returns a list of Sandbox.
 func (c *criService) ListPodSandbox(ctx context.Context, r *runtime.ListPodSandboxRequest) (*runtime.ListPodSandboxResponse, error) {
+	start := time.Now()
 	// List all sandboxes from store.
 	sandboxesInStore := c.sandboxStore.List()
 	var sandboxes []*runtime.PodSandbox
@@ -36,6 +39,8 @@ func (c *criService) ListPodSandbox(ctx context.Context, r *runtime.ListPodSandb
 	}
 
 	sandboxes = c.filterCRISandboxes(sandboxes, r.GetFilter())
+
+	sandboxListTimer.UpdateSince(start)
 	return &runtime.ListPodSandboxResponse{Items: sandboxes}, nil
 }
 
@@ -58,6 +63,12 @@ func toCRISandbox(meta sandboxstore.Metadata, status sandboxstore.Status) *runti
 }
 
 func (c *criService) normalizePodSandboxFilter(filter *runtime.PodSandboxFilter) {
+	if sb, err := c.sandboxStore.Get(filter.GetId()); err == nil {
+		filter.Id = sb.ID
+	}
+}
+
+func (c *criService) normalizePodSandboxStatsFilter(filter *runtime.PodSandboxStatsFilter) {
 	if sb, err := c.sandboxStore.Get(filter.GetId()); err == nil {
 		filter.Id = sb.ID
 	}

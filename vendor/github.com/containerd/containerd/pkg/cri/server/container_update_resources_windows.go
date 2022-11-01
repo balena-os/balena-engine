@@ -1,5 +1,3 @@
-// +build windows
-
 /*
    Copyright The containerd Authors.
 
@@ -19,13 +17,35 @@
 package server
 
 import (
-	"github.com/containerd/containerd/errdefs"
+	"fmt"
+
+	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
+
+	criconfig "github.com/containerd/containerd/pkg/cri/config"
+	"github.com/containerd/containerd/pkg/cri/opts"
+	"github.com/containerd/containerd/pkg/cri/util"
 )
 
-// UpdateContainerResources updates ContainerConfig of the container.
-// TODO(windows): Figure out whether windows support this.
-func (c *criService) UpdateContainerResources(ctx context.Context, r *runtime.UpdateContainerResourcesRequest) (*runtime.UpdateContainerResourcesResponse, error) {
-	return nil, errdefs.ErrNotImplemented
+// updateOCIResource updates container resource limit.
+func updateOCIResource(ctx context.Context, spec *runtimespec.Spec, r *runtime.UpdateContainerResourcesRequest,
+	config criconfig.Config) (*runtimespec.Spec, error) {
+
+	// Copy to make sure old spec is not changed.
+	var cloned runtimespec.Spec
+	if err := util.DeepCopy(&cloned, spec); err != nil {
+		return nil, fmt.Errorf("failed to deep copy: %w", err)
+	}
+	if cloned.Windows == nil {
+		cloned.Windows = &runtimespec.Windows{}
+	}
+	if err := opts.WithWindowsResources(r.GetWindows())(ctx, nil, nil, &cloned); err != nil {
+		return nil, fmt.Errorf("unable to set windows container resources: %w", err)
+	}
+	return &cloned, nil
+}
+
+func getResources(spec *runtimespec.Spec) interface{} {
+	return spec.Windows.Resources
 }

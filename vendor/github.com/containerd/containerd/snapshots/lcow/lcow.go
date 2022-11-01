@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 /*
@@ -25,6 +26,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,7 +42,6 @@ import (
 	"github.com/containerd/containerd/snapshots/storage"
 	"github.com/containerd/continuity/fs"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 )
 
 func init() {
@@ -50,7 +51,7 @@ func init() {
 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
 			ic.Meta.Platforms = append(ic.Meta.Platforms, ocispec.Platform{
 				OS:           "linux",
-				Architecture: "amd64",
+				Architecture: runtime.GOARCH,
 			})
 			return NewSnapshotter(ic.Root)
 		},
@@ -58,7 +59,10 @@ func init() {
 }
 
 const (
-	rootfsSizeLabel = "containerd.io/snapshot/io.microsoft.container.storage.rootfs.size-gb"
+	rootfsSizeLabel           = "containerd.io/snapshot/io.microsoft.container.storage.rootfs.size-gb"
+	rootfsLocLabel            = "containerd.io/snapshot/io.microsoft.container.storage.rootfs.location"
+	reuseScratchLabel         = "containerd.io/snapshot/io.microsoft.container.storage.reuse-scratch"
+	reuseScratchOwnerKeyLabel = "containerd.io/snapshot/io.microsoft.owner.key"
 )
 
 type snapshotter struct {
@@ -75,7 +79,7 @@ func NewSnapshotter(root string) (snapshots.Snapshotter, error) {
 		return nil, err
 	}
 	if strings.ToLower(fsType) != "ntfs" {
-		return nil, errors.Wrapf(errdefs.ErrInvalidArgument, "%s is not on an NTFS volume - only NTFS volumes are supported", root)
+		return nil, fmt.Errorf("%s is not on an NTFS volume - only NTFS volumes are supported: %w", root, errdefs.ErrInvalidArgument)
 	}
 
 	if err := os.MkdirAll(root, 0700); err != nil {
@@ -175,7 +179,7 @@ func (s *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 
 	snapshot, err := storage.GetSnapshot(ctx, key)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get snapshot mount")
+		return nil, fmt.Errorf("failed to get snapshot mount: %w", err)
 	}
 	return s.mounts(snapshot), nil
 }
@@ -205,7 +209,7 @@ func (s *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	}
 
 	if _, err = storage.CommitActive(ctx, key, name, snapshots.Usage(usage), opts...); err != nil {
-		return errors.Wrap(err, "failed to commit snapshot")
+		return fmt.Errorf("failed to commit snapshot: %w", err)
 	}
 
 	return t.Commit()
@@ -222,7 +226,7 @@ func (s *snapshotter) Remove(ctx context.Context, key string) error {
 
 	id, _, err := storage.Remove(ctx, key)
 	if err != nil {
-		return errors.Wrap(err, "failed to remove")
+		return fmt.Errorf("failed to remove: %w", err)
 	}
 
 	path := s.getSnapshotDir(id)
@@ -234,9 +238,9 @@ func (s *snapshotter) Remove(ctx context.Context, key string) error {
 	if err := t.Commit(); err != nil {
 		if err1 := os.Rename(renamed, path); err1 != nil {
 			// May cause inconsistent data on disk
-			log.G(ctx).WithError(err1).WithField("path", renamed).Errorf("Failed to rename after failed commit")
+			log.G(ctx).WithError(err1).WithField("path", renamed).Error("Failed to rename after failed commit")
 		}
-		return errors.Wrap(err, "failed to commit")
+		return fmt.Errorf("failed to commit: %w", err)
 	}
 
 	if err := os.RemoveAll(renamed); err != nil {
@@ -305,7 +309,7 @@ func (s *snapshotter) getSnapshotDir(id string) string {
 	return filepath.Join(s.root, "snapshots", id)
 }
 
-func (s *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts []snapshots.Opt) ([]mount.Mount, error) {
+func (s *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts []snapshots.Opt) (_ []mount.Mount, err error) {
 	ctx, t, err := s.ms.TransactionContext(ctx, true)
 	if err != nil {
 		return nil, err
@@ -314,7 +318,7 @@ func (s *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 
 	newSnapshot, err := storage.CreateSnapshot(ctx, kind, key, parent, opts...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create snapshot")
+		return nil, fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
 	if kind == snapshots.KindActive {
@@ -330,48 +334,107 @@ func (s *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 			o(&snapshotInfo)
 		}
 
-		var sizeGB int
-		if sizeGBstr, ok := snapshotInfo.Labels[rootfsSizeLabel]; ok {
-			i32, err := strconv.ParseInt(sizeGBstr, 10, 32)
+		defer func() {
 			if err != nil {
-				return nil, errors.Wrapf(err, "failed to parse annotation %q=%q", rootfsSizeLabel, sizeGBstr)
+				os.RemoveAll(snDir)
 			}
-			sizeGB = int(i32)
-		}
+		}()
 
-		scratchSource, err := s.openOrCreateScratch(ctx, sizeGB)
-		if err != nil {
-			return nil, err
-		}
-		defer scratchSource.Close()
-
-		// TODO: JTERRY75 - This has to be called sandbox.vhdx for the time
-		// being but it really is the scratch.vhdx. Using this naming convention
-		// for now but this is not the kubernetes sandbox.
+		// IO/disk space optimization
 		//
-		// Create the sandbox.vhdx for this snapshot from the cache.
-		destPath := filepath.Join(snDir, "sandbox.vhdx")
-		dest, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE, 0700)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create sandbox.vhdx in snapshot")
-		}
-		defer dest.Close()
-		if _, err := io.Copy(dest, scratchSource); err != nil {
-			dest.Close()
-			os.Remove(destPath)
-			return nil, errors.Wrap(err, "failed to copy cached scratch.vhdx to sandbox.vhdx in snapshot")
+		// We only need one sandbox.vhd for the container. Skip making one for this
+		// snapshot if this isn't the snapshot that just houses the final sandbox.vhd
+		// that will be mounted as the containers scratch. The key for a snapshot
+		// where a layer.vhd will be extracted to it will have the substring `extract-` in it.
+		// If this is changed this will also need to be changed.
+		//
+		// We save about 17MB per layer (if the default scratch vhd size of 20GB is used) and of
+		// course the time to copy the vhdx per snapshot.
+		if !strings.Contains(key, snapshots.UnpackKeyPrefix) {
+			// This is the code path that handles re-using a scratch disk that has already been
+			// made/mounted for an LCOW UVM. In the non sharing case, we create a new disk and mount this
+			// into the LCOW UVM for every container but there are certain scenarios where we'd rather
+			// just mount a single disk and then have every container share this one storage space instead of
+			// every container having it's own xGB of space to play around with.
+			//
+			// This is accomplished by just making a symlink to the disk that we'd like to share and then
+			// using ref counting later on down the stack in hcsshim if we see that we've already mounted this
+			// disk.
+			shareScratch := snapshotInfo.Labels[reuseScratchLabel]
+			ownerKey := snapshotInfo.Labels[reuseScratchOwnerKeyLabel]
+			if shareScratch == "true" && ownerKey != "" {
+				if err = s.handleSharing(ctx, ownerKey, snDir); err != nil {
+					return nil, err
+				}
+			} else {
+				var sizeGB int
+				if sizeGBstr, ok := snapshotInfo.Labels[rootfsSizeLabel]; ok {
+					i64, _ := strconv.ParseInt(sizeGBstr, 10, 32)
+					sizeGB = int(i64)
+				}
+
+				scratchLocation := snapshotInfo.Labels[rootfsLocLabel]
+				scratchSource, err := s.openOrCreateScratch(ctx, sizeGB, scratchLocation)
+				if err != nil {
+					return nil, err
+				}
+				defer scratchSource.Close()
+
+				// Create the sandbox.vhdx for this snapshot from the cache
+				destPath := filepath.Join(snDir, "sandbox.vhdx")
+				dest, err := os.OpenFile(destPath, os.O_RDWR|os.O_CREATE, 0700)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create sandbox.vhdx in snapshot: %w", err)
+				}
+				defer dest.Close()
+				if _, err := io.Copy(dest, scratchSource); err != nil {
+					dest.Close()
+					os.Remove(destPath)
+					return nil, fmt.Errorf("failed to copy cached scratch.vhdx to sandbox.vhdx in snapshot: %w", err)
+				}
+			}
 		}
 	}
 
 	if err := t.Commit(); err != nil {
-		return nil, errors.Wrap(err, "commit failed")
+		return nil, fmt.Errorf("commit failed: %w", err)
 	}
 
 	return s.mounts(newSnapshot), nil
 }
 
-func (s *snapshotter) openOrCreateScratch(ctx context.Context, sizeGB int) (_ *os.File, err error) {
-	// Create the scratch.vhdx cache file if it doesn't already exist.
+func (s *snapshotter) handleSharing(ctx context.Context, id, snDir string) error {
+	var key string
+	if err := s.Walk(ctx, func(ctx context.Context, info snapshots.Info) error {
+		if strings.Contains(info.Name, id) {
+			key = info.Name
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	mounts, err := s.Mounts(ctx, key)
+	if err != nil {
+		return fmt.Errorf("failed to get mounts for owner snapshot: %w", err)
+	}
+
+	sandboxPath := filepath.Join(mounts[0].Source, "sandbox.vhdx")
+	linkPath := filepath.Join(snDir, "sandbox.vhdx")
+	if _, err := os.Stat(sandboxPath); err != nil {
+		return fmt.Errorf("failed to find sandbox.vhdx in snapshot directory: %w", err)
+	}
+
+	// We've found everything we need, now just make a symlink in our new snapshot to the
+	// sandbox.vhdx in the scratch we're asking to share.
+	if err := os.Symlink(sandboxPath, linkPath); err != nil {
+		return fmt.Errorf("failed to create symlink for sandbox scratch space: %w", err)
+	}
+	return nil
+}
+
+func (s *snapshotter) openOrCreateScratch(ctx context.Context, sizeGB int, scratchLoc string) (_ *os.File, err error) {
+	// Create the scratch.vhdx cache file if it doesn't already exit.
 	s.scratchLock.Lock()
 	defer s.scratchLock.Unlock()
 
@@ -381,13 +444,17 @@ func (s *snapshotter) openOrCreateScratch(ctx context.Context, sizeGB int) (_ *o
 	}
 
 	scratchFinalPath := filepath.Join(s.root, vhdFileName)
+	if scratchLoc != "" {
+		scratchFinalPath = filepath.Join(scratchLoc, vhdFileName)
+	}
+
 	scratchSource, err := os.OpenFile(scratchFinalPath, os.O_RDONLY, 0700)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return nil, errors.Wrapf(err, "failed to open vhd %s for read", vhdFileName)
+			return nil, fmt.Errorf("failed to open vhd %s for read: %w", vhdFileName, err)
 		}
 
-		log.G(ctx).Debugf("vhd %s not found, creating a new one", vhdFileName)
+		log.G(ctx).Debugf("vhdx %s not found, creating a new one", vhdFileName)
 
 		// Golang logic for ioutil.TempFile without the file creation
 		r := uint32(time.Now().UnixNano() + int64(os.Getpid()))
@@ -409,18 +476,20 @@ func (s *snapshotter) openOrCreateScratch(ctx context.Context, sizeGB int) (_ *o
 		}
 
 		if err := rhcs.CreateScratchWithOpts(ctx, scratchTempPath, &opt); err != nil {
-			_ = os.Remove(scratchTempPath)
-			return nil, errors.Wrapf(err, "failed to create '%s' temp file", scratchTempName)
+			os.Remove(scratchTempPath)
+			return nil, fmt.Errorf("failed to create '%s' temp file: %w", scratchTempName, err)
 		}
 		if err := os.Rename(scratchTempPath, scratchFinalPath); err != nil {
-			_ = os.Remove(scratchTempPath)
-			return nil, errors.Wrapf(err, "failed to rename '%s' temp file to 'scratch.vhdx'", scratchTempName)
+			os.Remove(scratchTempPath)
+			return nil, fmt.Errorf("failed to rename '%s' temp file to 'scratch.vhdx': %w", scratchTempName, err)
 		}
 		scratchSource, err = os.OpenFile(scratchFinalPath, os.O_RDONLY, 0700)
 		if err != nil {
-			_ = os.Remove(scratchFinalPath)
-			return nil, errors.Wrap(err, "failed to open scratch.vhdx for read after creation")
+			os.Remove(scratchFinalPath)
+			return nil, fmt.Errorf("failed to open scratch.vhdx for read after creation: %w", err)
 		}
+	} else {
+		log.G(ctx).Debugf("scratch vhd %s was already present. Retrieved from cache", vhdFileName)
 	}
 	return scratchSource, nil
 }

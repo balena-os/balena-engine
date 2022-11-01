@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -37,7 +38,6 @@ import (
 	runc "github.com/containerd/go-runc"
 	google_protobuf "github.com/gogo/protobuf/types"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
@@ -119,12 +119,12 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) error {
 
 	if r.Terminal {
 		if socket, err = runc.NewTempConsoleSocket(); err != nil {
-			return errors.Wrap(err, "failed to create OCI runtime console socket")
+			return fmt.Errorf("failed to create OCI runtime console socket: %w", err)
 		}
 		defer socket.Close()
 	} else {
 		if pio, err = createIO(ctx, p.id, p.IoUID, p.IoGID, p.stdio); err != nil {
-			return errors.Wrap(err, "failed to create init process I/O")
+			return fmt.Errorf("failed to create init process I/O: %w", err)
 		}
 		p.io = pio
 	}
@@ -155,21 +155,21 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) error {
 	if socket != nil {
 		console, err := socket.ReceiveMaster()
 		if err != nil {
-			return errors.Wrap(err, "failed to retrieve console master")
+			return fmt.Errorf("failed to retrieve console master: %w", err)
 		}
 		console, err = p.Platform.CopyConsole(ctx, console, p.id, r.Stdin, r.Stdout, r.Stderr, &p.wg)
 		if err != nil {
-			return errors.Wrap(err, "failed to start console copy")
+			return fmt.Errorf("failed to start console copy: %w", err)
 		}
 		p.console = console
 	} else {
 		if err := pio.Copy(ctx, &p.wg); err != nil {
-			return errors.Wrap(err, "failed to start io pipe copy")
+			return fmt.Errorf("failed to start io pipe copy: %w", err)
 		}
 	}
 	pid, err := pidFile.Read()
 	if err != nil {
-		return errors.Wrap(err, "failed to retrieve OCI runtime container pid")
+		return fmt.Errorf("failed to retrieve OCI runtime container pid: %w", err)
 	}
 	p.pid = pid
 	return nil
@@ -178,7 +178,7 @@ func (p *Init) Create(ctx context.Context, r *CreateConfig) error {
 func (p *Init) openStdin(path string) error {
 	sc, err := fifo.OpenFifo(context.Background(), path, unix.O_WRONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
-		return errors.Wrapf(err, "failed to open stdin fifo %s", path)
+		return fmt.Errorf("failed to open stdin fifo %s: %w", path, err)
 	}
 	p.stdin = sc
 	p.closers = append(p.closers, sc)
@@ -193,11 +193,15 @@ func (p *Init) createCheckpointedState(r *CreateConfig, pidFile *pidFile) error 
 			ParentPath: r.ParentCheckpoint,
 		},
 		PidFile:     pidFile.Path(),
-		IO:          p.io.IO(),
 		NoPivot:     p.NoPivotRoot,
 		Detach:      true,
 		NoSubreaper: true,
 	}
+
+	if p.io != nil {
+		opts.IO = p.io.IO()
+	}
+
 	p.initState = &createdCheckpointState{
 		p:    p,
 		opts: opts,
@@ -308,7 +312,7 @@ func (p *Init) delete(ctx context.Context) error {
 	if err2 := mount.UnmountAll(p.Rootfs, 0); err2 != nil {
 		log.G(ctx).WithError(err2).Warn("failed to cleanup rootfs mount")
 		if err == nil {
-			err = errors.Wrap(err2, "failed rootfs umount")
+			err = fmt.Errorf("failed rootfs umount: %w", err2)
 		}
 	}
 	return err
@@ -441,7 +445,7 @@ func (p *Init) checkpoint(ctx context.Context, r *CheckpointConfig) error {
 	}, actions...); err != nil {
 		dumpLog := filepath.Join(p.Bundle, "criu-dump.log")
 		if cerr := copyFile(dumpLog, filepath.Join(work, "dump.log")); cerr != nil {
-			log.G(ctx).Error(err)
+			log.G(ctx).WithError(cerr).Error("failed to copy dump.log to criu-dump.log")
 		}
 		return fmt.Errorf("%s path= %s", criuError(err), dumpLog)
 	}
@@ -477,11 +481,11 @@ func (p *Init) runtimeError(rErr error, msg string) error {
 	rMsg, err := getLastRuntimeError(p.runtime)
 	switch {
 	case err != nil:
-		return errors.Wrapf(rErr, "%s: %s (%s)", msg, "unable to retrieve OCI runtime error", err.Error())
+		return fmt.Errorf("%s: %s (%s): %w", msg, "unable to retrieve OCI runtime error", err.Error(), rErr)
 	case rMsg == "":
-		return errors.Wrap(rErr, msg)
+		return fmt.Errorf("%s: %w", msg, rErr)
 	default:
-		return errors.Errorf("%s: %s", msg, rMsg)
+		return fmt.Errorf("%s: %s", msg, rMsg)
 	}
 }
 

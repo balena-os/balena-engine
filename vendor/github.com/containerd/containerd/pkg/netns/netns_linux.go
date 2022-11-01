@@ -42,34 +42,33 @@ import (
 	"github.com/containerd/containerd/mount"
 	cnins "github.com/containernetworking/plugins/pkg/ns"
 	"github.com/moby/sys/symlink"
-	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
-
-const nsRunDir = "/var/run/netns"
 
 // Some of the following functions are migrated from
 // https://github.com/containernetworking/plugins/blob/master/pkg/testutils/netns_linux.go
 
 // newNS creates a new persistent (bind-mounted) network namespace and returns the
 // path to the network namespace.
-func newNS() (nsPath string, err error) {
+func newNS(baseDir string) (nsPath string, err error) {
 	b := make([]byte, 16)
-	if _, err := rand.Reader.Read(b); err != nil {
-		return "", errors.Wrap(err, "failed to generate random netns name")
+
+	_, err = rand.Read(b)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate random netns name: %w", err)
 	}
 
 	// Create the directory for mounting network namespaces
 	// This needs to be a shared mountpoint in case it is mounted in to
 	// other namespaces (containers)
-	if err := os.MkdirAll(nsRunDir, 0755); err != nil {
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return "", err
 	}
 
-	// create an empty file at the mount point
+	// create an empty file at the mount point and fail if it already exists
 	nsName := fmt.Sprintf("cni-%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
-	nsPath = path.Join(nsRunDir, nsName)
-	mountPointFd, err := os.Create(nsPath)
+	nsPath = path.Join(baseDir, nsName)
+	mountPointFd, err := os.OpenFile(nsPath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
 	if err != nil {
 		return "", err
 	}
@@ -115,13 +114,13 @@ func newNS() (nsPath string, err error) {
 		// are no threads in the ns.
 		err = unix.Mount(getCurrentThreadNetNSPath(), nsPath, "none", unix.MS_BIND, "")
 		if err != nil {
-			err = errors.Wrapf(err, "failed to bind mount ns at %s", nsPath)
+			err = fmt.Errorf("failed to bind mount ns at %s: %w", nsPath, err)
 		}
 	})()
 	wg.Wait()
 
 	if err != nil {
-		return "", errors.Wrap(err, "failed to create namespace")
+		return "", fmt.Errorf("failed to create namespace: %w", err)
 	}
 
 	return nsPath, nil
@@ -133,17 +132,17 @@ func unmountNS(path string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return errors.Wrap(err, "failed to stat netns")
+		return fmt.Errorf("failed to stat netns: %w", err)
 	}
 	path, err := symlink.FollowSymlinkInScope(path, "/")
 	if err != nil {
-		return errors.Wrap(err, "failed to follow symlink")
+		return fmt.Errorf("failed to follow symlink: %w", err)
 	}
 	if err := mount.Unmount(path, unix.MNT_DETACH); err != nil && !os.IsNotExist(err) {
-		return errors.Wrap(err, "failed to umount netns")
+		return fmt.Errorf("failed to umount netns: %w", err)
 	}
 	if err := os.RemoveAll(path); err != nil {
-		return errors.Wrap(err, "failed to remove netns")
+		return fmt.Errorf("failed to remove netns: %w", err)
 	}
 	return nil
 }
@@ -162,10 +161,10 @@ type NetNS struct {
 }
 
 // NewNetNS creates a network namespace.
-func NewNetNS() (*NetNS, error) {
-	path, err := newNS()
+func NewNetNS(baseDir string) (*NetNS, error) {
+	path, err := newNS(baseDir)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to setup netns")
+		return nil, fmt.Errorf("failed to setup netns: %w", err)
 	}
 	return &NetNS{path: path}, nil
 }
@@ -175,7 +174,7 @@ func LoadNetNS(path string) *NetNS {
 	return &NetNS{path: path}
 }
 
-// Remove removes network namepace. Remove is idempotent, meaning it might
+// Remove removes network namespace. Remove is idempotent, meaning it might
 // be invoked multiple times and provides consistent result.
 func (n *NetNS) Remove() error {
 	return unmountNS(n.path)
@@ -192,14 +191,14 @@ func (n *NetNS) Closed() (bool, error) {
 		if _, ok := err.(cnins.NSPathNotNSErr); ok {
 			// The network namespace is not mounted, remove it.
 			if err := os.RemoveAll(n.path); err != nil {
-				return false, errors.Wrap(err, "remove netns")
+				return false, fmt.Errorf("remove netns: %w", err)
 			}
 			return true, nil
 		}
-		return false, errors.Wrap(err, "get netns fd")
+		return false, fmt.Errorf("get netns fd: %w", err)
 	}
 	if err := ns.Close(); err != nil {
-		return false, errors.Wrap(err, "close netns fd")
+		return false, fmt.Errorf("close netns fd: %w", err)
 	}
 	return false, nil
 }
@@ -213,7 +212,7 @@ func (n *NetNS) GetPath() string {
 func (n *NetNS) Do(f func(cnins.NetNS) error) error {
 	ns, err := cnins.GetNS(n.path)
 	if err != nil {
-		return errors.Wrap(err, "get netns fd")
+		return fmt.Errorf("get netns fd: %w", err)
 	}
 	defer ns.Close() // nolint: errcheck
 	return ns.Do(f)

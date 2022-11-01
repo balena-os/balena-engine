@@ -1,3 +1,4 @@
+//go:build !windows && !linux
 // +build !windows,!linux
 
 /*
@@ -22,7 +23,7 @@ import (
 	"github.com/containerd/containerd/oci"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	"github.com/containerd/containerd/pkg/cri/config"
 )
@@ -33,9 +34,19 @@ func (c *criService) containerMounts(sandboxID string, config *runtime.Container
 	return []*runtime.Mount{}
 }
 
-func (c *criService) containerSpec(id string, sandboxID string, sandboxPid uint32, netNSPath string, containerName string,
-	config *runtime.ContainerConfig, sandboxConfig *runtime.PodSandboxConfig, imageConfig *imagespec.ImageConfig,
-	extraMounts []*runtime.Mount, ociRuntime config.Runtime) (_ *runtimespec.Spec, retErr error) {
+func (c *criService) containerSpec(
+	id string,
+	sandboxID string,
+	sandboxPid uint32,
+	netNSPath string,
+	containerName string,
+	imageName string,
+	config *runtime.ContainerConfig,
+	sandboxConfig *runtime.PodSandboxConfig,
+	imageConfig *imagespec.ImageConfig,
+	extraMounts []*runtime.Mount,
+	ociRuntime config.Runtime,
+) (_ *runtimespec.Spec, retErr error) {
 	return c.runtimeSpec(id, ociRuntime.BaseRuntimeSpec)
 }
 

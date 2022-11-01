@@ -3,17 +3,25 @@ package tar2ext4
 import (
 	"archive/tar"
 	"bufio"
+	"bytes"
 	"encoding/binary"
+	"github.com/pkg/errors"
 	"io"
+	"io/ioutil"
+	"os"
 	"path"
 	"strings"
+	"unsafe"
 
+	"github.com/Microsoft/hcsshim/ext4/dmverity"
 	"github.com/Microsoft/hcsshim/ext4/internal/compactext4"
+	"github.com/Microsoft/hcsshim/ext4/internal/format"
 )
 
 type params struct {
 	convertWhiteout bool
 	appendVhdFooter bool
+	appendDMVerity  bool
 	ext4opts        []compactext4.Option
 }
 
@@ -30,6 +38,12 @@ func ConvertWhiteout(p *params) {
 // file.
 func AppendVhdFooter(p *params) {
 	p.appendVhdFooter = true
+}
+
+// AppendDMVerity instructs the converter to add a dmverity merkle tree for
+// the ext4 filesystem after the filesystem and before the optional VHD footer
+func AppendDMVerity(p *params) {
+	p.appendDMVerity = true
 }
 
 // InlineData instructs the converter to write small files into the inode
@@ -51,6 +65,7 @@ func MaximumDiskSize(size int64) Option {
 const (
 	whiteoutPrefix = ".wh."
 	opaqueWhiteout = ".wh..wh..opq"
+	ext4blocksize  = compactext4.BlockSize
 )
 
 // Convert writes a compact ext4 file system image that contains the files in the
@@ -146,7 +161,7 @@ func Convert(r io.Reader, w io.ReadWriteSeeker, options ...Option) error {
 			}
 			f.Mode &= ^compactext4.TypeMask
 			f.Mode |= typ
-			err = fs.Create(hdr.Name, f)
+			err = fs.CreateWithParents(hdr.Name, f)
 			if err != nil {
 				return err
 			}
@@ -160,6 +175,54 @@ func Convert(r io.Reader, w io.ReadWriteSeeker, options ...Option) error {
 	if err != nil {
 		return err
 	}
+
+	if p.appendDMVerity {
+		ext4size, err := w.Seek(0, io.SeekEnd)
+		if err != nil {
+			return err
+		}
+
+		// Rewind the stream and then read it all into a []byte for
+		// dmverity processing
+		_, err = w.Seek(0, io.SeekStart)
+		if err != nil {
+			return err
+		}
+		data, err := ioutil.ReadAll(w)
+		if err != nil {
+			return err
+		}
+
+		mtree, err := dmverity.MerkleTree(data)
+		if err != nil {
+			return errors.Wrap(err, "failed to build merkle tree")
+		}
+
+		// Write dmverity superblock and then the merkle tree after the end of the
+		// ext4 filesystem
+		_, err = w.Seek(0, io.SeekEnd)
+		if err != nil {
+			return err
+		}
+		superblock := dmverity.NewDMVeritySuperblock(uint64(ext4size))
+		err = binary.Write(w, binary.LittleEndian, superblock)
+		if err != nil {
+			return err
+		}
+		// pad the superblock
+		sbsize := int(unsafe.Sizeof(*superblock))
+		padding := bytes.Repeat([]byte{0}, ext4blocksize-(sbsize%ext4blocksize))
+		_, err = w.Write(padding)
+		if err != nil {
+			return err
+		}
+		// write the tree
+		_, err = w.Write(mtree)
+		if err != nil {
+			return err
+		}
+	}
+
 	if p.appendVhdFooter {
 		size, err := w.Seek(0, io.SeekEnd)
 		if err != nil {
@@ -171,4 +234,37 @@ func Convert(r io.Reader, w io.ReadWriteSeeker, options ...Option) error {
 		}
 	}
 	return nil
+}
+
+// ReadExt4SuperBlock reads and returns ext4 super block from VHD
+//
+// The layout on disk is as follows:
+// | Group 0 padding     | - 1024 bytes
+// | ext4 SuperBlock     | - 1 block
+// | Group Descriptors   | - many blocks
+// | Reserved GDT Blocks | - many blocks
+// | Data Block Bitmap   | - 1 block
+// | inode Bitmap        | - 1 block
+// | inode Table         | - many blocks
+// | Data Blocks         | - many blocks
+//
+// More details can be found here https://ext4.wiki.kernel.org/index.php/Ext4_Disk_Layout
+//
+// Our goal is to skip the Group 0 padding, read and return the ext4 SuperBlock
+func ReadExt4SuperBlock(vhdPath string) (*format.SuperBlock, error) {
+	vhd, err := os.OpenFile(vhdPath, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer vhd.Close()
+
+	// Skip padding at the start
+	if _, err := vhd.Seek(1024, io.SeekStart); err != nil {
+		return nil, err
+	}
+	var sb format.SuperBlock
+	if err := binary.Read(vhd, binary.LittleEndian, &sb); err != nil {
+		return nil, err
+	}
+	return &sb, nil
 }

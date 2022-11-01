@@ -19,19 +19,18 @@ package image
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/pkg/cri/util"
+
 	imagedigest "github.com/opencontainers/go-digest"
 	"github.com/opencontainers/go-digest/digestset"
 	imageidentity "github.com/opencontainers/image-spec/identity"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
-
-	storeutil "github.com/containerd/containerd/pkg/cri/store"
-	"github.com/containerd/containerd/pkg/cri/util"
 )
 
 // Image contains all resources associated with the image. All fields
@@ -78,13 +77,13 @@ func (s *Store) Update(ctx context.Context, ref string) error {
 	defer s.lock.Unlock()
 	i, err := s.client.GetImage(ctx, ref)
 	if err != nil && !errdefs.IsNotFound(err) {
-		return errors.Wrap(err, "get image from containerd")
+		return fmt.Errorf("get image from containerd: %w", err)
 	}
 	var img *Image
 	if err == nil {
 		img, err = getImage(ctx, i)
 		if err != nil {
-			return errors.Wrap(err, "get image info from containerd")
+			return fmt.Errorf("get image info from containerd: %w", err)
 		}
 	}
 	return s.update(ref, img)
@@ -120,28 +119,28 @@ func getImage(ctx context.Context, i containerd.Image) (*Image, error) {
 	// Get image information.
 	diffIDs, err := i.RootFS(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "get image diffIDs")
+		return nil, fmt.Errorf("get image diffIDs: %w", err)
 	}
 	chainID := imageidentity.ChainID(diffIDs)
 
 	size, err := i.Size(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "get image compressed resource size")
+		return nil, fmt.Errorf("get image compressed resource size: %w", err)
 	}
 
 	desc, err := i.Config(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "get image config descriptor")
+		return nil, fmt.Errorf("get image config descriptor: %w", err)
 	}
 	id := desc.Digest.String()
 
 	rb, err := content.ReadBlob(ctx, i.ContentStore(), desc)
 	if err != nil {
-		return nil, errors.Wrap(err, "read image config from content store")
+		return nil, fmt.Errorf("read image config from content store: %w", err)
 	}
 	var ociimage imagespec.Image
 	if err := json.Unmarshal(rb, &ociimage); err != nil {
-		return nil, errors.Wrapf(err, "unmarshal image config %s", rb)
+		return nil, fmt.Errorf("unmarshal image config %s: %w", rb, err)
 	}
 
 	return &Image{
@@ -159,7 +158,7 @@ func (s *Store) Resolve(ref string) (string, error) {
 	defer s.lock.RUnlock()
 	id, ok := s.refCache[ref]
 	if !ok {
-		return "", storeutil.ErrNotExist
+		return "", errdefs.ErrNotFound
 	}
 	return id, nil
 }
@@ -210,8 +209,8 @@ func (s *store) add(img Image) error {
 		s.images[img.ID] = img
 		return nil
 	}
-	// Or else, merge the references.
-	i.References = util.MergeStringSlices(i.References, img.References)
+	// Or else, merge and sort the references.
+	i.References = sortReferences(util.MergeStringSlices(i.References, img.References))
 	s.images[img.ID] = i
 	return nil
 }
@@ -222,14 +221,14 @@ func (s *store) get(id string) (Image, error) {
 	digest, err := s.digestSet.Lookup(id)
 	if err != nil {
 		if err == digestset.ErrDigestNotFound {
-			err = storeutil.ErrNotExist
+			err = errdefs.ErrNotFound
 		}
 		return Image{}, err
 	}
 	if i, ok := s.images[digest.String()]; ok {
 		return i, nil
 	}
-	return Image{}, storeutil.ErrNotExist
+	return Image{}, errdefs.ErrNotFound
 }
 
 func (s *store) delete(id, ref string) {
