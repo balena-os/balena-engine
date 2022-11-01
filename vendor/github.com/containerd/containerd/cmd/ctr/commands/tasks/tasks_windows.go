@@ -18,13 +18,14 @@ package tasks
 
 import (
 	gocontext "context"
+	"errors"
+	"net/url"
 	"time"
 
 	"github.com/containerd/console"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/log"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
@@ -67,6 +68,12 @@ func NewTask(ctx gocontext.Context, client *containerd.Client, container contain
 		ioCreator = cio.NewCreator(append([]cio.Opt{cio.WithStreams(con, con, nil), cio.WithTerminal}, ioOpts...)...)
 	} else if nullIO {
 		ioCreator = cio.NullIO
+	} else if logURI != "" {
+		u, err := url.Parse(logURI)
+		if err != nil {
+			return nil, err
+		}
+		ioCreator = cio.LogURI(u)
 	} else {
 		ioCreator = cio.NewCreator(append([]cio.Opt{cio.WithStdio}, ioOpts...)...)
 	}

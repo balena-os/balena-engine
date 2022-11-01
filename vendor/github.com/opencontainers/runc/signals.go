@@ -1,5 +1,3 @@
-// +build linux
-
 package runc
 
 import (
@@ -66,11 +64,11 @@ func (h *signalHandler) forward(process *libcontainer.Process, tty *tty, detach 
 
 	if h.notifySocket != nil {
 		if detach {
-			h.notifySocket.run(pid1)
+			_ = h.notifySocket.run(pid1)
 			return 0, nil
 		}
-		h.notifySocket.run(os.Getpid())
-		go h.notifySocket.run(0)
+		_ = h.notifySocket.run(os.Getpid())
+		go func() { _ = h.notifySocket.run(0) }()
 	}
 
 	// Perform the initial tty resize. Always ignore errors resizing because
@@ -96,7 +94,7 @@ func (h *signalHandler) forward(process *libcontainer.Process, tty *tty, detach 
 					// call Wait() on the process even though we already have the exit
 					// status because we must ensure that any of the go specific process
 					// fun such as flushing pipes are complete before we return.
-					process.Wait()
+					_, _ = process.Wait()
 					return e.status, nil
 				}
 			}
@@ -120,7 +118,7 @@ func (h *signalHandler) reap() (exits []exit, err error) {
 	for {
 		pid, err := unix.Wait4(-1, &ws, unix.WNOHANG, &rus)
 		if err != nil {
-			if err == unix.ECHILD {
+			if err == unix.ECHILD { //nolint:errorlint // unix errors are bare
 				return exits, nil
 			}
 			return nil, err

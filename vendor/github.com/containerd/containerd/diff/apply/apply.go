@@ -18,8 +18,8 @@ package apply
 
 import (
 	"context"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"time"
 
 	"github.com/containerd/containerd/content"
@@ -28,7 +28,6 @@ import (
 	"github.com/containerd/containerd/mount"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -54,10 +53,10 @@ func (s *fsApplier) Apply(ctx context.Context, desc ocispec.Descriptor, mounts [
 	defer func() {
 		if err == nil {
 			log.G(ctx).WithFields(logrus.Fields{
-				"d":     time.Since(t1),
-				"dgst":  desc.Digest,
-				"size":  desc.Size,
-				"media": desc.MediaType,
+				"d":      time.Since(t1),
+				"digest": desc.Digest,
+				"size":   desc.Size,
+				"media":  desc.MediaType,
 			}).Debugf("diff applied")
 		}
 	}()
@@ -65,13 +64,13 @@ func (s *fsApplier) Apply(ctx context.Context, desc ocispec.Descriptor, mounts [
 	var config diff.ApplyConfig
 	for _, o := range opts {
 		if err := o(ctx, desc, &config); err != nil {
-			return emptyDesc, errors.Wrap(err, "failed to apply config opt")
+			return emptyDesc, fmt.Errorf("failed to apply config opt: %w", err)
 		}
 	}
 
 	ra, err := s.store.ReaderAt(ctx, desc)
 	if err != nil {
-		return emptyDesc, errors.Wrap(err, "failed to get reader from content store")
+		return emptyDesc, fmt.Errorf("failed to get reader from content store: %w", err)
 	}
 	defer ra.Close()
 
@@ -80,7 +79,7 @@ func (s *fsApplier) Apply(ctx context.Context, desc ocispec.Descriptor, mounts [
 	processors = append(processors, processor)
 	for {
 		if processor, err = diff.GetProcessor(ctx, processor, config.ProcessorPayloads); err != nil {
-			return emptyDesc, errors.Wrapf(err, "failed to get stream processor for %s", desc.MediaType)
+			return emptyDesc, fmt.Errorf("failed to get stream processor for %s: %w", desc.MediaType, err)
 		}
 		processors = append(processors, processor)
 		if processor.MediaType() == ocispec.MediaTypeImageLayer {
@@ -99,7 +98,7 @@ func (s *fsApplier) Apply(ctx context.Context, desc ocispec.Descriptor, mounts [
 	}
 
 	// Read any trailing data
-	if _, err := io.Copy(ioutil.Discard, rc); err != nil {
+	if _, err := io.Copy(io.Discard, rc); err != nil {
 		return emptyDesc, err
 	}
 

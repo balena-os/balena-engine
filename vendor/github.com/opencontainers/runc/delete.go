@@ -1,5 +1,3 @@
-// +build !solaris
-
 package runc
 
 import (
@@ -55,7 +53,7 @@ status of "ubuntu01" as "stopped" the following will delete resources held for
 		force := context.Bool("force")
 		container, err := getContainer(context)
 		if err != nil {
-			if lerr, ok := err.(libcontainer.Error); ok && lerr.Code() == libcontainer.ContainerNotExists {
+			if errors.Is(err, libcontainer.ErrNotExist) {
 				// if there was an aborted start or something of the sort then the container's directory could exist but
 				// libcontainer does not see it because the state.json file inside that directory was never created.
 				path := filepath.Join(context.GlobalString("root"), id)
@@ -81,7 +79,7 @@ status of "ubuntu01" as "stopped" the following will delete resources held for
 			if force {
 				return killContainer(container)
 			}
-			return fmt.Errorf("cannot delete container %s that is not stopped: %s\n", id, s)
+			return fmt.Errorf("cannot delete container %s that is not stopped: %s", id, s)
 		}
 
 		return nil

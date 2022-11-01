@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -32,7 +33,6 @@ import (
 
 	"github.com/containerd/containerd/errdefs"
 	runc "github.com/containerd/go-runc"
-	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
@@ -136,11 +136,11 @@ func checkKillError(err error) error {
 		strings.Contains(err.Error(), "container not running") ||
 		strings.Contains(strings.ToLower(err.Error()), "no such process") ||
 		err == unix.ESRCH {
-		return errors.Wrapf(errdefs.ErrNotFound, "process already finished")
+		return fmt.Errorf("process already finished: %w", errdefs.ErrNotFound)
 	} else if strings.Contains(err.Error(), "does not exist") {
-		return errors.Wrapf(errdefs.ErrNotFound, "no such container")
+		return fmt.Errorf("no such container: %w", errdefs.ErrNotFound)
 	}
-	return errors.Wrapf(err, "unknown error after kill")
+	return fmt.Errorf("unknown error after kill: %w", err)
 }
 
 func newPidFile(bundle string) *pidFile {
@@ -172,7 +172,7 @@ func (p *pidFile) Read() (int, error) {
 func waitTimeout(ctx context.Context, wg *sync.WaitGroup, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	done := make(chan struct{}, 1)
+	done := make(chan struct{})
 	go func() {
 		wg.Wait()
 		close(done)
@@ -198,5 +198,5 @@ func stateName(v interface{}) string {
 	case *stoppedState:
 		return "stopped"
 	}
-	panic(errors.Errorf("invalid state %v", v))
+	panic(fmt.Errorf("invalid state %v", v))
 }

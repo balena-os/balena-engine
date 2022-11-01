@@ -17,15 +17,18 @@
 package server
 
 import (
+	"time"
+
 	"golang.org/x/net/context"
 
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
 )
 
 // ListContainers lists all containers matching the filter.
 func (c *criService) ListContainers(ctx context.Context, r *runtime.ListContainersRequest) (*runtime.ListContainersResponse, error) {
+	start := time.Now()
 	// List all containers from store.
 	containersInStore := c.containerStore.List()
 
@@ -35,6 +38,8 @@ func (c *criService) ListContainers(ctx context.Context, r *runtime.ListContaine
 	}
 
 	containers = c.filterCRIContainers(containers, r.GetFilter())
+
+	containerListTimer.UpdateSince(start)
 	return &runtime.ListContainersResponse{Containers: containers}, nil
 }
 

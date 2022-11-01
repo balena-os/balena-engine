@@ -1,18 +1,14 @@
-// +build linux
-
 package runc
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"syscall"
 	"text/tabwriter"
 	"time"
-
-	"encoding/json"
 
 	"github.com/opencontainers/runc/libcontainer"
 	"github.com/opencontainers/runc/libcontainer/user"
@@ -124,7 +120,7 @@ func getContainers(context *cli.Context) ([]containerState, error) {
 	if err != nil {
 		return nil, err
 	}
-	list, err := ioutil.ReadDir(absRoot)
+	list, err := os.ReadDir(absRoot)
 	if err != nil {
 		fatal(err)
 	}
@@ -132,11 +128,15 @@ func getContainers(context *cli.Context) ([]containerState, error) {
 	var s []containerState
 	for _, item := range list {
 		if item.IsDir() {
-			// This cast is safe on Linux.
-			stat := item.Sys().(*syscall.Stat_t)
-			owner, err := user.LookupUid(int(stat.Uid))
+			st, err := os.Stat(filepath.Join(absRoot, item.Name()))
 			if err != nil {
-				owner.Name = fmt.Sprintf("#%d", stat.Uid)
+				fatal(err)
+			}
+			// This cast is safe on Linux.
+			uid := st.Sys().(*syscall.Stat_t).Uid
+			owner, err := user.LookupUid(int(uid))
+			if err != nil {
+				owner.Name = fmt.Sprintf("#%d", uid)
 			}
 
 			container, err := factory.Load(item.Name())

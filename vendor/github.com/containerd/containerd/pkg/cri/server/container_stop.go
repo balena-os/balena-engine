@@ -17,33 +17,41 @@
 package server
 
 import (
+	"fmt"
+	"sync/atomic"
 	"syscall"
 	"time"
 
-	"github.com/containerd/containerd"
 	eventtypes "github.com/containerd/containerd/api/events"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
-	"github.com/pkg/errors"
-	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
-
-	"github.com/containerd/containerd/pkg/cri/store"
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
 	ctrdutil "github.com/containerd/containerd/pkg/cri/util"
+
+	"github.com/moby/sys/signal"
+	"golang.org/x/net/context"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // StopContainer stops a running container with a grace period (i.e., timeout).
 func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainerRequest) (*runtime.StopContainerResponse, error) {
+	start := time.Now()
 	// Get container config from container store.
 	container, err := c.containerStore.Get(r.GetContainerId())
 	if err != nil {
-		return nil, errors.Wrapf(err, "an error occurred when try to find container %q", r.GetContainerId())
+		return nil, fmt.Errorf("an error occurred when try to find container %q: %w", r.GetContainerId(), err)
 	}
 
 	if err := c.stopContainer(ctx, container, time.Duration(r.GetTimeout())*time.Second); err != nil {
 		return nil, err
 	}
+
+	i, err := container.Container.Info(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get container info: %w", err)
+	}
+
+	containerStopTimer.WithValues(i.Runtime.Name).UpdateSince(start)
 
 	return &runtime.StopContainerResponse{}, nil
 }
@@ -65,7 +73,7 @@ func (c *criService) stopContainer(ctx context.Context, container containerstore
 	task, err := container.Container.Task(ctx, nil)
 	if err != nil {
 		if !errdefs.IsNotFound(err) {
-			return errors.Wrapf(err, "failed to get task for container %q", id)
+			return fmt.Errorf("failed to get task for container %q: %w", id, err)
 		}
 		// Don't return for unknown state, some cleanup needs to be done.
 		if state == runtime.ContainerState_CONTAINER_UNKNOWN {
@@ -82,13 +90,13 @@ func (c *criService) stopContainer(ctx context.Context, container containerstore
 		exitCh, err := task.Wait(waitCtx)
 		if err != nil {
 			if !errdefs.IsNotFound(err) {
-				return errors.Wrapf(err, "failed to wait for task for %q", id)
+				return fmt.Errorf("failed to wait for task for %q: %w", id, err)
 			}
 			return cleanupUnknownContainer(ctx, id, container)
 		}
 
 		exitCtx, exitCancel := context.WithCancel(context.Background())
-		stopCh := c.eventMonitor.startExitMonitor(exitCtx, id, task.Pid(), exitCh)
+		stopCh := c.eventMonitor.startContainerExitMonitor(exitCtx, id, task.Pid(), exitCh)
 		defer func() {
 			exitCancel()
 			// This ensures that exit monitor is stopped before
@@ -115,8 +123,8 @@ func (c *criService) stopContainer(ctx context.Context, container containerstore
 			// TODO(random-liu): Remove this logic when containerd 1.2 is deprecated.
 			image, err := c.imageStore.Get(container.ImageRef)
 			if err != nil {
-				if err != store.ErrNotExist {
-					return errors.Wrapf(err, "failed to get image %q", container.ImageRef)
+				if !errdefs.IsNotFound(err) {
+					return fmt.Errorf("failed to get image %q: %w", container.ImageRef, err)
 				}
 				log.G(ctx).Warningf("Image %q not found, stop container with signal %q", container.ImageRef, stopSignal)
 			} else {
@@ -125,13 +133,26 @@ func (c *criService) stopContainer(ctx context.Context, container containerstore
 				}
 			}
 		}
-		sig, err := containerd.ParseSignal(stopSignal)
+		sig, err := signal.ParseSignal(stopSignal)
 		if err != nil {
-			return errors.Wrapf(err, "failed to parse stop signal %q", stopSignal)
+			return fmt.Errorf("failed to parse stop signal %q: %w", stopSignal, err)
 		}
-		log.G(ctx).Infof("Stop container %q with signal %v", id, sig)
-		if err = task.Kill(ctx, sig); err != nil && !errdefs.IsNotFound(err) {
-			return errors.Wrapf(err, "failed to stop container %q", id)
+
+		var sswt bool
+		if container.IsStopSignaledWithTimeout == nil {
+			log.G(ctx).Infof("unable to ensure stop signal %v was not sent twice to container %v", sig, id)
+			sswt = true
+		} else {
+			sswt = atomic.CompareAndSwapUint32(container.IsStopSignaledWithTimeout, 0, 1)
+		}
+
+		if sswt {
+			log.G(ctx).Infof("Stop container %q with signal %v", id, sig)
+			if err = task.Kill(ctx, sig); err != nil && !errdefs.IsNotFound(err) {
+				return fmt.Errorf("failed to stop container %q: %w", id, err)
+			}
+		} else {
+			log.G(ctx).Infof("Skipping the sending of signal %v to container %q because a prior stop with timeout>0 request already sent the signal", sig, id)
 		}
 
 		sigTermCtx, sigTermCtxCancel := context.WithTimeout(ctx, timeout)
@@ -151,13 +172,13 @@ func (c *criService) stopContainer(ctx context.Context, container containerstore
 
 	log.G(ctx).Infof("Kill container %q", id)
 	if err = task.Kill(ctx, syscall.SIGKILL); err != nil && !errdefs.IsNotFound(err) {
-		return errors.Wrapf(err, "failed to kill container %q", id)
+		return fmt.Errorf("failed to kill container %q: %w", id, err)
 	}
 
 	// Wait for a fixed timeout until container stop is observed by event monitor.
 	err = c.waitContainerStop(ctx, container)
 	if err != nil {
-		return errors.Wrapf(err, "an error occurs during waiting for container %q to be killed", id)
+		return fmt.Errorf("an error occurs during waiting for container %q to be killed: %w", id, err)
 	}
 	return nil
 }
@@ -167,7 +188,7 @@ func (c *criService) stopContainer(ctx context.Context, container containerstore
 func (c *criService) waitContainerStop(ctx context.Context, container containerstore.Container) error {
 	select {
 	case <-ctx.Done():
-		return errors.Wrapf(ctx.Err(), "wait container %q", container.ID)
+		return fmt.Errorf("wait container %q: %w", container.ID, ctx.Err())
 	case <-container.Stopped():
 		return nil
 	}

@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
+	"strings"
 	"unsafe"
 
 	"github.com/Microsoft/go-winio/pkg/etw"
@@ -33,14 +33,13 @@ import (
 )
 
 var (
-	defaultConfigPath = filepath.Join(os.Getenv("programfiles"), "containerd", "config.toml")
-	handledSignals    = []os.Signal{
+	handledSignals = []os.Signal{
 		windows.SIGTERM,
 		windows.SIGINT,
 	}
 )
 
-func handleSignals(ctx context.Context, signals chan os.Signal, serverC chan *server.Server) chan struct{} {
+func handleSignals(ctx context.Context, signals chan os.Signal, serverC chan *server.Server, cancel func()) chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		var server *server.Server
@@ -55,12 +54,12 @@ func handleSignals(ctx context.Context, signals chan os.Signal, serverC chan *se
 					log.G(ctx).WithError(err).Error("notify stopping failed")
 				}
 
-				if server == nil {
-					close(done)
-					return
+				cancel()
+				if server != nil {
+					server.Stop()
 				}
-				server.Stop()
 				close(done)
+				return
 			}
 		}
 	}()
@@ -118,4 +117,8 @@ func init() {
 			logrus.Error(err)
 		}
 	}
+}
+
+func isLocalAddress(path string) bool {
+	return strings.HasPrefix(path, `\\.\pipe\`)
 }
