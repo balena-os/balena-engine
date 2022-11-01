@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -20,10 +21,12 @@ package shim
 
 import (
 	gocontext "context"
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/containerd/console"
 	"github.com/containerd/containerd/cmd/ctr/commands"
@@ -34,7 +37,6 @@ import (
 	"github.com/containerd/typeurl"
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -172,7 +174,7 @@ var execCommand = cli.Command{
 		}
 
 		// read spec file and extract Any object
-		spec, err := ioutil.ReadFile(context.String("spec"))
+		spec, err := os.ReadFile(context.String("spec"))
 		if err != nil {
 			return err
 		}
@@ -240,10 +242,11 @@ func getTaskService(context *cli.Context) (task.TaskService, error) {
 	s1 := filepath.Join(string(filepath.Separator), "containerd-shim", ns, id, "shim.sock")
 	// this should not error, ctr always get a default ns
 	ctx := namespaces.WithNamespace(gocontext.Background(), ns)
-	s2, _ := shim.SocketAddress(ctx, id)
+	s2, _ := shim.SocketAddress(ctx, context.GlobalString("address"), id)
+	s2 = strings.TrimPrefix(s2, "unix://")
 
-	for _, socket := range []string{s1, s2} {
-		conn, err := net.Dial("unix", "\x00"+socket)
+	for _, socket := range []string{s2, "\x00" + s1} {
+		conn, err := net.Dial("unix", socket)
 		if err == nil {
 			client := ttrpc.NewClient(conn)
 

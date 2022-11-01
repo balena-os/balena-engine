@@ -20,10 +20,11 @@ import (
 	"sync"
 
 	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/pkg/cri/store/label"
-	"github.com/containerd/containerd/pkg/cri/store/truncindex"
-
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/pkg/cri/store"
+	"github.com/containerd/containerd/pkg/cri/store/label"
+	"github.com/containerd/containerd/pkg/cri/store/stats"
+	"github.com/containerd/containerd/pkg/cri/store/truncindex"
 	"github.com/containerd/containerd/pkg/netns"
 )
 
@@ -42,6 +43,8 @@ type Sandbox struct {
 	NetNS *netns.NetNS
 	// StopCh is used to propagate the stop information of the sandbox.
 	*store.StopCh
+	// Stats contains (mutable) stats for the (pause) sandbox container
+	Stats *stats.ContainerStats
 }
 
 // NewSandbox creates an internally used sandbox type. This functions reminds
@@ -80,7 +83,7 @@ func (s *Store) Add(sb Sandbox) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	if _, ok := s.sandboxes[sb.ID]; ok {
-		return store.ErrAlreadyExist
+		return errdefs.ErrAlreadyExists
 	}
 	if err := s.labels.Reserve(sb.ProcessLabel); err != nil {
 		return err
@@ -100,14 +103,14 @@ func (s *Store) Get(id string) (Sandbox, error) {
 	id, err := s.idIndex.Get(id)
 	if err != nil {
 		if err == truncindex.ErrNotExist {
-			err = store.ErrNotExist
+			err = errdefs.ErrNotFound
 		}
 		return Sandbox{}, err
 	}
 	if sb, ok := s.sandboxes[id]; ok {
 		return sb, nil
 	}
-	return Sandbox{}, store.ErrNotExist
+	return Sandbox{}, errdefs.ErrNotFound
 }
 
 // List lists all sandboxes.
@@ -119,6 +122,27 @@ func (s *Store) List() []Sandbox {
 		sandboxes = append(sandboxes, sb)
 	}
 	return sandboxes
+}
+
+func (s *Store) UpdateContainerStats(id string, newContainerStats *stats.ContainerStats) error {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	id, err := s.idIndex.Get(id)
+	if err != nil {
+		if err == truncindex.ErrNotExist {
+			err = errdefs.ErrNotFound
+		}
+		return err
+	}
+
+	if _, ok := s.sandboxes[id]; !ok {
+		return errdefs.ErrNotFound
+	}
+
+	c := s.sandboxes[id]
+	c.Stats = newContainerStats
+	s.sandboxes[id] = c
+	return nil
 }
 
 // Delete deletes the sandbox with specified id.

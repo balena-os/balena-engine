@@ -1,4 +1,5 @@
-// +build !windows
+//go:build !windows && !freebsd && !darwin
+// +build !windows,!freebsd,!darwin
 
 /*
    Copyright The containerd Authors.
@@ -19,13 +20,15 @@
 package tasks
 
 import (
+	"errors"
+
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/runtime"
-	"github.com/pkg/errors"
 )
 
 var tasksServiceRequires = []plugin.Type{
+	plugin.EventPlugin,
 	plugin.RuntimePlugin,
 	plugin.RuntimePluginV2,
 	plugin.MetadataPlugin,

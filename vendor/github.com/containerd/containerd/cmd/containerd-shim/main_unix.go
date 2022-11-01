@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -26,7 +27,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"runtime"
 	"runtime/debug"
@@ -45,8 +45,8 @@ import (
 	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl"
 	ptypes "github.com/gogo/protobuf/types"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	exec "golang.org/x/sys/execabs"
 	"golang.org/x/sys/unix"
 )
 
@@ -72,7 +72,7 @@ var (
 func Main() {
 	flag.BoolVar(&debugFlag, "debug", false, "enable debug output in logs")
 	flag.StringVar(&namespaceFlag, "namespace", "", "namespace that owns the shim")
-	flag.StringVar(&socketFlag, "socket", "", "abstract socket path to serve")
+	flag.StringVar(&socketFlag, "socket", "", "socket path to serve")
 	flag.StringVar(&addressFlag, "address", "", "grpc address back to main containerd")
 	flag.StringVar(&workdirFlag, "workdir", "", "path used to storge large temporary data")
 	flag.StringVar(&runtimeRootFlag, "runtime-root", process.RuncRoot, "root directory for the runtime")
@@ -153,7 +153,7 @@ func executeShim() error {
 	}
 	server, err := newServer()
 	if err != nil {
-		return errors.Wrap(err, "failed creating server")
+		return fmt.Errorf("failed creating server: %w", err)
 	}
 	sv, err := shim.NewService(
 		shim.Config{
@@ -202,10 +202,18 @@ func serve(ctx context.Context, server *ttrpc.Server, path string) error {
 		f.Close()
 		path = "[inherited from parent]"
 	} else {
-		if len(path) > 106 {
-			return errors.Errorf("%q: unix socket path too long (> 106)", path)
+		const (
+			abstractSocketPrefix = "\x00"
+			socketPathLimit      = 106
+		)
+		p := strings.TrimPrefix(path, "unix://")
+		if len(p) == len(path) {
+			p = abstractSocketPrefix + p
 		}
-		l, err = net.Listen("unix", "\x00"+path)
+		if len(p) > socketPathLimit {
+			return fmt.Errorf("%q: unix socket path too long (> %d)", p, socketPathLimit)
+		}
+		l, err = net.Listen("unix", p)
 	}
 	if err != nil {
 		return err
@@ -290,19 +298,22 @@ func (l *remoteEventsPublisher) Publish(ctx context.Context, topic string, event
 	cmd.Args[0] = containerdBinaryArgv0Flag
 	cmd.Stdin = bytes.NewReader(data)
 	b := bufPool.Get().(*bytes.Buffer)
-	defer bufPool.Put(b)
+	defer func() {
+		b.Reset()
+		bufPool.Put(b)
+	}()
 	cmd.Stdout = b
 	cmd.Stderr = b
 	c, err := reaper.Default.Start(cmd)
 	if err != nil {
 		return err
 	}
-	status, err := reaper.Default.Wait(cmd, c)
+	status, err := reaper.Default.WaitTimeout(cmd, c, 30*time.Second)
 	if err != nil {
-		return errors.Wrapf(err, "failed to publish event: %s", b.String())
+		return fmt.Errorf("failed to publish event: %s: %w", b.String(), err)
 	}
 	if status != 0 {
-		return errors.Errorf("failed to publish event: %s", b.String())
+		return fmt.Errorf("failed to publish event: %s", b.String())
 	}
 	return nil
 }

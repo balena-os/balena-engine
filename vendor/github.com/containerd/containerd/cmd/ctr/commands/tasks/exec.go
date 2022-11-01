@@ -26,11 +26,11 @@ import (
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/cmd/ctr/commands"
+	"github.com/containerd/containerd/oci"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
-//TODO:(jessvalarezo) exec-id is optional here, update to required arg
 var execCommand = cli.Command{
 	Name:           "exec",
 	Usage:          "execute additional processes in an existing container",
@@ -50,8 +50,9 @@ var execCommand = cli.Command{
 			Usage: "detach from the task after it has started execution",
 		},
 		cli.StringFlag{
-			Name:  "exec-id",
-			Usage: "exec specific id for the process",
+			Name:     "exec-id",
+			Required: true,
+			Usage:    "exec specific id for the process",
 		},
 		cli.StringFlag{
 			Name:  "fifo-dir",
@@ -60,6 +61,10 @@ var execCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "log-uri",
 			Usage: "log uri for custom shim logging",
+		},
+		cli.StringFlag{
+			Name:  "user",
+			Usage: "user id or name",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -85,43 +90,63 @@ var execCommand = cli.Command{
 		if err != nil {
 			return err
 		}
-		task, err := container.Task(ctx, nil)
-		if err != nil {
-			return err
+		if user := context.String("user"); user != "" {
+			c, err := container.Info(ctx)
+			if err != nil {
+				return err
+			}
+			if err := oci.WithUser(user)(ctx, client, &c, spec); err != nil {
+				return err
+			}
 		}
 
 		pspec := spec.Process
 		pspec.Terminal = tty
 		pspec.Args = args
 
+		if cwd := context.String("cwd"); cwd != "" {
+			pspec.Cwd = cwd
+		}
+
+		task, err := container.Task(ctx, nil)
+		if err != nil {
+			return err
+		}
+
 		var (
 			ioCreator cio.Creator
 			stdinC    = &stdinCloser{
 				stdin: os.Stdin,
 			}
+			con console.Console
 		)
 
-		if logURI := context.String("log-uri"); logURI != "" {
+		fifoDir := context.String("fifo-dir")
+		logURI := context.String("log-uri")
+		ioOpts := []cio.Opt{cio.WithFIFODir(fifoDir)}
+		switch {
+		case tty && logURI != "":
+			return errors.New("can't use log-uri with tty")
+		case logURI != "" && fifoDir != "":
+			return errors.New("can't use log-uri with fifo-dir")
+
+		case tty:
+			con = console.Current()
+			defer con.Reset()
+			if err := con.SetRaw(); err != nil {
+				return err
+			}
+			ioCreator = cio.NewCreator(append([]cio.Opt{cio.WithStreams(con, con, nil), cio.WithTerminal}, ioOpts...)...)
+
+		case logURI != "":
 			uri, err := url.Parse(logURI)
 			if err != nil {
 				return err
 			}
-
-			if dir := context.String("fifo-dir"); dir != "" {
-				return errors.New("can't use log-uri with fifo-dir")
-			}
-
-			if tty {
-				return errors.New("can't use log-uri with tty")
-			}
-
 			ioCreator = cio.LogURI(uri)
-		} else {
-			cioOpts := []cio.Opt{cio.WithStreams(stdinC, os.Stdout, os.Stderr), cio.WithFIFODir(context.String("fifo-dir"))}
-			if tty {
-				cioOpts = append(cioOpts, cio.WithTerminal)
-			}
-			ioCreator = cio.NewCreator(cioOpts...)
+
+		default:
+			ioCreator = cio.NewCreator(append([]cio.Opt{cio.WithStreams(stdinC, os.Stdout, os.Stderr)}, ioOpts...)...)
 		}
 
 		process, err := task.Exec(ctx, context.String("exec-id"), pspec, ioCreator)
@@ -141,30 +166,19 @@ var execCommand = cli.Command{
 			return err
 		}
 
-		var con console.Console
-		if tty {
-			con = console.Current()
-			defer con.Reset()
-			if err := con.SetRaw(); err != nil {
-				return err
-			}
-		}
-		if !detach {
-			if tty {
-				if err := HandleConsoleResize(ctx, process, con); err != nil {
-					logrus.WithError(err).Error("console resize")
-				}
-			} else {
-				sigc := commands.ForwardAllSignals(ctx, process)
-				defer commands.StopCatch(sigc)
-			}
-		}
-
 		if err := process.Start(ctx); err != nil {
 			return err
 		}
 		if detach {
 			return nil
+		}
+		if tty {
+			if err := HandleConsoleResize(ctx, process, con); err != nil {
+				logrus.WithError(err).Error("console resize")
+			}
+		} else {
+			sigc := commands.ForwardAllSignals(ctx, process)
+			defer commands.StopCatch(sigc)
 		}
 		status := <-statusC
 		code, _, err := status.Result()

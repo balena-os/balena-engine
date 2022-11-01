@@ -39,7 +39,7 @@ func checkArgs(context *cli.Context, expected, checkType int) error {
 
 	if err != nil {
 		fmt.Printf("Incorrect Usage.\n\n")
-		cli.ShowCommandHelp(context, cmdName)
+		_ = cli.ShowCommandHelp(context, cmdName)
 		return err
 	}
 	return nil
@@ -53,13 +53,17 @@ func logrusToStderr() bool {
 // fatal prints the error's details if it is a libcontainer specific error type
 // then exits the program with an exit status of 1.
 func fatal(err error) {
-	// make sure the error is written to the logger
+	fatalWithCode(err, 1)
+}
+
+func fatalWithCode(err error, ret int) {
+	// Make sure the error is written to the logger.
 	logrus.Error(err)
 	if !logrusToStderr() {
 		fmt.Fprintln(os.Stderr, err)
 	}
 
-	os.Exit(1)
+	os.Exit(ret)
 }
 
 // setupSpec performs initial setup based on the cli.Context for the container
@@ -90,6 +94,21 @@ func revisePidFile(context *cli.Context) error {
 		return err
 	}
 	return context.Set("pid-file", pidFile)
+}
+
+// reviseRootDir convert the root to absolute path
+func reviseRootDir(context *cli.Context) error {
+	root := context.GlobalString("root")
+	if root == "" {
+		return nil
+	}
+
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+
+	return context.GlobalSet("root", root)
 }
 
 // parseBoolOrAuto returns (nil, nil) if s is empty or "auto"

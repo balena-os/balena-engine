@@ -18,14 +18,14 @@ package container
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/containerd/continuity"
-	"github.com/pkg/errors"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // The container state machine in the CRI plugin:
@@ -156,7 +156,7 @@ type StatusStorage interface {
 	// Delete the container status.
 	// Note:
 	// * Delete should be idempotent.
-	// * The status must be deleted in one trasaction.
+	// * The status must be deleted in one transaction.
 	Delete() error
 }
 
@@ -166,11 +166,11 @@ type StatusStorage interface {
 func StoreStatus(root, id string, status Status) (StatusStorage, error) {
 	data, err := status.encode()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to encode status")
+		return nil, fmt.Errorf("failed to encode status: %w", err)
 	}
 	path := filepath.Join(root, "status")
 	if err := continuity.AtomicWriteFile(path, data, 0600); err != nil {
-		return nil, errors.Wrapf(err, "failed to checkpoint status to %q", path)
+		return nil, fmt.Errorf("failed to checkpoint status to %q: %w", path, err)
 	}
 	return &statusStorage{
 		path:   path,
@@ -182,13 +182,13 @@ func StoreStatus(root, id string, status Status) (StatusStorage, error) {
 // writing to the file during loading.
 func LoadStatus(root, id string) (Status, error) {
 	path := filepath.Join(root, "status")
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return Status{}, errors.Wrapf(err, "failed to read status from %q", path)
+		return Status{}, fmt.Errorf("failed to read status from %q: %w", path, err)
 	}
 	var status Status
 	if err := status.decode(data); err != nil {
-		return Status{}, errors.Wrapf(err, "failed to decode status %q", data)
+		return Status{}, fmt.Errorf("failed to decode status %q: %w", data, err)
 	}
 	return status, nil
 }
@@ -216,10 +216,10 @@ func (s *statusStorage) UpdateSync(u UpdateFunc) error {
 	}
 	data, err := newStatus.encode()
 	if err != nil {
-		return errors.Wrap(err, "failed to encode status")
+		return fmt.Errorf("failed to encode status: %w", err)
 	}
 	if err := continuity.AtomicWriteFile(s.path, data, 0600); err != nil {
-		return errors.Wrapf(err, "failed to checkpoint status to %q", s.path)
+		return fmt.Errorf("failed to checkpoint status to %q: %w", s.path, err)
 	}
 	s.status = newStatus
 	return nil

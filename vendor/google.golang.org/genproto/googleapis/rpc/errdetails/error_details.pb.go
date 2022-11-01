@@ -829,9 +829,7 @@ func init() {
 	proto.RegisterType((*LocalizedMessage)(nil), "google.rpc.LocalizedMessage")
 }
 
-func init() {
-	proto.RegisterFile("google/rpc/error_details.proto", fileDescriptor_851816e4d6b6361a)
-}
+func init() { proto.RegisterFile("google/rpc/error_details.proto", fileDescriptor_851816e4d6b6361a) }
 
 var fileDescriptor_851816e4d6b6361a = []byte{
 	// 669 bytes of a gzipped FileDescriptorProto

@@ -24,10 +24,9 @@ import (
 
 	"github.com/containerd/containerd/log"
 	"github.com/containernetworking/plugins/pkg/ns"
-	"github.com/pkg/errors"
 	"golang.org/x/net/context"
 
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // portForward uses netns to enter the sandbox namespace, and forwards a stream inside the
@@ -35,7 +34,7 @@ import (
 func (c *criService) portForward(ctx context.Context, id string, port int32, stream io.ReadWriteCloser) error {
 	s, err := c.sandboxStore.Get(id)
 	if err != nil {
-		return errors.Wrapf(err, "failed to find sandbox %q in store", id)
+		return fmt.Errorf("failed to find sandbox %q in store: %w", id, err)
 	}
 
 	var netNSDo func(func(ns.NetNS) error) error
@@ -45,9 +44,9 @@ func (c *criService) portForward(ctx context.Context, id string, port int32, str
 	hostNet := securityContext.GetNamespaceOptions().GetNetwork() == runtime.NamespaceMode_NODE
 	if !hostNet {
 		if closed, err := s.NetNS.Closed(); err != nil {
-			return errors.Wrapf(err, "failed to check netwok namespace closed for sandbox %q", id)
+			return fmt.Errorf("failed to check netwok namespace closed for sandbox %q: %w", id, err)
 		} else if closed {
-			return errors.Errorf("network namespace for sandbox %q is closed", id)
+			return fmt.Errorf("network namespace for sandbox %q is closed", id)
 		}
 		netNSDo = s.NetNS.Do
 		netNSPath = s.NetNS.GetPath()
@@ -62,12 +61,24 @@ func (c *criService) portForward(ctx context.Context, id string, port int32, str
 	log.G(ctx).Infof("Executing port forwarding in network namespace %q", netNSPath)
 	err = netNSDo(func(_ ns.NetNS) error {
 		defer stream.Close()
-		// TODO: hardcoded to tcp4 because localhost resolves to ::1 by default if the system has IPv6 enabled.
-		// Theoretically happy eyeballs will try IPv6 first and fallback to IPv4
-		// but resolving localhost doesn't seem to return and IPv4 address, thus failing the connection.
+		// localhost can resolve to both IPv4 and IPv6 addresses in dual-stack systems
+		// but the application can be listening in one of the IP families only.
+		// golang has enabled RFC 6555 Fast Fallback (aka HappyEyeballs) by default in 1.12
+		// It means that if a host resolves to both IPv6 and IPv4, it will try to connect to any
+		// of those addresses and use the working connection.
+		// However, the implementation uses go routines to start both connections in parallel,
+		// and this cases that the connection is done outside the namespace, so we try to connect
+		// serially.
+		// We try IPv4 first to keep current behavior and we fallback to IPv6 if the connection fails.
+		// xref https://github.com/golang/go/issues/44922
+		var conn net.Conn
 		conn, err := net.Dial("tcp4", fmt.Sprintf("localhost:%d", port))
 		if err != nil {
-			return errors.Wrapf(err, "failed to dial %d", port)
+			var errV6 error
+			conn, errV6 = net.Dial("tcp6", fmt.Sprintf("localhost:%d", port))
+			if errV6 != nil {
+				return fmt.Errorf("failed to connect to localhost:%d inside namespace %q, IPv4: %v IPv6 %v ", port, id, err, errV6)
+			}
 		}
 		defer conn.Close()
 
@@ -118,7 +129,7 @@ func (c *criService) portForward(ctx context.Context, id string, port int32, str
 	})
 
 	if err != nil {
-		return errors.Wrapf(err, "failed to execute portforward in network namespace %q", netNSPath)
+		return fmt.Errorf("failed to execute portforward in network namespace %q: %w", netNSPath, err)
 	}
 	log.G(ctx).Infof("Finish port forwarding for %q port %d", id, port)
 
