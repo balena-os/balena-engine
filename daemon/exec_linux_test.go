@@ -89,3 +89,31 @@ func TestExecSetPlatformOptAppArmor(t *testing.T) {
 		}
 	}
 }
+
+// TestExecSetPlatformOptPrivileged verifies that `docker exec --privileged`
+// does not disable AppArmor profiles. Exec currently inherits the `Privileged`
+// configuration of the container. See https://github.com/moby/moby/pull/31773#discussion_r105586900
+//
+// This behavior may change in future, but test for the behavior to prevent it
+// from being changed accidentally.
+//
+// balenaEngine: this test was failing after we upgraded several components
+// while updating containerd to 1.6.6. We changed it so it resembles the
+// following test case in the more recent Moby codebase:
+// https://github.com/moby/moby/blob/572ca799db4b67b7be35904e487f0cc51c3f9f06/daemon/exec_linux_test.go#L37-L39
+func TestExecSetPlatformOptPrivileged(t *testing.T) {
+	if !apparmor.HostSupports() {
+		t.Skip("requires AppArmor to be enabled")
+	}
+	d := &Daemon{configStore: &config.Config{}}
+	c := &container.Container{
+		AppArmorProfile: "",
+		HostConfig:      &containertypes.HostConfig{Privileged: true},
+	}
+	ec := &exec.Config{Privileged: false}
+	p := &specs.Process{}
+
+	err := d.execSetPlatformOpt(c, ec, p)
+	assert.NilError(t, err)
+	assert.Equal(t, unconfinedAppArmorProfile, p.ApparmorProfile)
+}
