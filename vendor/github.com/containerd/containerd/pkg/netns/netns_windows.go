@@ -1,5 +1,3 @@
-// +build windows
-
 /*
    Copyright The containerd Authors.
 
@@ -26,7 +24,7 @@ type NetNS struct {
 }
 
 // NewNetNS creates a network namespace for the sandbox
-func NewNetNS() (*NetNS, error) {
+func NewNetNS(baseDir string) (*NetNS, error) {
 	temp := hcn.HostComputeNamespace{}
 	hcnNamespace, err := temp.Create()
 	if err != nil {
@@ -41,7 +39,7 @@ func LoadNetNS(path string) *NetNS {
 	return &NetNS{path: path}
 }
 
-// Remove removes network namepace if it exists and not closed. Remove is idempotent,
+// Remove removes network namespace if it exists and not closed. Remove is idempotent,
 // meaning it might be invoked multiple times and provides consistent result.
 func (n *NetNS) Remove() error {
 	hcnNamespace, err := hcn.GetNamespaceByID(n.path)

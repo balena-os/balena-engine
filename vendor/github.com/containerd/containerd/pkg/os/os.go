@@ -18,9 +18,7 @@ package os
 
 import (
 	"io"
-	"io/ioutil"
 	"os"
-	"path/filepath"
 
 	"github.com/moby/sys/symlink"
 )
@@ -56,18 +54,6 @@ func (RealOS) Stat(name string) (os.FileInfo, error) {
 	return os.Stat(name)
 }
 
-// ResolveSymbolicLink will follow any symbolic links
-func (RealOS) ResolveSymbolicLink(path string) (string, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return "", err
-	}
-	if info.Mode()&os.ModeSymlink != os.ModeSymlink {
-		return path, nil
-	}
-	return filepath.EvalSymlinks(path)
-}
-
 // FollowSymlinkInScope will call symlink.FollowSymlinkInScope.
 func (RealOS) FollowSymlinkInScope(path, scope string) (string, error) {
 	return symlink.FollowSymlinkInScope(path, scope)
@@ -91,9 +77,9 @@ func (RealOS) CopyFile(src, dest string, perm os.FileMode) error {
 	return err
 }
 
-// WriteFile will call ioutil.WriteFile to write data into a file.
+// WriteFile will call os.WriteFile to write data into a file.
 func (RealOS) WriteFile(filename string, data []byte, perm os.FileMode) error {
-	return ioutil.WriteFile(filename, data, perm)
+	return os.WriteFile(filename, data, perm)
 }
 
 // Hostname will call os.Hostname to get the hostname of the host.

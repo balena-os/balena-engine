@@ -17,6 +17,8 @@
 package images
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 
@@ -24,7 +26,6 @@ import (
 	"github.com/containerd/containerd/images/archive"
 	"github.com/containerd/containerd/platforms"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
@@ -43,6 +44,10 @@ When '--all-platforms' is given all images in a manifest list must be available.
 		cli.BoolFlag{
 			Name:  "skip-manifest-json",
 			Usage: "do not add Docker compatible manifest.json to archive",
+		},
+		cli.BoolFlag{
+			Name:  "skip-non-distributable",
+			Usage: "do not add non-distributable blobs such as Windows layers to archive",
 		},
 		cli.StringSliceFlag{
 			Name:  "platform",
@@ -69,7 +74,7 @@ When '--all-platforms' is given all images in a manifest list must be available.
 			for _, ps := range pss {
 				p, err := platforms.Parse(ps)
 				if err != nil {
-					return errors.Wrapf(err, "invalid platform %q", ps)
+					return fmt.Errorf("invalid platform %q: %w", ps, err)
 				}
 				all = append(all, p)
 			}
@@ -84,6 +89,10 @@ When '--all-platforms' is given all images in a manifest list must be available.
 
 		if context.Bool("skip-manifest-json") {
 			exportOpts = append(exportOpts, archive.WithSkipDockerManifest())
+		}
+
+		if context.Bool("skip-non-distributable") {
+			exportOpts = append(exportOpts, archive.WithSkipNonDistributableBlobs())
 		}
 
 		client, ctx, cancel, err := commands.NewClient(context)
@@ -103,7 +112,7 @@ When '--all-platforms' is given all images in a manifest list must be available.
 		} else {
 			w, err = os.Create(out)
 			if err != nil {
-				return nil
+				return err
 			}
 		}
 		defer w.Close()

@@ -1,11 +1,8 @@
-// +build linux
-
 package runc
 
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 
 	"github.com/opencontainers/runc/libcontainer/configs"
@@ -111,7 +108,7 @@ created by an unprivileged user.
 		if err != nil {
 			return err
 		}
-		return ioutil.WriteFile(specConfig, data, 0666)
+		return os.WriteFile(specConfig, data, 0o666)
 	},
 }
 

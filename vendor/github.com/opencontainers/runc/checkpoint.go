@@ -1,20 +1,19 @@
-// +build linux
-
 package runc
 
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
 	"strconv"
-	"strings"
 
+	criu "github.com/checkpoint-restore/go-criu/v5/rpc"
 	"github.com/opencontainers/runc/libcontainer"
-	"github.com/opencontainers/runc/libcontainer/system"
+	"github.com/opencontainers/runc/libcontainer/userns"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
-
 	"golang.org/x/sys/unix"
 )
 
@@ -48,7 +47,7 @@ checkpointed.`,
 			return err
 		}
 		// XXX: Currently this is untested with rootless containers.
-		if os.Geteuid() != 0 || system.RunningInUserNS() {
+		if os.Geteuid() != 0 || userns.RunningInUserNS() {
 			logrus.Warn("runc checkpoint is untested with rootless containers")
 		}
 
@@ -78,28 +77,53 @@ checkpointed.`,
 	},
 }
 
-func getCheckpointImagePath(context *cli.Context) string {
+func prepareImagePaths(context *cli.Context) (string, string, error) {
 	imagePath := context.String("image-path")
 	if imagePath == "" {
-		imagePath = getDefaultImagePath(context)
+		imagePath = getDefaultImagePath()
 	}
-	return imagePath
+
+	if err := os.MkdirAll(imagePath, 0o600); err != nil {
+		return "", "", err
+	}
+
+	parentPath := context.String("parent-path")
+	if parentPath == "" {
+		return imagePath, parentPath, nil
+	}
+
+	if filepath.IsAbs(parentPath) {
+		return "", "", errors.New("--parent-path must be relative")
+	}
+
+	realParent := filepath.Join(imagePath, parentPath)
+	fi, err := os.Stat(realParent)
+	if err == nil && !fi.IsDir() {
+		err = &os.PathError{Path: realParent, Err: unix.ENOTDIR}
+	}
+
+	if err != nil {
+		return "", "", fmt.Errorf("invalid --parent-path: %w", err)
+	}
+
+	return imagePath, parentPath, nil
 }
 
 func setPageServer(context *cli.Context, options *libcontainer.CriuOpts) {
 	// xxx following criu opts are optional
 	// The dump image can be sent to a criu page server
 	if psOpt := context.String("page-server"); psOpt != "" {
-		addressPort := strings.Split(psOpt, ":")
-		if len(addressPort) != 2 {
+		address, port, err := net.SplitHostPort(psOpt)
+
+		if err != nil || address == "" || port == "" {
 			fatal(errors.New("Use --page-server ADDRESS:PORT to specify page server"))
 		}
-		portInt, err := strconv.Atoi(addressPort[1])
+		portInt, err := strconv.Atoi(port)
 		if err != nil {
 			fatal(errors.New("Invalid port number"))
 		}
 		options.PageServer = libcontainer.CriuPageServerInfo{
-			Address: addressPort[0],
+			Address: address,
 			Port:    int32(portInt),
 		}
 	}
@@ -109,11 +133,11 @@ func setManageCgroupsMode(context *cli.Context, options *libcontainer.CriuOpts) 
 	if cgOpt := context.String("manage-cgroups-mode"); cgOpt != "" {
 		switch cgOpt {
 		case "soft":
-			options.ManageCgroupsMode = libcontainer.CRIU_CG_MODE_SOFT
+			options.ManageCgroupsMode = criu.CriuCgMode_SOFT
 		case "full":
-			options.ManageCgroupsMode = libcontainer.CRIU_CG_MODE_FULL
+			options.ManageCgroupsMode = criu.CriuCgMode_FULL
 		case "strict":
-			options.ManageCgroupsMode = libcontainer.CRIU_CG_MODE_STRICT
+			options.ManageCgroupsMode = criu.CriuCgMode_STRICT
 		default:
 			fatal(errors.New("Invalid manage cgroups mode"))
 		}

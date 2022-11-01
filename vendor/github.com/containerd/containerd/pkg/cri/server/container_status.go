@@ -18,21 +18,21 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+
+	"github.com/containerd/containerd/errdefs"
+	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
 
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
 	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
-
-	"github.com/containerd/containerd/pkg/cri/store"
-	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // ContainerStatus inspects the container and returns the status.
 func (c *criService) ContainerStatus(ctx context.Context, r *runtime.ContainerStatusRequest) (*runtime.ContainerStatusResponse, error) {
 	container, err := c.containerStore.Get(r.GetContainerId())
 	if err != nil {
-		return nil, errors.Wrapf(err, "an error occurred when try to find container %q", r.GetContainerId())
+		return nil, fmt.Errorf("an error occurred when try to find container %q: %w", r.GetContainerId(), err)
 	}
 
 	// TODO(random-liu): Clean up the following logic in CRI.
@@ -44,8 +44,8 @@ func (c *criService) ContainerStatus(ctx context.Context, r *runtime.ContainerSt
 	imageRef := container.ImageRef
 	image, err := c.imageStore.Get(imageRef)
 	if err != nil {
-		if err != store.ErrNotExist {
-			return nil, errors.Wrapf(err, "failed to get image %q", imageRef)
+		if !errdefs.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get image %q: %w", imageRef, err)
 		}
 	} else {
 		repoTags, repoDigests := parseImageReferences(image.References)
@@ -64,14 +64,14 @@ func (c *criService) ContainerStatus(ctx context.Context, r *runtime.ContainerSt
 		// CRI doesn't allow CreatedAt == 0.
 		info, err := container.Container.Info(ctx)
 		if err != nil {
-			return nil, errors.Wrapf(err, "failed to get CreatedAt in %q state", status.State)
+			return nil, fmt.Errorf("failed to get CreatedAt in %q state: %w", status.State, err)
 		}
 		status.CreatedAt = info.CreatedAt.UnixNano()
 	}
 
 	info, err := toCRIContainerInfo(ctx, container, r.GetVerbose())
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get verbose container info")
+		return nil, fmt.Errorf("failed to get verbose container info: %w", err)
 	}
 
 	return &runtime.ContainerStatusResponse{
@@ -93,13 +93,23 @@ func toCRIContainerStatus(container containerstore.Container, spec *runtime.Imag
 		}
 	}
 
+	// If container is in the created state, not set started and finished unix timestamps
+	var st, ft int64
+	switch status.State() {
+	case runtime.ContainerState_CONTAINER_RUNNING:
+		// If container is in the running state, set started unix timestamps
+		st = status.StartedAt
+	case runtime.ContainerState_CONTAINER_EXITED, runtime.ContainerState_CONTAINER_UNKNOWN:
+		st, ft = status.StartedAt, status.FinishedAt
+	}
+
 	return &runtime.ContainerStatus{
 		Id:          meta.ID,
 		Metadata:    meta.Config.GetMetadata(),
 		State:       status.State(),
 		CreatedAt:   status.CreatedAt,
-		StartedAt:   status.StartedAt,
-		FinishedAt:  status.FinishedAt,
+		StartedAt:   st,
+		FinishedAt:  ft,
 		ExitCode:    status.ExitCode,
 		Image:       spec,
 		ImageRef:    imageRef,
@@ -146,26 +156,26 @@ func toCRIContainerInfo(ctx context.Context, container containerstore.Container,
 	var err error
 	ci.RuntimeSpec, err = container.Container.Spec(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get container runtime spec")
+		return nil, fmt.Errorf("failed to get container runtime spec: %w", err)
 	}
 
 	ctrInfo, err := container.Container.Info(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get container info")
+		return nil, fmt.Errorf("failed to get container info: %w", err)
 	}
 	ci.SnapshotKey = ctrInfo.SnapshotKey
 	ci.Snapshotter = ctrInfo.Snapshotter
 
 	runtimeOptions, err := getRuntimeOptions(ctrInfo)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get runtime options")
+		return nil, fmt.Errorf("failed to get runtime options: %w", err)
 	}
 	ci.RuntimeType = ctrInfo.Runtime.Name
 	ci.RuntimeOptions = runtimeOptions
 
 	infoBytes, err := json.Marshal(ci)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to marshal info %v", ci)
+		return nil, fmt.Errorf("failed to marshal info %v: %w", ci, err)
 	}
 	return map[string]string{
 		"info": string(infoBytes),

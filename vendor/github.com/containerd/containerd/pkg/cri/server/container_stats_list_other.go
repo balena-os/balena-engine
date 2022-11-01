@@ -1,3 +1,4 @@
+//go:build !windows && !linux
 // +build !windows,!linux
 
 /*
@@ -19,10 +20,11 @@
 package server
 
 import (
+	"fmt"
+
 	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/errdefs"
-	"github.com/pkg/errors"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
 )
@@ -32,5 +34,5 @@ func (c *criService) containerMetrics(
 	stats *types.Metric,
 ) (*runtime.ContainerStats, error) {
 	var cs runtime.ContainerStats
-	return &cs, errors.Wrap(errdefs.ErrNotImplemented, "container metrics")
+	return &cs, fmt.Errorf("container metrics: %w", errdefs.ErrNotImplemented)
 }

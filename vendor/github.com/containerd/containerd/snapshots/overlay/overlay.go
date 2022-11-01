@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 /*
@@ -21,7 +22,6 @@ package overlay
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,14 +30,21 @@ import (
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/snapshots"
+	"github.com/containerd/containerd/snapshots/overlay/overlayutils"
 	"github.com/containerd/containerd/snapshots/storage"
 	"github.com/containerd/continuity/fs"
-	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
+
+// upperdirKey is a key of an optional lablel to each snapshot.
+// This optional label of a snapshot contains the location of "upperdir" where
+// the change set between this snapshot and its parent is stored.
+const upperdirKey = "containerd.io/snapshot/overlay.upperdir"
 
 // SnapshotterConfig is used to configure the overlay snapshotter instance
 type SnapshotterConfig struct {
-	asyncRemove bool
+	asyncRemove   bool
+	upperdirLabel bool
 }
 
 // Opt is an option to configure the overlay snapshotter
@@ -52,11 +59,22 @@ func AsynchronousRemove(config *SnapshotterConfig) error {
 	return nil
 }
 
+// WithUpperdirLabel adds as an optional label
+// "containerd.io/snapshot/overlay.upperdir". This stores the location
+// of the upperdir that contains the changeset between the labelled
+// snapshot and its parent.
+func WithUpperdirLabel(config *SnapshotterConfig) error {
+	config.upperdirLabel = true
+	return nil
+}
+
 type snapshotter struct {
-	root        string
-	ms          *storage.MetaStore
-	asyncRemove bool
-	indexOff    bool
+	root          string
+	ms            *storage.MetaStore
+	asyncRemove   bool
+	upperdirLabel bool
+	indexOff      bool
+	userxattr     bool // whether to enable "userxattr" mount option
 }
 
 // NewSnapshotter returns a Snapshotter which uses overlayfs. The overlayfs
@@ -88,18 +106,19 @@ func NewSnapshotter(root string, opts ...Opt) (snapshots.Snapshotter, error) {
 	if err := os.Mkdir(filepath.Join(root, "snapshots"), 0700); err != nil && !os.IsExist(err) {
 		return nil, err
 	}
-
-	// figure out whether "index=off" option is recognized by the kernel
-	var indexOff bool
-	if _, err = os.Stat("/sys/module/overlay/parameters/index"); err == nil {
-		indexOff = true
+	// figure out whether "userxattr" option is recognized by the kernel && needed
+	userxattr, err := overlayutils.NeedsUserXAttr(root)
+	if err != nil {
+		logrus.WithError(err).Warnf("cannot detect whether \"userxattr\" option needs to be used, assuming to be %v", userxattr)
 	}
 
 	return &snapshotter{
-		root:        root,
-		ms:          ms,
-		asyncRemove: config.asyncRemove,
-		indexOff:    indexOff,
+		root:          root,
+		ms:            ms,
+		asyncRemove:   config.asyncRemove,
+		upperdirLabel: config.upperdirLabel,
+		indexOff:      supportsIndex(),
+		userxattr:     userxattr,
 	}, nil
 }
 
@@ -114,9 +133,16 @@ func (o *snapshotter) Stat(ctx context.Context, key string) (snapshots.Info, err
 		return snapshots.Info{}, err
 	}
 	defer t.Rollback()
-	_, info, _, err := storage.GetInfo(ctx, key)
+	id, info, _, err := storage.GetInfo(ctx, key)
 	if err != nil {
 		return snapshots.Info{}, err
+	}
+
+	if o.upperdirLabel {
+		if info.Labels == nil {
+			info.Labels = make(map[string]string)
+		}
+		info.Labels[upperdirKey] = o.upperPath(id)
 	}
 
 	return info, nil
@@ -136,6 +162,17 @@ func (o *snapshotter) Update(ctx context.Context, info snapshots.Info, fieldpath
 
 	if err := t.Commit(); err != nil {
 		return snapshots.Info{}, err
+	}
+
+	if o.upperdirLabel {
+		id, _, _, err := storage.GetInfo(ctx, info.Name)
+		if err != nil {
+			return snapshots.Info{}, err
+		}
+		if info.Labels == nil {
+			info.Labels = make(map[string]string)
+		}
+		info.Labels[upperdirKey] = o.upperPath(id)
 	}
 
 	return info, nil
@@ -193,7 +230,7 @@ func (o *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 	s, err := storage.GetSnapshot(ctx, key)
 	t.Rollback()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get active mount")
+		return nil, fmt.Errorf("failed to get active mount: %w", err)
 	}
 	return o.mounts(s), nil
 }
@@ -224,7 +261,7 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	}
 
 	if _, err = storage.CommitActive(ctx, key, name, snapshots.Usage(usage), opts...); err != nil {
-		return errors.Wrap(err, "failed to commit snapshot")
+		return fmt.Errorf("failed to commit snapshot: %w", err)
 	}
 	return t.Commit()
 }
@@ -247,14 +284,14 @@ func (o *snapshotter) Remove(ctx context.Context, key string) (err error) {
 
 	_, _, err = storage.Remove(ctx, key)
 	if err != nil {
-		return errors.Wrap(err, "failed to remove")
+		return fmt.Errorf("failed to remove: %w", err)
 	}
 
 	if !o.asyncRemove {
 		var removals []string
 		removals, err = o.getCleanupDirectories(ctx, t)
 		if err != nil {
-			return errors.Wrap(err, "unable to get directories for removal")
+			return fmt.Errorf("unable to get directories for removal: %w", err)
 		}
 
 		// Remove directories after the transaction is closed, failures must not
@@ -282,6 +319,19 @@ func (o *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...str
 		return err
 	}
 	defer t.Rollback()
+	if o.upperdirLabel {
+		return storage.WalkInfo(ctx, func(ctx context.Context, info snapshots.Info) error {
+			id, _, _, err := storage.GetInfo(ctx, info.Name)
+			if err != nil {
+				return err
+			}
+			if info.Labels == nil {
+				info.Labels = make(map[string]string)
+			}
+			info.Labels[upperdirKey] = o.upperPath(id)
+			return fn(ctx, info)
+		}, fs...)
+	}
 	return storage.WalkInfo(ctx, fn, fs...)
 }
 
@@ -360,7 +410,7 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 			if path != "" {
 				if err1 := os.RemoveAll(path); err1 != nil {
 					log.G(ctx).WithError(err1).WithField("path", path).Error("failed to reclaim snapshot directory, directory may need removal")
-					err = errors.Wrapf(err, "failed to remove path: %v", err1)
+					err = fmt.Errorf("failed to remove path: %v: %w", err1, err)
 				}
 			}
 		}
@@ -372,7 +422,7 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 		if rerr := t.Rollback(); rerr != nil {
 			log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
 		}
-		return nil, errors.Wrap(err, "failed to create prepare snapshot dir")
+		return nil, fmt.Errorf("failed to create prepare snapshot dir: %w", err)
 	}
 	rollback := true
 	defer func() {
@@ -385,13 +435,13 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 
 	s, err := storage.CreateSnapshot(ctx, kind, key, parent, opts...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create snapshot")
+		return nil, fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
 	if len(s.ParentIDs) > 0 {
 		st, err := os.Stat(o.upperPath(s.ParentIDs[0]))
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to stat parent")
+			return nil, fmt.Errorf("failed to stat parent: %w", err)
 		}
 
 		stat := st.Sys().(*syscall.Stat_t)
@@ -400,28 +450,28 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 			if rerr := t.Rollback(); rerr != nil {
 				log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
 			}
-			return nil, errors.Wrap(err, "failed to chown")
+			return nil, fmt.Errorf("failed to chown: %w", err)
 		}
 	}
 
 	path = filepath.Join(snapshotDir, s.ID)
 	if err = os.Rename(td, path); err != nil {
-		return nil, errors.Wrap(err, "failed to rename")
+		return nil, fmt.Errorf("failed to rename: %w", err)
 	}
 	td = ""
 
 	rollback = false
 	if err = t.Commit(); err != nil {
-		return nil, errors.Wrap(err, "commit failed")
+		return nil, fmt.Errorf("commit failed: %w", err)
 	}
 
 	return o.mounts(s), nil
 }
 
 func (o *snapshotter) prepareDirectory(ctx context.Context, snapshotDir string, kind snapshots.Kind) (string, error) {
-	td, err := ioutil.TempDir(snapshotDir, "new-")
+	td, err := os.MkdirTemp(snapshotDir, "new-")
 	if err != nil {
-		return "", errors.Wrap(err, "failed to create temp dir")
+		return "", fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
 	if err := os.Mkdir(filepath.Join(td, "fs"), 0755); err != nil {
@@ -462,6 +512,10 @@ func (o *snapshotter) mounts(s storage.Snapshot) []mount.Mount {
 	// set index=off when mount overlayfs
 	if o.indexOff {
 		options = append(options, "index=off")
+	}
+
+	if o.userxattr {
+		options = append(options, "userxattr")
 	}
 
 	if s.Kind == snapshots.KindActive {
@@ -509,4 +563,12 @@ func (o *snapshotter) workPath(id string) string {
 // Close closes the snapshotter
 func (o *snapshotter) Close() error {
 	return o.ms.Close()
+}
+
+// supportsIndex checks whether the "index=off" option is supported by the kernel.
+func supportsIndex() bool {
+	if _, err := os.Stat("/sys/module/overlay/parameters/index"); err == nil {
+		return true
+	}
+	return false
 }

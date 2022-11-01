@@ -17,7 +17,7 @@
 package server
 
 import (
-	"io/ioutil"
+	"fmt"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -30,9 +30,8 @@ import (
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/typeurl"
-	"github.com/pkg/errors"
 	"golang.org/x/net/context"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
 	cio "github.com/containerd/containerd/pkg/cri/io"
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
@@ -47,7 +46,7 @@ import (
 // 2) Containerd containers may be deleted, but SHOULD NOT be added. Or else, recovery logic
 // for the newly added container/sandbox will return error, because there is no corresponding root
 // directory created.
-// 3) Containerd container tasks may exit or be stoppped, deleted. Even though current logic could
+// 3) Containerd container tasks may exit or be stopped, deleted. Even though current logic could
 // tolerant tasks being created or started, we prefer that not to happen.
 
 // recover recovers system state from containerd and status checkpoint.
@@ -55,7 +54,7 @@ func (c *criService) recover(ctx context.Context) error {
 	// Recover all sandboxes.
 	sandboxes, err := c.client.Containers(ctx, filterLabel(containerKindLabel, containerKindSandbox))
 	if err != nil {
-		return errors.Wrap(err, "failed to list sandbox containers")
+		return fmt.Errorf("failed to list sandbox containers: %w", err)
 	}
 	for _, sandbox := range sandboxes {
 		sb, err := c.loadSandbox(ctx, sandbox)
@@ -65,17 +64,17 @@ func (c *criService) recover(ctx context.Context) error {
 		}
 		log.G(ctx).Debugf("Loaded sandbox %+v", sb)
 		if err := c.sandboxStore.Add(sb); err != nil {
-			return errors.Wrapf(err, "failed to add sandbox %q to store", sandbox.ID())
+			return fmt.Errorf("failed to add sandbox %q to store: %w", sandbox.ID(), err)
 		}
 		if err := c.sandboxNameIndex.Reserve(sb.Name, sb.ID); err != nil {
-			return errors.Wrapf(err, "failed to reserve sandbox name %q", sb.Name)
+			return fmt.Errorf("failed to reserve sandbox name %q: %w", sb.Name, err)
 		}
 	}
 
 	// Recover all containers.
 	containers, err := c.client.Containers(ctx, filterLabel(containerKindLabel, containerKindContainer))
 	if err != nil {
-		return errors.Wrap(err, "failed to list containers")
+		return fmt.Errorf("failed to list containers: %w", err)
 	}
 	for _, container := range containers {
 		cntr, err := c.loadContainer(ctx, container)
@@ -85,17 +84,17 @@ func (c *criService) recover(ctx context.Context) error {
 		}
 		log.G(ctx).Debugf("Loaded container %+v", cntr)
 		if err := c.containerStore.Add(cntr); err != nil {
-			return errors.Wrapf(err, "failed to add container %q to store", container.ID())
+			return fmt.Errorf("failed to add container %q to store: %w", container.ID(), err)
 		}
 		if err := c.containerNameIndex.Reserve(cntr.Name, cntr.ID); err != nil {
-			return errors.Wrapf(err, "failed to reserve container name %q", cntr.Name)
+			return fmt.Errorf("failed to reserve container name %q: %w", cntr.Name, err)
 		}
 	}
 
 	// Recover all images.
 	cImages, err := c.client.ListImages(ctx)
 	if err != nil {
-		return errors.Wrap(err, "failed to list images")
+		return fmt.Errorf("failed to list images: %w", err)
 	}
 	c.loadImages(ctx, cImages)
 
@@ -131,7 +130,7 @@ func (c *criService) recover(ctx context.Context) error {
 		},
 	} {
 		if err := cleanupOrphanedIDDirs(ctx, cleanup.cntrs, cleanup.base); err != nil {
-			return errors.Wrap(err, cleanup.errMsg)
+			return fmt.Errorf("%s: %w", cleanup.errMsg, err)
 		}
 	}
 	return nil
@@ -161,15 +160,15 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 	// Load container metadata.
 	exts, err := cntr.Extensions(ctx)
 	if err != nil {
-		return container, errors.Wrap(err, "failed to get container extensions")
+		return container, fmt.Errorf("failed to get container extensions: %w", err)
 	}
 	ext, ok := exts[containerMetadataExtension]
 	if !ok {
-		return container, errors.Errorf("metadata extension %q not found", containerMetadataExtension)
+		return container, fmt.Errorf("metadata extension %q not found", containerMetadataExtension)
 	}
 	data, err := typeurl.UnmarshalAny(&ext)
 	if err != nil {
-		return container, errors.Wrapf(err, "failed to unmarshal metadata extension %q", ext)
+		return container, fmt.Errorf("failed to unmarshal metadata extension %q: %w", ext, err)
 	}
 	meta := data.(*containerstore.Metadata)
 
@@ -209,7 +208,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 			return containerIO, nil
 		})
 		if err != nil && !errdefs.IsNotFound(err) {
-			return errors.Wrap(err, "failed to load task")
+			return fmt.Errorf("failed to load task: %w", err)
 		}
 		var s containerd.Status
 		var notFound bool
@@ -222,7 +221,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 			if err != nil {
 				// It's still possible that task is deleted during this window.
 				if !errdefs.IsNotFound(err) {
-					return errors.Wrap(err, "failed to get task status")
+					return fmt.Errorf("failed to get task status: %w", err)
 				}
 				notFound = true
 			}
@@ -239,7 +238,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 					cio.WithNewFIFOs(volatileContainerDir, meta.Config.GetTty(), meta.Config.GetStdin()),
 				)
 				if err != nil {
-					return errors.Wrap(err, "failed to create container io")
+					return fmt.Errorf("failed to create container io: %w", err)
 				}
 			case runtime.ContainerState_CONTAINER_RUNNING:
 				// Container was in running state, but its task has been deleted,
@@ -258,17 +257,17 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 				// gets restarted during container start.
 				// Container must be in `CREATED` state.
 				if _, err := t.Delete(ctx, containerd.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
-					return errors.Wrap(err, "failed to delete task")
+					return fmt.Errorf("failed to delete task: %w", err)
 				}
 				if status.State() != runtime.ContainerState_CONTAINER_CREATED {
-					return errors.Errorf("unexpected container state for created task: %q", status.State())
+					return fmt.Errorf("unexpected container state for created task: %q", status.State())
 				}
 			case containerd.Running:
-				// Task is running. Container must be in `RUNNING` state, based on our assuption that
+				// Task is running. Container must be in `RUNNING` state, based on our assumption that
 				// "task should not be started when containerd is down".
 				switch status.State() {
 				case runtime.ContainerState_CONTAINER_EXITED:
-					return errors.Errorf("unexpected container state for running task: %q", status.State())
+					return fmt.Errorf("unexpected container state for running task: %q", status.State())
 				case runtime.ContainerState_CONTAINER_RUNNING:
 				default:
 					// This may happen if containerd gets restarted after task is started, but
@@ -281,7 +280,7 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 				exitCh, err := t.Wait(ctrdutil.NamespacedContext())
 				if err != nil {
 					if !errdefs.IsNotFound(err) {
-						return errors.Wrap(err, "failed to wait for task")
+						return fmt.Errorf("failed to wait for task: %w", err)
 					}
 					// Container was in running state, but its task has been deleted,
 					// set unknown exited state.
@@ -290,17 +289,17 @@ func (c *criService) loadContainer(ctx context.Context, cntr containerd.Containe
 					status.Reason = unknownExitReason
 				} else {
 					// Start exit monitor.
-					c.eventMonitor.startExitMonitor(context.Background(), id, status.Pid, exitCh)
+					c.eventMonitor.startContainerExitMonitor(context.Background(), id, status.Pid, exitCh)
 				}
 			case containerd.Stopped:
 				// Task is stopped. Updata status and delete the task.
 				if _, err := t.Delete(ctx, containerd.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
-					return errors.Wrap(err, "failed to delete task")
+					return fmt.Errorf("failed to delete task: %w", err)
 				}
 				status.FinishedAt = s.ExitTime.UnixNano()
 				status.ExitCode = int32(s.ExitStatus)
 			default:
-				return errors.Errorf("unexpected task status %q", s.Status)
+				return fmt.Errorf("unexpected task status %q", s.Status)
 			}
 		}
 		return nil
@@ -330,15 +329,15 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 	// Load sandbox metadata.
 	exts, err := cntr.Extensions(ctx)
 	if err != nil {
-		return sandbox, errors.Wrap(err, "failed to get sandbox container extensions")
+		return sandbox, fmt.Errorf("failed to get sandbox container extensions: %w", err)
 	}
 	ext, ok := exts[sandboxMetadataExtension]
 	if !ok {
-		return sandbox, errors.Errorf("metadata extension %q not found", sandboxMetadataExtension)
+		return sandbox, fmt.Errorf("metadata extension %q not found", sandboxMetadataExtension)
 	}
 	data, err := typeurl.UnmarshalAny(&ext)
 	if err != nil {
-		return sandbox, errors.Wrapf(err, "failed to unmarshal metadata extension %q", ext)
+		return sandbox, fmt.Errorf("failed to unmarshal metadata extension %q: %w", ext, err)
 	}
 	meta := data.(*sandboxstore.Metadata)
 
@@ -347,14 +346,14 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 		// Load sandbox created timestamp.
 		info, err := cntr.Info(ctx)
 		if err != nil {
-			return status, errors.Wrap(err, "failed to get sandbox container info")
+			return status, fmt.Errorf("failed to get sandbox container info: %w", err)
 		}
 		status.CreatedAt = info.CreatedAt
 
 		// Load sandbox state.
 		t, err := cntr.Task(ctx, nil)
 		if err != nil && !errdefs.IsNotFound(err) {
-			return status, errors.Wrap(err, "failed to load task")
+			return status, fmt.Errorf("failed to load task: %w", err)
 		}
 		var taskStatus containerd.Status
 		var notFound bool
@@ -367,7 +366,7 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 			if err != nil {
 				// It's still possible that task is deleted during this window.
 				if !errdefs.IsNotFound(err) {
-					return status, errors.Wrap(err, "failed to get task status")
+					return status, fmt.Errorf("failed to get task status: %w", err)
 				}
 				notFound = true
 			}
@@ -382,19 +381,19 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 				exitCh, err := t.Wait(ctrdutil.NamespacedContext())
 				if err != nil {
 					if !errdefs.IsNotFound(err) {
-						return status, errors.Wrap(err, "failed to wait for task")
+						return status, fmt.Errorf("failed to wait for task: %w", err)
 					}
 					status.State = sandboxstore.StateNotReady
 				} else {
 					// Task is running, set sandbox state as READY.
 					status.State = sandboxstore.StateReady
 					status.Pid = t.Pid()
-					c.eventMonitor.startExitMonitor(context.Background(), meta.ID, status.Pid, exitCh)
+					c.eventMonitor.startSandboxExitMonitor(context.Background(), meta.ID, status.Pid, exitCh)
 				}
 			} else {
 				// Task is not running. Delete the task and set sandbox state as NOTREADY.
 				if _, err := t.Delete(ctx, containerd.WithProcessKill); err != nil && !errdefs.IsNotFound(err) {
-					return status, errors.Wrap(err, "failed to delete task")
+					return status, fmt.Errorf("failed to delete task: %w", err)
 				}
 				status.State = sandboxstore.StateNotReady
 			}
@@ -412,6 +411,9 @@ func (c *criService) loadSandbox(ctx context.Context, cntr containerd.Container)
 	if goruntime.GOOS != "windows" &&
 		meta.Config.GetLinux().GetSecurityContext().GetNamespaceOptions().GetNetwork() == runtime.NamespaceMode_NODE {
 		// Don't need to load netns for host network sandbox.
+		return sandbox, nil
+	}
+	if goruntime.GOOS == "windows" && meta.Config.GetWindows().GetSecurityContext().GetHostProcess() {
 		return sandbox, nil
 	}
 	sandbox.NetNS = netns.LoadNetNS(meta.NetNSPath)
@@ -455,9 +457,9 @@ func (c *criService) loadImages(ctx context.Context, cImages []containerd.Image)
 
 func cleanupOrphanedIDDirs(ctx context.Context, cntrs []containerd.Container, base string) error {
 	// Cleanup orphaned id directories.
-	dirs, err := ioutil.ReadDir(base)
+	dirs, err := os.ReadDir(base)
 	if err != nil && !os.IsNotExist(err) {
-		return errors.Wrap(err, "failed to read base directory")
+		return fmt.Errorf("failed to read base directory: %w", err)
 	}
 	idsMap := make(map[string]containerd.Container)
 	for _, cntr := range cntrs {
