@@ -1,17 +1,30 @@
 - commits:
-  - subject: Merge upstream v20.10.17
-    hash: 56e2a5e8988bcd5287aaf03cfc9813c2455638c0
-    body: >-
-      For full changelog see:
-      https://github.com/balena-os/balena-engine/blob/20.10.17-balena/CHANGELOG.md#2022-11-04-upstream-release
-    footers:
-      change-type: patch
-      signed-off-by: Leandro Motta Barros <leandro@balena.io>
-    author: Leandro Motta Barros
-    nested: []
+    - subject: Add upstream changelog
+      hash: 812f87f34eec1f070dfa5943ccde00486170365d
+      body: ""
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.20
+  title: "'Update Moby to 20.10.17; containerd to 1.6.6; runc to 1.1.2'"
+  date: 2022-11-04T13:11:22.345Z
+- commits:
+    - subject: Merge upstream v20.10.17
+      hash: 56e2a5e8988bcd5287aaf03cfc9813c2455638c0
+      body: "For full changelog see:
+        https://github.com/balena-os/balena-engine/blob/20.10.17-balena/CHANGEL\
+        OG.md#2022-11-04-upstream-release"
+      footers:
+        change-type: patch
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+      author: Leandro Motta Barros
+      nested: []
   version: 20.10.19
   date: 2022-11-04T12:00:00.000Z
-
 - commits:
     - subject: Improve error reporting for delta base image loading
       hash: 8bb06fd928da2474a88a648137a47dfa5338997f
