@@ -2,7 +2,7 @@
 
 set -eo pipefail
 
-tag="v20.10.19"
+tag="v20.10.22"
 tag=$(echo "$tag" | sed 's|+|.|g')
 
 machine=$(uname -m)

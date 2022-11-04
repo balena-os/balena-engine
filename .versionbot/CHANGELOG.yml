@@ -1,4 +1,17 @@
 - commits:
+  - subject: Merge upstream v20.10.17
+    hash: 3b4f18ca10d205273e89086c29064c74b514a1b7
+    body: >-
+      For full changelog see:
+      https://github.com/balena-os/balena-engine/blob/20.10.17-balena/CHANGELOG.md#2022-11-22-upstream-release
+    footers:
+      change-type: patch
+      signed-off-by: Leandro Motta Barros <leandro@balena.io>
+    author: Leandro Motta Barros
+    nested: []
+  version: 20.10.22
+  date: 2022-11-22T12:00:00.000Z
+- commits:
     - subject: Move GH publishing to core
       hash: a272cbd2dbf230f8c9cae1bbde047c6f4deea8df
       body: ""
