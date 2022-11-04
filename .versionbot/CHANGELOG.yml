@@ -1,4 +1,17 @@
 - commits:
+  - subject: Merge upstream v20.10.17
+    hash: cd9a672e3b1b23def1481551fab4f5f633ba305d
+    body: >-
+      For full changelog see:
+      https://github.com/balena-os/balena-engine/blob/20.10.17-balena/CHANGELOG.md#2022-12-21-upstream-release
+    footers:
+      change-type: patch
+      signed-off-by: Leandro Motta Barros <leandro@balena.io>
+    author: Leandro Motta Barros
+    nested: []
+  version: 20.10.26
+  date: 2022-12-21T12:00:00.000Z
+- commits:
     - subject: Fix TestBuildUserNamespaceValidateCapabilitiesAreV2
       hash: a86030f1f4a7b93bef47bba721ac09fd8dc0332e
       body: |
