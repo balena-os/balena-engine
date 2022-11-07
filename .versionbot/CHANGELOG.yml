@@ -1,4 +1,16 @@
 - commits:
+    - subject: "patch: Add balena-engine documentation"
+      hash: 786108132fe32cdd12b62932fbbb3b5acfed86ea
+      body: ""
+      footer:
+        Signed-off-by: Vipul Gupta (@vipulgupta2048) <vipul@balena.io>
+        signed-off-by: Vipul Gupta (@vipulgupta2048) <vipul@balena.io>
+      author: Vipul Gupta (@vipulgupta2048)
+      nested: []
+  version: 20.10.19
+  title: "'patch: Add balena-engine documentation'"
+  date: 2022-11-07T22:31:10.498Z
+- commits:
     - subject: Improve error reporting for delta base image loading
       hash: 8bb06fd928da2474a88a648137a47dfa5338997f
       body: |
