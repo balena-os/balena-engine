@@ -1,4 +1,4 @@
-<img src="docs/static_files/balena-engine.svg" alt="balenaEngine" width="50%" />
+<img src="docs/static/balena-engine.svg" alt="balenaEngine" width="50%" />
 
 **moby-based container engine for IoT**
 
