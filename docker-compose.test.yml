@@ -4,6 +4,7 @@ version: "2.4"
 services:
   sut:
     build: .
+    privileged: true
     command:
       - |
         set -uaxe
