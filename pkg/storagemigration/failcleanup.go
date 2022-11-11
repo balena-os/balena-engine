@@ -10,12 +10,11 @@ import (
 // FailCleanup should be run after a failed migration.
 // It will remove any files left over from the migration process
 // and migrate containers back to aufs.
-//
 func failCleanup(root string) error {
 	logrus.WithField("storage_root", root).Warning("recovering from failed aufs to overlay migration")
 
 	var err error
-	err = SwitchAllContainersStorageDriver(root, "aufs")
+	_, err = SwitchAllContainersStorageDriver(root, "aufs")
 	if err != nil {
 		return fmt.Errorf("Error migrating containers to aufs: %v", err)
 	}
@@ -32,6 +31,19 @@ func failCleanup(root string) error {
 
 	overlayImageDir := filepath.Join(root, "image", "overlay2")
 	err = removeDirIfExists(overlayImageDir)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func failCleanupContainer(root string, containerID string) error {
+	logrus.WithField("containerId", containerID).Warning("recovering from container config missing during aufs to overlay migration")
+	var err error
+
+	containerDir := filepath.Join(root, "containers", containerID)
+	err = removeDirIfExists(containerDir)
 	if err != nil {
 		return err
 	}

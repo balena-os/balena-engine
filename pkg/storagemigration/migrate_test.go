@@ -41,6 +41,7 @@ func setup(t *testing.T) (*fs.Dir, *State, func()) {
 			),
 		),
 	)
+
 	state := &State{
 		Layers: []Layer{
 			{
@@ -131,4 +132,19 @@ func TestFailCleanup(t *testing.T) {
 	// aufs directory should still exists
 	_, err = os.Stat(root.Join("aufs"))
 	assert.NilError(t, err)
+}
+
+func TestFailCleanupContainer(t *testing.T) {
+	root, _, cleanup := setup(t)
+	defer cleanup()
+
+	// delete config.v2.json to force SwitchAllContainersStorageDriver to fail
+	os.RemoveAll(root.Join("containers", "bebe92422caf828ab21ae39974a0c003a29970ec09c6e5529bbb24f71eb9ca2ef", "config.v2.json"))
+
+	err := Migrate(root.Path())
+	assert.NilError(t, err)
+
+	// container with no config.v2.json should not exists
+	_, err = os.Stat(root.Join("containers", "bebe92422caf828ab21ae39974a0c003a29970ec09c6e5529bbb24f71eb9ca2ef"))
+	assert.ErrorType(t, err, os.IsNotExist)
 }

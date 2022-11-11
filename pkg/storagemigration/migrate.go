@@ -124,8 +124,20 @@ func Migrate(root string) (err error) {
 		return fmt.Errorf("Error moving from temporary root: %v", err)
 	}
 
-	err = SwitchAllContainersStorageDriver(root, "overlay2")
+	containerID, err := SwitchAllContainersStorageDriver(root, "overlay2")
 	if err != nil {
+		defer func() {
+			if err != nil {
+				logrus.WithField("containerID", containerID).WithError(err).Error("removing containerID")
+				if cleanupErr := failCleanupContainer(root, containerID); cleanupErr != nil {
+					err = errors.Wrapf(err, "error cleaning up container %s: %v", containerID, cleanupErr)
+					return
+				}
+				// clear the error; we don't want to propagate it to the daemon,
+				// otherwise it won't be able to start at all
+				err = nil
+			}
+		}()
 		return fmt.Errorf("Error migrating containers to overlay2: %v", err)
 	}
 
@@ -323,15 +335,15 @@ func transformStateToOverlay(root string, state *State) error {
 
 // SwitchAllContainersStorageDriver iterates over all containers and configures
 // them to use `newStorageDriver`.
-func SwitchAllContainersStorageDriver(root, newStorageDriver string) error {
+func SwitchAllContainersStorageDriver(root, newStorageDriver string) (containerID string, err error) {
 	containerDir := filepath.Join(root, "containers")
 	if ok, _ := exists(containerDir, true); !ok {
-		return nil
+		return "", nil
 	}
 
 	containerIDs, err := LoadIDs(containerDir)
 	if err != nil {
-		return fmt.Errorf("Error listing containers: %v", err)
+		return "", fmt.Errorf("Error listing containers: %v", err)
 	}
 	logrus.Debugf("migrating %v container(s) to %s", len(containerIDs), newStorageDriver)
 	for _, containerID := range containerIDs {
@@ -341,9 +353,10 @@ func SwitchAllContainersStorageDriver(root, newStorageDriver string) error {
 			logrus.WithField("container_id", containerID).Debugf("reconfigured storage-driver to %s", newStorageDriver)
 		case errNoConfigV2JSON:
 			logrus.WithField("container_id", containerID).Warning("ignoring container without config.v2.json")
+			return containerID, fmt.Errorf("Error no config.v2.json for %s: %v", containerID, err)
 		default:
-			return fmt.Errorf("Error rewriting container config for %s: %v", containerID, err)
+			return containerID, fmt.Errorf("Error rewriting container config for %s: %v", containerID, err)
 		}
 	}
-	return nil
+	return "", nil
 }
