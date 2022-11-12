@@ -1,4 +1,45 @@
 - commits:
+    - subject: Add error handling that removes containers missing config.v2.json
+      hash: e045a5b00b22120b36a164bd192a5fbefba4f3de
+      body: ""
+      footer:
+        Changelog-entry: Add error handling that removes containers missing config.v2.json
+        changelog-entry: Add error handling that removes containers missing config.v2.json
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: zoobot <rommims@gmail.com>
+        signed-off-by: zoobot <rommims@gmail.com>
+      author: zoobot
+      nested: []
+    - subject: Ignore missing config.v2.json files on migration
+      hash: 7b0cccec345bc4c4e79f329eba226c5e26952f87
+      body: |
+        We have seen some cases in which the file
+        `/var/lib/docker/containers/<UUID>/config.v2.json` was not found for
+        certain UUIDs. This causes the whole migration to fail and, worse,
+        causes our migration cleanup code to fail.
+
+        A missing `config.v2.json` indicates that directory does not contain a
+        valid container, so we should not even try to migrate them. That's what
+        this commit does: it makes the migration ignore directories with a
+        missing `config.v2.json`.
+
+        I don't think we should have directories like this in the first place,
+        this is probably the side effect of some other issue. That said, Docker
+        itself ignores these directories (after logging a warning) during
+        startup, so here are just bringing the Engine in line with the standard
+        behavior.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.19
+  title: "'Ignore missing config.v2.json files on migration'"
+  date: 2022-11-11T23:58:48.124Z
+- commits:
     - subject: Improve error reporting for delta base image loading
       hash: 8bb06fd928da2474a88a648137a47dfa5338997f
       body: |
