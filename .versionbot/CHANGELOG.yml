@@ -1,4 +1,24 @@
 - commits:
+    - subject: Improve docs for balenaEngine devs
+      hash: 63da2bb7fa2aa67fce4b233af30aa771304f8a23
+      body: |
+        Specifically:
+
+        * Describe the project organization.
+        * Include a list of commands commonly used during development.
+        * Update the documentation on how to merge upstream changes, based on my
+          experience following the instructions for the first time.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.19
+  title: "'Improve docs for balenaEngine devs'"
+  date: 2022-11-14T14:06:56.729Z
+- commits:
     - subject: Improve error reporting for delta base image loading
       hash: 8bb06fd928da2474a88a648137a47dfa5338997f
       body: |
