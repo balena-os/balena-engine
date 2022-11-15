@@ -19,10 +19,9 @@ ENV GO111MODULE=off
 
 FROM base AS criu
 ARG DEBIAN_FRONTEND
-ADD --chmod=0644 https://mirrorcache.opensuse.org/repositories/devel:/tools:/criu/Debian_11/Release.key /etc/apt/trusted.gpg.d/criu.gpg.asc
+# Install dependency packages specific to criu
 RUN --mount=type=cache,sharing=locked,id=moby-criu-aptlib,target=/var/lib/apt \
     --mount=type=cache,sharing=locked,id=moby-criu-aptcache,target=/var/cache/apt \
-<<<<<<< HEAD
         apt-get update && apt-get install -y --no-install-recommends \
             libcap-dev \
             libnet-dev \
@@ -44,6 +43,23 @@ RUN mkdir -p /usr/src/criu \
         && apt-get update \
         && apt-get install -y --no-install-recommends criu \
         && install -D /usr/sbin/criu /build/criu
+        apt-get update && apt-get install -y --no-install-recommends \
+            libcap-dev \
+            libnet-dev \
+            libnl-3-dev \
+            libprotobuf-c-dev \
+            libprotobuf-dev \
+            protobuf-c-compiler \
+            protobuf-compiler \
+            python3-protobuf
+
+# Install CRIU for checkpoint/restore support
+ARG CRIU_VERSION=3.14
+RUN mkdir -p /usr/src/criu \
+    && curl -sSL https://github.com/checkpoint-restore/criu/archive/v${CRIU_VERSION}.tar.gz | tar -C /usr/src/criu/ -xz --strip-components=1 \
+    && cd /usr/src/criu \
+    && make \
+    && make PREFIX=/build/ install-criu
 
 FROM base AS registry
 WORKDIR /go/src/github.com/docker/distribution
@@ -196,32 +212,24 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM base AS golangci_lint
 ARG GOLANGCI_LINT_VERSION
-# FIXME: when updating golangci-lint, remove the temporary "nolint" in https://github.com/moby/moby/blob/7860686a8df15eea9def9e6189c6f9eca031bb6f/libnetwork/networkdb/cluster.go#L246
-ARG GOLANGCI_LINT_VERSION=v1.49.0
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh golangci_lint
-        GOBIN=/build/ GO111MODULE=on go install "github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}" \
-    && /build/golangci-lint --version
 
 FROM base AS gotestsum
-ARG GOTESTSUM_VERSION=v1.8.1
+ARG GOTESTSUM_VERSION
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh gotestsum
-        GOBIN=/build/ GO111MODULE=on go install "gotest.tools/gotestsum@${GOTESTSUM_VERSION}" \
-    && /build/gotestsum --version
 
 FROM base AS shfmt
-ARG SHFMT_VERSION=v3.0.2
+ARG SHFMT_VERSION
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh shfmt
-        GOBIN=/build/ GO111MODULE=on go install "mvdan.cc/sh/v3/cmd/shfmt@${SHFMT_VERSION}" \
-    && /build/shfmt --version
 
 # FROM dev-base AS dockercli
 # ARG DOCKERCLI_CHANNEL
@@ -301,7 +309,6 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             libnet1 \
             libnl-3-200 \
             libprotobuf-c1 \
-            libyajl2 \
             net-tools \
             patch \
             pigz \
@@ -309,15 +316,13 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             python3-setuptools \
             python3-wheel \
             sudo \
-            systemd-journal-remote \
             thin-provisioning-tools \
             uidmap \
             vim \
             vim-common \
             xfsprogs \
             xz-utils \
-            zip \
-            zstd
+            zip
 
 
 # Switch to use iptables instead of nftables (to match the CI hosts)
@@ -327,8 +332,6 @@ RUN update-alternatives --set iptables  /usr/sbin/iptables-legacy  || true \
  && update-alternatives --set arptables /usr/sbin/arptables-legacy || true
 
 RUN pip3 install yamllint==1.26.1
-ARG YAMLLINT_VERSION=1.27.1
-RUN pip3 install yamllint==${YAMLLINT_VERSION}
 
 #COPY --from=dockercli     /build/ /usr/local/cli
 COPY --from=frozen-images /build/ /docker-frozen-images
@@ -368,6 +371,9 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             dbus-user-session \
             systemd \
             systemd-sysv
+RUN mkdir -p hack \
+  && curl -o hack/dind-systemd https://raw.githubusercontent.com/AkihiroSuda/containerized-systemd/b70bac0daeea120456764248164c21684ade7d0d/docker-entrypoint.sh \
+  && chmod +x hack/dind-systemd
 ENTRYPOINT ["hack/dind-systemd"]
 
 FROM dev-systemd-${SYSTEMD} AS dev
@@ -383,8 +389,6 @@ ARG PRODUCT
 ENV PRODUCT=${PRODUCT}
 ARG DEFAULT_PRODUCT_LICENSE
 ENV DEFAULT_PRODUCT_LICENSE=${DEFAULT_PRODUCT_LICENSE}
-ARG PACKAGER_NAME
-ENV PACKAGER_NAME=${PACKAGER_NAME}
 ARG DOCKER_BUILDTAGS
 ENV DOCKER_BUILDTAGS="${DOCKER_BUILDTAGS}"
 ENV PREFIX=/build
@@ -392,8 +396,8 @@ ENV PREFIX=/build
 # from $PATH into the bundles dir.
 # It would be nice to handle this in a different way.
 COPY --from=tini        /build/ /usr/local/bin/
-COPY --from=runc        /build/ /usr/local/bin/
-COPY --from=containerd  /build/ /usr/local/bin/
+#COPY --from=runc        /build/ /usr/local/bin/
+#COPY --from=containerd  /build/ /usr/local/bin/
 COPY --from=rootlesskit /build/ /usr/local/bin/
 COPY --from=proxy       /build/ /usr/local/bin/
 COPY --from=vpnkit      /build/ /usr/local/bin/
@@ -413,6 +417,8 @@ FROM binary-base AS build-cross
 ARG DOCKER_CROSSPLATFORMS
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,target=/go/src/github.com/docker/docker \
+# error mounting "tmpfs" to rootfs at "/go/src/github.com/docker/docker/autogen": mkdir /var/lib/docker/buildkit/executor/qtg9kjo0dndeznfnbo99nvedz/rootfs/go/src/github.com/docker/docker/autogen: read-only file system
+#    --mount=type=tmpfs,target=/go/src/github.com/docker/docker/autogen \
         hack/make.sh cross
 
 FROM scratch AS binary
