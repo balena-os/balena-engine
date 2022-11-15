@@ -1,3 +1,7 @@
+#
+# https://raw.githubusercontent.com/moby/moby/22.06/docker-bake.hcl
+#
+
 variable "BUNDLES_OUTPUT" {
   default = "./bundles"
 }
