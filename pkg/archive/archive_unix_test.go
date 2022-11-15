@@ -187,7 +187,7 @@ func getNlink(path string) (uint64, error) {
 		return 0, fmt.Errorf("expected type *syscall.Stat_t, got %t", stat.Sys())
 	}
 	// We need this conversion on ARM64
-	// nolint: unconvert
+	//nolint: unconvert
 	return uint64(statT.Nlink), nil
 }
 
@@ -254,15 +254,15 @@ func TestTarUntarWithXattr(t *testing.T) {
 		t.Skip("getcap not installed")
 	}
 
-	origin, err := os.MkdirTemp("", "docker-test-untar-origin")
+	origin, err := ioutil.TempDir("", "docker-test-untar-origin")
 	assert.NilError(t, err)
 	defer os.RemoveAll(origin)
-	err = os.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0700)
+	err = ioutil.WriteFile(filepath.Join(origin, "1"), []byte("hello world"), 0700)
 	assert.NilError(t, err)
 
-	err = os.WriteFile(filepath.Join(origin, "2"), []byte("welcome!"), 0700)
+	err = ioutil.WriteFile(filepath.Join(origin, "2"), []byte("welcome!"), 0700)
 	assert.NilError(t, err)
-	err = os.WriteFile(filepath.Join(origin, "3"), []byte("will be ignored"), 0700)
+	err = ioutil.WriteFile(filepath.Join(origin, "3"), []byte("will be ignored"), 0700)
 	assert.NilError(t, err)
 	// there is no known Go implementation of setcap/getcap with support for v3 file capability
 	out, err := exec.Command("setcap", "cap_block_suspend+ep", filepath.Join(origin, "2")).CombinedOutput()

@@ -3,7 +3,7 @@
 ARG CROSS="false"
 ARG SYSTEMD="false"
 # IMPORTANT: When updating this please note that stdlib archive/tar pkg is vendored
-ARG GO_VERSION=1.19.3
+ARG GO_VERSION=1.18.8
 ARG DEBIAN_FRONTEND=noninteractive
 ARG VPNKIT_VERSION=0.5.0
 ARG DOCKER_BUILDTAGS="apparmor seccomp no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs"
@@ -20,13 +20,26 @@ ENV GO111MODULE=off
 
 FROM base AS criu
 ARG DEBIAN_FRONTEND
-ADD --chmod=0644 https://mirrorcache.opensuse.org/repositories/devel:/tools:/criu/Debian_11/Release.key /etc/apt/trusted.gpg.d/criu.gpg.asc
+# Install dependency packages specific to criu
 RUN --mount=type=cache,sharing=locked,id=moby-criu-aptlib,target=/var/lib/apt \
     --mount=type=cache,sharing=locked,id=moby-criu-aptcache,target=/var/cache/apt \
-        echo 'deb [trusted=yes] https://mirrorcache.opensuse.org/repositories/devel:/tools:/criu/Debian_11/ /' > /etc/apt/sources.list.d/criu.list \
-        && apt-get update \
-        && apt-get install -y --no-install-recommends criu \
-        && install -D /usr/sbin/criu /build/criu
+        apt-get update && apt-get install -y --no-install-recommends \
+            libcap-dev \
+            libnet-dev \
+            libnl-3-dev \
+            libprotobuf-c-dev \
+            libprotobuf-dev \
+            protobuf-c-compiler \
+            protobuf-compiler \
+            python3-protobuf
+
+# Install CRIU for checkpoint/restore support
+ARG CRIU_VERSION=3.14
+RUN mkdir -p /usr/src/criu \
+    && curl -sSL https://github.com/checkpoint-restore/criu/archive/v${CRIU_VERSION}.tar.gz | tar -C /usr/src/criu/ -xz --strip-components=1 \
+    && cd /usr/src/criu \
+    && make \
+    && make PREFIX=/build/ install-criu
 
 FROM base AS registry
 WORKDIR /go/src/github.com/docker/distribution
@@ -80,10 +93,9 @@ RUN --mount=type=cache,sharing=locked,id=moby-frozen-images-aptlib,target=/var/l
 COPY contrib/download-frozen-image-v2.sh /
 ARG TARGETARCH
 RUN /download-frozen-image-v2.sh /build \
-        buildpack-deps:buster@sha256:d0abb4b1e5c664828b93e8b6ac84d10bce45ee469999bef88304be04a2709491 \
         busybox:latest@sha256:95cf004f559831017cdf4628aaf1bb30133677be8702a8c5f2994629f637a209 \
         busybox:glibc@sha256:1f81263701cddf6402afe9f33fca0266d9fff379e59b1748f33d3072da71ee85 \
-        debian:bullseye@sha256:7190e972ab16aefea4d758ebe42a293f4e5c5be63595f4d03a5b9bf6839a4344 \
+        debian:bullseye-slim@sha256:dacf278785a4daa9de07596ec739dbc07131e189942772210709c5c0777e8437 \
         hello-world:latest@sha256:d58e752213a51785838f9eed2b7a498ffa1cb3aa7f946dda11af39286c3db9a9 \
         arm32v7/hello-world:latest@sha256:50b8560ad574c779908da71f7ce370c0a2471c098d44d1c8f6b513c5a55eeeb1
 # See also frozenImages in "testutil/environment/protect.go" (which needs to be updated when adding images to this list)
@@ -169,32 +181,24 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 FROM base AS golangci_lint
 ARG GOLANGCI_LINT_VERSION
-# FIXME: when updating golangci-lint, remove the temporary "nolint" in https://github.com/moby/moby/blob/7860686a8df15eea9def9e6189c6f9eca031bb6f/libnetwork/networkdb/cluster.go#L246
-ARG GOLANGCI_LINT_VERSION=v1.49.0
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh golangci_lint
-        GOBIN=/build/ GO111MODULE=on go install "github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}" \
-    && /build/golangci-lint --version
 
 FROM base AS gotestsum
-ARG GOTESTSUM_VERSION=v1.8.1
+ARG GOTESTSUM_VERSION
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh gotestsum
-        GOBIN=/build/ GO111MODULE=on go install "gotest.tools/gotestsum@${GOTESTSUM_VERSION}" \
-    && /build/gotestsum --version
 
 FROM base AS shfmt
-ARG SHFMT_VERSION=v3.0.2
+ARG SHFMT_VERSION
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     --mount=type=bind,src=hack/dockerfile/install,target=/tmp/install \
         PREFIX=/build /tmp/install/install.sh shfmt
-        GOBIN=/build/ GO111MODULE=on go install "mvdan.cc/sh/v3/cmd/shfmt@${SHFMT_VERSION}" \
-    && /build/shfmt --version
 
 # FROM dev-base AS dockercli
 # ARG DOCKERCLI_CHANNEL
@@ -271,7 +275,6 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             libnet1 \
             libnl-3-200 \
             libprotobuf-c1 \
-            libyajl2 \
             net-tools \
             patch \
             pigz \
@@ -279,15 +282,13 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             python3-setuptools \
             python3-wheel \
             sudo \
-            systemd-journal-remote \
             thin-provisioning-tools \
             uidmap \
             vim \
             vim-common \
             xfsprogs \
             xz-utils \
-            zip \
-            zstd
+            zip
 
 
 # Switch to use iptables instead of nftables (to match the CI hosts)
@@ -297,8 +298,6 @@ RUN update-alternatives --set iptables  /usr/sbin/iptables-legacy  || true \
  && update-alternatives --set arptables /usr/sbin/arptables-legacy || true
 
 RUN pip3 install yamllint==1.26.1
-ARG YAMLLINT_VERSION=1.27.1
-RUN pip3 install yamllint==${YAMLLINT_VERSION}
 
 #COPY --from=dockercli     /build/ /usr/local/cli
 COPY --from=frozen-images /build/ /docker-frozen-images
@@ -333,6 +332,9 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             dbus-user-session \
             systemd \
             systemd-sysv
+RUN mkdir -p hack \
+  && curl -o hack/dind-systemd https://raw.githubusercontent.com/AkihiroSuda/containerized-systemd/b70bac0daeea120456764248164c21684ade7d0d/docker-entrypoint.sh \
+  && chmod +x hack/dind-systemd
 ENTRYPOINT ["hack/dind-systemd"]
 
 FROM dev-systemd-${SYSTEMD} AS dev
@@ -348,8 +350,6 @@ ARG PRODUCT
 ENV PRODUCT=${PRODUCT}
 ARG DEFAULT_PRODUCT_LICENSE
 ENV DEFAULT_PRODUCT_LICENSE=${DEFAULT_PRODUCT_LICENSE}
-ARG PACKAGER_NAME
-ENV PACKAGER_NAME=${PACKAGER_NAME}
 ARG DOCKER_BUILDTAGS
 ENV DOCKER_BUILDTAGS="${DOCKER_BUILDTAGS}"
 ENV PREFIX=/build
@@ -357,8 +357,8 @@ ENV PREFIX=/build
 # from $PATH into the bundles dir.
 # It would be nice to handle this in a different way.
 COPY --from=tini        /build/ /usr/local/bin/
-COPY --from=runc        /build/ /usr/local/bin/
-COPY --from=containerd  /build/ /usr/local/bin/
+#COPY --from=runc        /build/ /usr/local/bin/
+#COPY --from=containerd  /build/ /usr/local/bin/
 COPY --from=rootlesskit /build/ /usr/local/bin/
 COPY --from=proxy       /build/ /usr/local/bin/
 COPY --from=vpnkit      /build/ /usr/local/bin/
@@ -378,6 +378,8 @@ FROM binary-base AS build-cross
 ARG DOCKER_CROSSPLATFORMS
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,target=/go/src/github.com/docker/docker \
+# error mounting "tmpfs" to rootfs at "/go/src/github.com/docker/docker/autogen": mkdir /var/lib/docker/buildkit/executor/qtg9kjo0dndeznfnbo99nvedz/rootfs/go/src/github.com/docker/docker/autogen: read-only file system
+#    --mount=type=tmpfs,target=/go/src/github.com/docker/docker/autogen \
         hack/make.sh cross
 
 FROM scratch AS binary
