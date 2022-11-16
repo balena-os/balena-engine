@@ -6,6 +6,7 @@ symlink_binaries() {
     local dest="$2"
 
     binaries=(
+        balenad
         balena-engine-daemon
         balena-engine-containerd
         balena-engine-containerd-shim
