@@ -70,13 +70,6 @@ done
 
 curl -sL "$url" | $sudo tar xzv -C /usr/local/bin --strip-components=1
 
-pushd /usr/local/bin
-links='balena balenad balena-containerd balena-containerd-shim balena-containerd-ctr balena-runc balena-proxy'
-for link in ${links}; do
-    $sudo ln -sf balena-engine "${link}"
-done
-popd
-
 cat <<-EOF
 
 
