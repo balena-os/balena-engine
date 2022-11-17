@@ -1,4 +1,30 @@
 - commits:
+    - subject: Create balena symlinks during cross builds
+      hash: bf3e052660f369aea88254f613aeed8eecad3355
+      body: |
+        ...instead of creating them in the installation script. This way, users
+        downloading the release package from GitHub will get the symlinks, too.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Switch to Flowzone
+      hash: 650602837d47529ead30ddc3437b2e9507dc7eaa
+      body: ""
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.19
+  title: ""
+  date: 2022-11-17T19:23:15.607Z
+- commits:
     - subject: Improve error reporting for delta base image loading
       hash: 8bb06fd928da2474a88a648137a47dfa5338997f
       body: |
