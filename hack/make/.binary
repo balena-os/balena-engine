@@ -49,7 +49,7 @@ hash_files() {
 				;;
 			linux/arm)
 				case "${GOARM}" in
-					5 | "")
+					5 | 6 | "")
 						export CC="${CC:-arm-linux-gnueabi-gcc}"
 						export CGO_ENABLED=1
 						;;

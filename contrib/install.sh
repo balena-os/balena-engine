@@ -2,35 +2,35 @@
 
 set -eo pipefail
 
-tag="v17.12.0"
+tag="v20.10.19"
 tag=$(echo "$tag" | sed 's|+|.|g')
 
 machine=$(uname -m)
 
 case "$machine" in
 	"armv5"*)
-		arch="armv5"
+		arch="armv5e"
 		;;
 	"armv6"*)
-		arch="armv6"
+		arch="armv6l"
 		;;
 	"armv7"*)
-		arch="armv7"
+		arch="armv7hf"
 		;;
 	"armv8"*)
-		arch="aarch64"
+		arch="arm64"
 		;;
 	"aarch64"*)
-		arch="aarch64"
+		arch="arm64"
 		;;
 	"i386")
-		arch="i386"
+		arch="386"
 		;;
 	"i686")
-		arch="i386"
+		arch="386"
 		;;
 	"x86_64")
-		arch="x86_64"
+		arch="amd64"
 		;;
 	*)
 		echo "Unknown machine type: $machine" >&2

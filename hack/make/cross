@@ -27,11 +27,19 @@ for platform in ${DOCKER_CROSSPLATFORMS}; do
 			export GOARM
 		fi
 
+		# FIXME: gcc-multilib uninstalls gcc-arm compilers
+		# worksaround to install during runtime and build linux/386 last
+		# https://bugs.launchpad.net/ubuntu/+source/gcc-defaults/+bug/1300211
+		if [[ "${GOARCH}" = "386" ]]; then
+		    apt-get update && apt-get install -y --no-install-recommends gcc-multilib
+		fi
+
 		echo "Cross building: ${DEST}"
 		mkdir -p "${DEST}"
 		ABS_DEST="$(cd "${DEST}" && pwd -P)"
 		source "${MAKEDIR}/binary-daemon"
 
 		source "${MAKEDIR}/cross-platform-dependent"
+		source "${MAKEDIR}/.binary-symlinks"
 	)
 done

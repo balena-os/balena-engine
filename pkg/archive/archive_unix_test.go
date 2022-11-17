@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package archive // import "github.com/docker/docker/pkg/archive"
@@ -186,7 +187,7 @@ func getNlink(path string) (uint64, error) {
 		return 0, fmt.Errorf("expected type *syscall.Stat_t, got %t", stat.Sys())
 	}
 	// We need this conversion on ARM64
-	// nolint: unconvert
+	//nolint: unconvert
 	return uint64(statT.Nlink), nil
 }
 
@@ -285,7 +286,7 @@ func TestTarUntarWithXattr(t *testing.T) {
 		}
 		out, err := exec.Command("getcap", filepath.Join(origin, "2")).CombinedOutput()
 		assert.NilError(t, err, string(out))
-		assert.Check(t, is.Contains(string(out), "= cap_block_suspend+ep"), "untar should have kept the 'security.capability' xattr")
+		assert.Check(t, is.Contains(string(out), "cap_block_suspend=ep"), "untar should have kept the 'security.capability' xattr")
 	}
 }
 
