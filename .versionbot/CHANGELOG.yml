@@ -1,4 +1,24 @@
 - commits:
+    - subject: Improve docs for balenaEngine devs
+      hash: 70983b153cd2881862b2e74d03aa5bb104466e0c
+      body: |
+        Specifically:
+
+        * Describe the project organization.
+        * Include a list of commands commonly used during development.
+        * Update the documentation on how to merge upstream changes, based on my
+          experience following the instructions for the first time.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.20
+  title: ""
+  date: 2022-11-17T20:12:45.139Z
+- commits:
     - subject: Create balena symlinks during cross builds
       hash: bf3e052660f369aea88254f613aeed8eecad3355
       body: |
