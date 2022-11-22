@@ -1,4 +1,16 @@
 - commits:
+    - subject: Move GH publishing to core
+      hash: a272cbd2dbf230f8c9cae1bbde047c6f4deea8df
+      body: ""
+      footer:
+        Change-type: patch
+        change-type: patch
+      author: ab77
+      nested: []
+  version: 20.10.21
+  title: ""
+  date: 2022-11-22T15:39:24.570Z
+- commits:
     - subject: Improve docs for balenaEngine devs
       hash: 70983b153cd2881862b2e74d03aa5bb104466e0c
       body: |
