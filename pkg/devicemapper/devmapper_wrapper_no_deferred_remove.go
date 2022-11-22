@@ -1,5 +1,5 @@
-//go:build linux && cgo && !libdm_dlsym_deferred_remove && libdm_no_deferred_remove
-// +build linux,cgo,!no_devmapper,!libdm_dlsym_deferred_remove,libdm_no_deferred_remove
+//go:build linux && cgo && !libdm_dlsym_deferred_remove && libdm_no_deferred_remove && !no_devmapper
+// +build linux,cgo,!libdm_dlsym_deferred_remove,libdm_no_deferred_remove,!no_devmapper
 
 package devicemapper // import "github.com/docker/docker/pkg/devicemapper"
 
