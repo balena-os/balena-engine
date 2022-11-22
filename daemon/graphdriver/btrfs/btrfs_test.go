@@ -1,3 +1,4 @@
+//go:build linux && !exclude_graphdriver_btrfs
 // +build linux,!exclude_graphdriver_btrfs
 
 package btrfs // import "github.com/docker/docker/daemon/graphdriver/btrfs"
