@@ -1,4 +1,18 @@
 - commits:
+    - subject: DUMMY CHANGE JUST FOR TESTING
+      hash: fb3e66c65249247e0fa5ccf82cc52f7df64629c7
+      body: |
+        DO NOT MERGE, PLEASE!
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.22
+  date: 2022-11-22T19:53:30.051Z
+- commits:
     - subject: Move GH publishing to core
       hash: a272cbd2dbf230f8c9cae1bbde047c6f4deea8df
       body: ""
