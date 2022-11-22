@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && seccomp
 // +build linux,seccomp
 
 package seccomp // import "github.com/docker/docker/profiles/seccomp"

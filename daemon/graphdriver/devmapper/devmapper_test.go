@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !no_devmapper
 // +build linux,!no_devmapper
 
 package devmapper // import "github.com/docker/docker/daemon/graphdriver/devmapper"
