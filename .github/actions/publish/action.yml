@@ -53,15 +53,9 @@ runs:
         tar -czvf dist/balena-engine-${version}-${arch}.tar.gz \
           -C bundles/cross/${{ env.matrix_value }} .
 
-    # https://github.com/softprops/action-gh-release#-customizing
-    - name: Publish release assets
-      uses: softprops/action-gh-release@v1
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
       with:
-        # use PR branch name for draft releases
-        name: ${{ github.event.pull_request.head.ref }}
-        tag_name: ${{ github.event.pull_request.head.ref }}
-        draft: true
-        prerelease: true
-        token: ${{ fromJSON(inputs.secrets).FLOWZONE_TOKEN }}
-        files: |
-          dist/*.tar.gz
+        name: gh-release-${{ github.event.pull_request.head.sha || github.event.head_commit.id }}
+        path: dist
+        retention-days: 1
