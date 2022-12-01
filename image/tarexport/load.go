@@ -1,6 +1,7 @@
 package tarexport // import "github.com/docker/docker/image/tarexport"
 
 import (
+	"archive/tar"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,9 +12,11 @@ import (
 	"reflect"
 	"runtime"
 
+	"github.com/balena-os/librsync-go"
 	"github.com/containerd/containerd/platforms"
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/reference"
+	ddd "github.com/docker/docker/distribution"
 	"github.com/docker/docker/image"
 	v1 "github.com/docker/docker/image/v1"
 	"github.com/docker/docker/layer"
@@ -101,7 +104,54 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 			}
 		}
 
-		for i, diffID := range img.RootFS.DiffIDs {
+		// TODO(LMB): How can we put our hands into the delta image store?
+		ics := ddd.NewImageConfigStoreFromStore(l.is, nil)
+
+		// TODO(LMB): Refactor. This is mostly duplicate from pullSchema2Layers() [pull_v2.go]
+		var deltaBase io.ReadSeeker
+
+		if img.Config != nil {
+			if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
+				digest, err := digest.Parse(base)
+				if err != nil {
+					return err
+				}
+
+				stream, err := ics.GetTarSeekStream(digest)
+				if err != nil {
+					return fmt.Errorf("loading delta base image %v: %w", digest, err)
+				}
+				defer stream.Close()
+
+				deltaBase = stream
+			}
+
+			if targetConfig, ok := img.Config.Labels["io.resin.delta.config"]; ok {
+				// TODO(LMB): Leaving this out for now. Not yet clear what we should
+				//            do here, and even the original code (in pull_v2.go) is
+				//            kinda fishy.
+				// 	digest := digest.FromString(config)
+				// 	// TODO(LMB): Check if Get() semantics of ImageStore is the same as on ImageConfigStore.
+				// 	// TODO(LMB): Not sure we even want this check. What happens if we Load a duplicate layer of a non-delta image?
+				// 	if _, err := l.is.Get(image.ID(digest)); err == nil {
+				// 		// If the image already exists locally, no need to pull
+				// 		// anything.
+				// 		return digest, nil
+				// 	}
+
+				config = []byte(targetConfig)
+			}
+		}
+
+		configRootFS, err := ics.RootFSFromConfig(config)
+		if err == nil && configRootFS == nil {
+			return errors.New("nil target image root filesystem")
+		}
+		if err != nil {
+			return err
+		}
+
+		for i, diffID := range configRootFS.DiffIDs {
 			layerPath, err := safePath(tmpDir, m.Layers[i])
 			if err != nil {
 				return err
@@ -110,7 +160,7 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 			r.Append(diffID)
 			newLayer, err := l.lss[os].Get(r.ChainID())
 			if err != nil {
-				newLayer, err = l.loadLayer(layerPath, rootFS, diffID.String(), os, m.LayerSources[diffID], progressOutput)
+				newLayer, err = l.loadLayer(layerPath, rootFS, diffID.String(), os, m.LayerSources[diffID], progressOutput, deltaBase)
 				if err != nil {
 					return err
 				}
@@ -129,6 +179,7 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 		imageIDsStr += fmt.Sprintf("Loaded image ID: %s\n", imgID)
 
 		imageRefCount = 0
+		// TODO(LMB): Tag target images properly!
 		for _, repoTag := range m.RepoTags {
 			named, err := reference.ParseNormalizedNamed(repoTag)
 			if err != nil {
@@ -177,7 +228,7 @@ func (l *tarexporter) setParentID(id, parentID image.ID) error {
 	return l.is.SetParent(id, parentID)
 }
 
-func (l *tarexporter) loadLayer(filename string, rootFS image.RootFS, id string, os string, foreignSrc distribution.Descriptor, progressOutput progress.Output) (layer.Layer, error) {
+func (l *tarexporter) loadLayer(filename string, rootFS image.RootFS, id string, os string, foreignSrc distribution.Descriptor, progressOutput progress.Output, deltaBase io.ReadSeeker) (layer.Layer, error) {
 	// We use system.OpenSequential to use sequential file access on Windows, avoiding
 	// depleting the standby list. On Linux, this equates to a regular os.Open.
 	rawTar, err := system.OpenSequential(filename)
@@ -201,15 +252,42 @@ func (l *tarexporter) loadLayer(filename string, rootFS image.RootFS, id string,
 	}
 
 	inflatedLayerData, err := archive.DecompressStream(r)
+
+	// TODO(LMB): Refactor. This is mostly duplicate from LayerDownloadManager.makeDownloadFunc() [download.go]
+	layerData := inflatedLayerData
+	if deltaBase != nil {
+		pR, pW := io.Pipe()
+		go func() {
+			tr := tar.NewReader(inflatedLayerData)
+
+			_, err := tr.Next()
+			if err == io.EOF {
+				// TODO(LMB): Do we need to "send" this error somewhere else? (Originally had d.err on the LHS)
+				err = fmt.Errorf("unexpected EOF. Invalid delta tar archive")
+				pW.CloseWithError(err)
+				return
+			}
+
+			err = librsync.Patch(deltaBase, tr, pW)
+			if err != nil {
+				pW.CloseWithError(err)
+			}
+
+			pW.Close()
+		}()
+
+		layerData = pR
+	}
+
 	if err != nil {
 		return nil, err
 	}
 	defer inflatedLayerData.Close()
 
 	if ds, ok := l.lss[os].(layer.DescribableStore); ok {
-		return ds.RegisterWithDescriptor(inflatedLayerData, rootFS.ChainID(), foreignSrc)
+		return ds.RegisterWithDescriptor(layerData, rootFS.ChainID(), foreignSrc)
 	}
-	return l.lss[os].Register(inflatedLayerData, rootFS.ChainID())
+	return l.lss[os].Register(layerData, rootFS.ChainID())
 }
 
 func (l *tarexporter) setLoadedTag(ref reference.Named, imgID digest.Digest, outStream io.Writer) error {
@@ -339,7 +417,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 	if err != nil {
 		return err
 	}
-	newLayer, err := l.loadLayer(layerPath, *rootFS, oldID, img.OS, distribution.Descriptor{}, progressOutput)
+	newLayer, err := l.loadLayer(layerPath, *rootFS, oldID, img.OS, distribution.Descriptor{}, progressOutput, nil)
 	if err != nil {
 		return err
 	}

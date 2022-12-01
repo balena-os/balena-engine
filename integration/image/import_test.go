@@ -47,3 +47,5 @@ func TestImportExtremelyLargeImageWorks(t *testing.T) {
 		types.ImageImportOptions{})
 	assert.NilError(t, err)
 }
+
+// TODO(LMB): Add test case for delta on load

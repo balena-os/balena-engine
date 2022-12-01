@@ -353,6 +353,7 @@ func (ldm *LayerDownloadManager) makeDownloadFunc(descriptor DownloadDescriptor,
 			reader := progress.NewProgressReader(ioutils.NewCancelReadCloser(d.Transfer.Context(), downloadReader), progressOutput, size, descriptor.ID(), "Extracting")
 			defer reader.Close()
 
+			// TODO(LMB): Why isn't inflatedLayerData ever closed? (FWIW, Moby doesn't close it either.)
 			inflatedLayerData, err := archive.DecompressStream(io.TeeReader(reader, totalProgress))
 			if err != nil {
 				d.err = fmt.Errorf("could not get decompression stream: %v", err)
