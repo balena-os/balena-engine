@@ -104,8 +104,7 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 			}
 		}
 
-		// TODO(LMB): How can we put our hands into the delta image store?
-		ics := ddd.NewImageConfigStoreFromStore(l.is, nil)
+		ics := ddd.NewImageConfigStoreFromStore(l.is, l.ds)
 
 		// TODO(LMB): Refactor. This is mostly duplicate from pullSchema2Layers() [pull_v2.go]
 		var deltaBase io.ReadSeeker
