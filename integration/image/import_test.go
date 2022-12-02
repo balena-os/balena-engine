@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"io/ioutil"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -48,4 +50,67 @@ func TestImportExtremelyLargeImageWorks(t *testing.T) {
 	assert.NilError(t, err)
 }
 
-// TODO(LMB): Add test case for delta on load
+// Test if we properly apply balena deltas when doing an `image load`.
+func TestDeltaOnImageLoad(t *testing.T) {
+	const (
+		base   = "busybox:1.24"
+		target = "busybox:1.29"
+		delta  = "busybox:delta-1.24-1.29"
+	)
+
+	ctx := context.Background()
+	client := testEnv.APIClient()
+
+	// Pull base and target images, get the ID of the target image
+	pullBaseAndTargetImages(t, client, base, target)
+	targetImageInfo, _, err := client.ImageInspectWithRaw(ctx, target)
+	targetImageID := targetImageInfo.ID
+
+	// Generate the delta between them
+	rc, err := client.ImageDelta(ctx,
+		base,
+		target,
+		types.ImageDeltaOptions{
+			Tag: delta,
+		})
+	assert.NilError(t, err)
+	io.Copy(ioutil.Discard, rc)
+	err = rc.Close()
+	assert.NilError(t, err)
+
+	// Export the delta image to a tar file
+	rc, err = client.ImageSave(ctx, []string{delta})
+	assert.NilError(t, err)
+	defer rc.Close()
+	deltaImageFile, err := os.CreateTemp("", "deltaImageFile-*.tar")
+	assert.NilError(t, err)
+	defer func() {
+		deltaImageFile.Close()
+		os.Remove(deltaImageFile.Name())
+	}()
+	io.Copy(deltaImageFile, rc)
+
+	// Remove the target and delta images, make sure they are gone
+	_, err = client.ImageRemove(ctx, target, types.ImageRemoveOptions{})
+	assert.NilError(t, err)
+	_, err = client.ImageRemove(ctx, delta, types.ImageRemoveOptions{})
+	assert.NilError(t, err)
+	_, _, err = client.ImageInspectWithRaw(ctx, target)
+	assert.Error(t, err, "Error: No such image: "+target)
+	_, _, err = client.ImageInspectWithRaw(ctx, delta)
+	assert.Error(t, err, "Error: No such image: "+delta)
+
+	// Load the exported delta image from the tar file
+	loadedDeltaImageFile, err := os.Open(deltaImageFile.Name())
+	assert.NilError(t, err)
+	_, err = client.ImageLoad(ctx, loadedDeltaImageFile, true)
+	assert.NilError(t, err)
+
+	// Check if the ID of the delta-imported image matches the target image's
+	// TODO(LMB): Using `delta` as the tag for the "regenerated" image is no pretty.
+	restoredImageInfo, _, err := client.ImageInspectWithRaw(ctx, delta)
+	assert.Equal(t, targetImageID, restoredImageInfo.ID)
+}
+
+// TODO(LMB): Could add other test cases, especially for the unhappy paths. Like
+// checking we get a reasonable error if the base image doesn't exist.
