@@ -126,17 +126,11 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 			}
 
 			if targetConfig, ok := img.Config.Labels["io.resin.delta.config"]; ok {
-				// TODO(LMB): Leaving this out for now. Not yet clear what we should
-				//            do here, and even the original code (in pull_v2.go) is
-				//            kinda fishy.
-				// 	digest := digest.FromString(config)
-				// 	// TODO(LMB): Check if Get() semantics of ImageStore is the same as on ImageConfigStore.
-				// 	// TODO(LMB): Not sure we even want this check. What happens if we Load a duplicate layer of a non-delta image?
-				// 	if _, err := l.is.Get(image.ID(digest)); err == nil {
-				// 		// If the image already exists locally, no need to pull
-				// 		// anything.
-				// 		return digest, nil
-				// 	}
+				digest := digest.FromString(targetConfig)
+				if _, err := l.is.Get(image.ID(digest)); err == nil {
+					// The image already exists locally, no need to load it.
+					return nil
+				}
 
 				config = []byte(targetConfig)
 			}

@@ -608,7 +608,6 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 		}
 
 		if config, ok := img.Config.Labels["io.resin.delta.config"]; ok {
-			// TODO(LMB): Er, does this even makes sense? The config is a JSON object, not a simple digest string.
 			digest := digest.FromString(config)
 
 			if _, err := p.config.ImageStore.Get(ctx, digest); err == nil {
