@@ -1,14 +1,124 @@
 - commits:
-  - subject: Merge upstream v20.10.17
-    hash: 3b4f18ca10d205273e89086c29064c74b514a1b7
-    body: >-
-      For full changelog see:
-      https://github.com/balena-os/balena-engine/blob/20.10.17-balena/CHANGELOG.md#2022-11-22-upstream-release
-    footers:
-      change-type: patch
-      signed-off-by: Leandro Motta Barros <leandro@balena.io>
-    author: Leandro Motta Barros
-    nested: []
+    - subject: Remove TODO about error handling
+      hash: 14a8b28c4a01ffe08c94ce64b37a5ec3b2a9cb39
+      body: |
+        No need to propagate the error as we do to `d.err` in `download.go`.
+        Code there is running on its own goroutine (actually, two "levels" of
+        goroutines) and that assignment to `d.err` is a way to communicate the
+        error to the caller. We don't need anything like this here, as the error
+        will reach the caller when it tries to read data from the pipe
+        (see the `pW.CloseWithError(err)` call).
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Remove TODO about tagging
+      hash: e27c793f3a9e4b87ffd6c71c17d120a9ed5de1bf
+      body: |
+        The code is doing the right thing, and adding all the tags specified in
+        the exported image file.
+
+        What I was missing here was having my post-applying-delta image to be
+        tagged as the target image originally was. The problem is that the
+        exported image file does not contain the the original target image tags
+        in the first place. In the end, post-applying-delta image gets only the
+        `delta` tag (or whatever the delta image itself was tagged).
+
+        I find this confusing for end users (in particular, an image that is not
+        a delta "inheriting" the delta tag). Anyway, this is exactly the same
+        behavior as we have in pulls -- whether this is the right behavior is
+        another story to be discussed in the future.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Don't try to delta-load an image if it already exists
+      hash: 79efe1a787ea47fed9fd3dc7bf0e6cb3d23e4f86
+      body: |
+        And, yes, that line saying
+
+        ```
+        digest := digest.FromString(config)
+        ```
+
+        does make sense. It is essentially hashing the image config JSON, -- and
+        this is exactly how the digest is computed. I somehow mistaken that line
+        with a simple conversion to string.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Add integration test for `image load`ing a delta
+      hash: 2c37bf088344995b2420f3e5ee5b2b83bbefbd71
+      body: |
+        Tests only the happy path. Ensures the image "regenerated" from the
+        delta is the same as the target one.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Use the delta image store with the `image load` command
+      hash: 144fd11f1d4ca4becf3a7221b815b7154153da8f
+      body: |
+        We don't strictly need this at the moment, because the delta image store
+        is set only during HUPs and HUPs don't use `balena image load`. However,
+        it's good to have this properly wired up from the beginning, to make
+        sure future use cases work correctly (e.g., an hypothetical offline HUP
+        based on `image load`).
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Initial PoC for "delta on load"
+      hash: a8161f5bb19ea2df02f7a1e97b1ec1d058bdbfaf
+      body: |
+        Technically works, but has many rough edges and missing bits.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Add upstream changelog
+      hash: 65384c63fb9d9533c765edc34552276859984496
+      body: ""
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.23
+  title: ""
+  date: 2022-12-05T18:22:36.029Z
+- commits:
+    - subject: Merge upstream v20.10.17
+      hash: 3b4f18ca10d205273e89086c29064c74b514a1b7
+      body: "For full changelog see:
+        https://github.com/balena-os/balena-engine/blob/20.10.17-balena/CHANGEL\
+        OG.md#2022-11-22-upstream-release"
+      footers:
+        change-type: patch
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+      author: Leandro Motta Barros
+      nested: []
   version: 20.10.22
   date: 2022-11-22T12:00:00.000Z
 - commits:
