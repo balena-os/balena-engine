@@ -107,10 +107,10 @@ func TestDeltaOnImageLoad(t *testing.T) {
 	assert.NilError(t, err)
 
 	// Check if the ID of the delta-imported image matches the target image's
-	// TODO(LMB): Using `delta` as the tag for the "regenerated" image is no pretty.
 	restoredImageInfo, _, err := client.ImageInspectWithRaw(ctx, delta)
 	assert.Equal(t, targetImageID, restoredImageInfo.ID)
 }
 
 // TODO(LMB): Could add other test cases, especially for the unhappy paths. Like
-// checking we get a reasonable error if the base image doesn't exist.
+// checking we get a reasonable error if the base image doesn't exist. Or if
+// nothing breaks if we tryu to load an image that is already present.

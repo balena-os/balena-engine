@@ -172,7 +172,6 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 		imageIDsStr += fmt.Sprintf("Loaded image ID: %s\n", imgID)
 
 		imageRefCount = 0
-		// TODO(LMB): Tag target images properly!
 		for _, repoTag := range m.RepoTags {
 			named, err := reference.ParseNormalizedNamed(repoTag)
 			if err != nil {
