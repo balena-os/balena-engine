@@ -254,7 +254,6 @@ func (l *tarexporter) loadLayer(filename string, rootFS image.RootFS, id string,
 
 			_, err := tr.Next()
 			if err == io.EOF {
-				// TODO(LMB): Do we need to "send" this error somewhere else? (Originally had d.err on the LHS)
 				err = fmt.Errorf("unexpected EOF. Invalid delta tar archive")
 				pW.CloseWithError(err)
 				return
