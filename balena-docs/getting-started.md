@@ -1,8 +1,3 @@
----
-description: Getting started for balena-engine 
-slug: /
----
-
 # Getting started with balenaEngine
 
 Using balenaEngine (`balena-engine`) should feel very natural to docker users
