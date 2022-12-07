@@ -1,4 +1,16 @@
 - commits:
+    - subject: "patch: Add balena-engine documentation"
+      hash: 56387faffe910291771c592787ba1e6241dbbd5b
+      body: ""
+      footer:
+        Signed-off-by: Vipul Gupta (@vipulgupta2048) <vipul@balena.io>
+        signed-off-by: Vipul Gupta (@vipulgupta2048) <vipul@balena.io>
+      author: Vipul Gupta (@vipulgupta2048)
+      nested: []
+  version: 20.10.22
+  title: ""
+  date: 2022-12-07T10:39:34.781Z
+- commits:
     - subject: Move GH publishing to core
       hash: a272cbd2dbf230f8c9cae1bbde047c6f4deea8df
       body: ""
