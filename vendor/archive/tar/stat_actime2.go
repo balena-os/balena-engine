@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 //go:build darwin || freebsd || netbsd
+// +build darwin freebsd netbsd
 
 package tar
 

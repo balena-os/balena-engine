@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 //go:build aix || linux || dragonfly || openbsd || solaris
+// +build aix linux dragonfly openbsd solaris
 
 package tar
 
