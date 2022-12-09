@@ -1,4 +1,4 @@
-![balenaEngine](./docs/static/balena-engine.png)
+![balenaEngine](./docs/static/balena-engine.svg)
 
 **moby-based container engine for IoT**
 
