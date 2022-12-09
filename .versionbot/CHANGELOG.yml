@@ -1,4 +1,14 @@
 - commits:
+    - subject: 'patch: Revert "Fix balena-engine logo image"'
+      hash: 9113dcecf6e884b032b0a767318cc0401c108679
+      body: ""
+      footer: {}
+      author: Vipul Gupta
+      nested: []
+  version: 20.10.23
+  title: ""
+  date: 2022-12-09T11:50:59.017Z
+- commits:
     - subject: "patch: Add balena-engine documentation"
       hash: 56387faffe910291771c592787ba1e6241dbbd5b
       body: ""
