@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+
 	"github.com/containerd/containerd/cmd/containerd"
 	containerdShim "github.com/containerd/containerd/cmd/containerd-shim"
 	"github.com/containerd/containerd/cmd/ctr"
@@ -38,7 +39,7 @@ func main() {
 	case "balena-proxy", "balena-engine-proxy":
 		proxy.Main()
 	default:
-		fmt.Fprintf(os.Stderr, "error: unkown command: %v\n", command)
+		fmt.Fprintf(os.Stderr, "error: unknown command: %v\n", command)
 		os.Exit(1)
 	}
 }
