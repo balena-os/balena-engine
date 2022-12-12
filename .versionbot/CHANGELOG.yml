@@ -1,4 +1,19 @@
 - commits:
+    - subject: Fix typo
+      hash: 717ae207460417e67718e726adcadfc0b9b59edc
+      body: |
+        Also run `go fmt`.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.24
+  title: ""
+  date: 2022-12-12T12:53:38.376Z
+- commits:
     - subject: 'patch: Revert "Fix balena-engine logo image"'
       hash: 9113dcecf6e884b032b0a767318cc0401c108679
       body: ""
