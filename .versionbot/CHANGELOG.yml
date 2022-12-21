@@ -1,4 +1,55 @@
 - commits:
+    - subject: Fix TestBuildUserNamespaceValidateCapabilitiesAreV2
+      hash: a86030f1f4a7b93bef47bba721ac09fd8dc0332e
+      body: |
+        During the migration to Flowzone (the balena CI system) we brought
+        several changes from Moby's HEAD Dockerfile. Among those, we replaced
+        the `frozen-images` base image to a debian:bullseye-slim. This was a
+        mistake: the slim image doesn't contain the `setcap` binary we need by
+        the `TestBuildUserNamespaceValidateCapabilitiesAreV2` integration test.
+
+        So, this PR simply brings back the full-blown `debian:bullseye`.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Fix crash with PPP interface with nil dst address
+      hash: 67cc46a0ff1b9cc43fdb3f844cae9de8b379982f
+      body: >
+        balenaEngine initialization would fail on devices connected to the
+
+        network via PPP (Point-to-Point Protocol) and with a nil destination
+
+        address (0.0.0.0):
+
+            panic: runtime error: invalid memory address or nil pointer dereference
+
+        This commit updates the netlink dependency to a fork where we
+
+        cherry-picked the correction. This correction wasn't available in any
+
+        stable release of netlink, so we opted to use this fork instead of
+
+        relying on a beta netlink version. We can obsolete our fork once Moby
+
+        starts using a netlink version that includes the fix.
+
+
+        Fixes #292
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.25
+  title: ""
+  date: 2022-12-21T11:58:08.290Z
+- commits:
     - subject: Fix typo
       hash: 717ae207460417e67718e726adcadfc0b9b59edc
       body: |
