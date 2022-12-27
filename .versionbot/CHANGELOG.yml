@@ -1,4 +1,16 @@
 - commits:
+    - subject: "patch: Migrate balenaEngine Debugging docs from masterclass"
+      hash: d22ea060c5d45e6bbabe5bd1e67c635692efd0f3
+      body: ""
+      footer:
+        Signed-off-by: Vipul Gupta (@vipulgupta2048) <vipul@balena.io>
+        signed-off-by: Vipul Gupta (@vipulgupta2048) <vipul@balena.io>
+      author: Vipul Gupta (@vipulgupta2048)
+      nested: []
+  version: 20.10.26
+  title: ""
+  date: 2022-12-27T19:46:14.295Z
+- commits:
     - subject: Fix TestBuildUserNamespaceValidateCapabilitiesAreV2
       hash: a86030f1f4a7b93bef47bba721ac09fd8dc0332e
       body: |
