@@ -1,4 +1,21 @@
 - commits:
+    - subject: Cross-build the dynbinary target
+      hash: 0240d94e35a43be595cd5e79b0653440c228229f
+      body: |
+        The existing cross target does not disable netgo or osusergo
+        so instead we will use QEMU to build dynbinary for other
+        platforms.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Kyle Harding <kyle@balena.io>
+        signed-off-by: Kyle Harding <kyle@balena.io>
+      author: Kyle Harding
+      nested: []
+  version: 20.10.26
+  title: ""
+  date: 2023-01-17T19:01:57.590Z
+- commits:
     - subject: Fix TestBuildUserNamespaceValidateCapabilitiesAreV2
       hash: a86030f1f4a7b93bef47bba721ac09fd8dc0332e
       body: |
