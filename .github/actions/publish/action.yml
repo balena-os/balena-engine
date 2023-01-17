@@ -18,6 +18,9 @@ runs:
   # https://docs.github.com/en/actions/creating-actions/creating-a-composite-action
   using: "composite"
   steps:
+    - name: Setup QEMU
+      uses: docker/setup-qemu-action@v2
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
 
@@ -25,9 +28,9 @@ runs:
     - name: Build release
       uses: docker/bake-action@v2
       with:
-        targets: cross
-      env:
-        DOCKER_CROSSPLATFORMS: ${{ env.matrix_value }}
+        targets: dynbinary
+        set: |
+          *.platform=${{ env.matrix_value }}
 
     # https://github.com/product-os/scripts/tree/master/balena-engine
     # https://github.com/product-os/ci-images/tree/master/pipelines/balena-engine
@@ -51,7 +54,7 @@ runs:
         mkdir -p dist
 
         tar -czvf dist/balena-engine-${version}-${arch}.tar.gz \
-          -C bundles/cross/${{ env.matrix_value }} .
+          -C bundles/dynbinary-daemon .
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
