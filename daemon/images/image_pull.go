@@ -106,7 +106,7 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 		leases:       i.leases,
 	}
 	imageStore := &imageStoreForPull{
-		ImageConfigStore: distribution.NewImageConfigStoreFromStore(i.imageStore),
+		ImageConfigStore: distribution.NewImageConfigStoreFromStore(i.imageStore, i.deltaStore),
 		ingested:         cs,
 		leases:           i.leases,
 	}
@@ -120,7 +120,6 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 			ImageEventLogger: i.LogImageEvent,
 			MetadataStore:    i.distributionMetadataStore,
 			ImageStore:       imageStore,
-			ImageStore:       distribution.NewImageConfigStoreFromStore(i.imageStore, i.deltaStore),
 			ReferenceStore:   i.referenceStore,
 		},
 		DownloadManager: i.downloadManager,
