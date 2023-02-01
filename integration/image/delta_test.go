@@ -482,7 +482,7 @@ func ttrPushImage(ctx context.Context, t *testing.T, client apiclient.APIClient,
 	}
 }
 
-// ttrPullImage pushes a given image to the temporary test
+// ttrPullImage pulls a given image from the temporary test
 // registry. The image parameter must not include the registry name.
 func ttrPullImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
 	rc, err := client.ImagePull(ctx, ttrImageName(image), types.ImagePullOptions{RegistryAuth: "{}"})
@@ -562,31 +562,15 @@ func deltaName(base, target string) string {
 // readAllAndClose reads everything from r, closes it, and returns whatever was
 // read as a string.
 func readAllAndClose(rc io.ReadCloser) (string, error) {
-	// TODO: Simplify this code once we adopt Go 1.16 or later. That version of
-	// Go brought io.ReadAll(), of which the code below is a simple variation.
-	b := make([]byte, 0, 512)
-	for {
-		if len(b) == cap(b) {
-			// Add more capacity (let append pick how much).
-			b = append(b, 0)[:len(b)]
-		}
-		n, err := rc.Read(b[len(b):cap(b)])
-		b = b[:len(b)+n]
-		if err != nil {
-			if err == io.EOF {
-				err = nil
-			}
-			// This call to Close() and the conversion to string are the only
-			// changes from io.ReadAll().
-			closeErr := rc.Close()
-			if err == nil {
-				err = closeErr
-			}
-			return string(b), err
-		}
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return "", err
 	}
+	rc.Close()
+	return string(data), nil
 }
 
+// sliceContains checks if the haystack slice contains the needle string.
 func sliceContains(haystack []string, needle string) bool {
 	for _, e := range haystack {
 		if e == needle {
