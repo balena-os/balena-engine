@@ -5,9 +5,11 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,9 +17,10 @@ import (
 	"github.com/docker/docker/api/types"
 	apiclient "github.com/docker/docker/client"
 	"github.com/docker/docker/daemon/graphdriver/copy"
+	"github.com/docker/docker/testutil/daemon"
 	"github.com/docker/docker/testutil/fakecontext"
 	"github.com/docker/docker/testutil/registry"
-	"gotest.tools/assert"
+	"gotest.tools/v3/assert"
 )
 
 // TestDeltaCreate creates a delta and checks if it exists
@@ -399,6 +402,98 @@ func TestDeltaCorrectness(t *testing.T) {
 	}
 }
 
+// TestPullUsingDeltaStore checks if balenaEngine's alternative delta root
+// feature is working as expected.
+func TestPullUsingDeltaStore(t *testing.T) {
+	// Basis and target for delta.
+	const basis = "busybox:1.34"
+	const target = "busybox:1.35"
+	delta := deltaName(basis, target)
+
+	// We'll push the delta to this registry.
+	defer setupTemporaryTestRegistry(t)()
+
+	// Create a delta, push it to the temporary test registry.
+	func() {
+		d := daemon.New(t)
+		d.Start(t)
+		defer d.Stop(t)
+
+		client := d.NewClientT(t)
+		ctx := context.Background()
+
+		pullAndTag(ctx, t, client, basis, ttrImageName(basis))
+		pullAndTag(ctx, t, client, target, ttrImageName(target))
+
+		ttrCreateDelta(ctx, t, client, basis, target)
+		ttrPushImage(ctx, t, client, delta)
+	}()
+
+	// This is the path we'll eventually use as the delta data root.
+	deltaDataRootDir, err := os.MkdirTemp("", "")
+	assert.NilError(t, err)
+	defer os.RemoveAll(deltaDataRootDir)
+
+	// Place the basis image on `deltaDataRootDir`. We do that by pulling it from
+	// the temporary registry to a temporary daemon that uses `deltaDataRootDir`
+	// as its regular data root.
+	func() {
+		d := daemon.New(t)
+		args := []string{
+			fmt.Sprintf("--data-root=%s", deltaDataRootDir),
+		}
+		d.Start(t, args...)
+		defer d.Stop(t)
+
+		client := d.NewClientT(t)
+		ctx := context.Background()
+
+		rc, err := client.ImagePull(ctx, basis, types.ImagePullOptions{})
+		_, err = readAllAndClose(rc)
+		assert.NilError(t, err)
+
+		imgs, err := client.ImageList(ctx, types.ImageListOptions{All: true})
+		assert.NilError(t, err)
+		assert.Equal(t, len(imgs), 1)
+
+		assert.NilError(t, err)
+	}()
+
+	// Just to help detecting issues with the test itself, try to pull the delta
+	// from the temporary test registry using a daemon that doesn't have the
+	// delta data root set. It should fail, because this daemon doesn't have
+	// access to the basis image.
+	func() {
+		d := daemon.New(t)
+		d.Start(t)
+		defer d.Stop(t)
+
+		client := d.NewClientT(t)
+		ctx := context.Background()
+
+		err = ttrPullImageNoAsserts(ctx, client, delta)
+		assert.Error(t, err, "image pull not successful")
+	}()
+
+	// Finally everything is set up for the real test. Create a daemon using
+	// `deltaDataRootDir` as the delta data root, then try to pull the delta. It
+	// should work.
+	func() {
+		d := daemon.New(t)
+		args := []string{
+			fmt.Sprintf("--delta-data-root=%s", deltaDataRootDir),
+			fmt.Sprintf("--delta-storage-driver=%s", d.StorageDriver()),
+		}
+		d.Start(t, args...)
+		defer d.Stop(t)
+
+		client := d.NewClientT(t)
+		ctx := context.Background()
+
+		ttrPullImage(ctx, t, client, delta)
+	}()
+}
+
 //
 // Temporary Test Registry (TTR) helper functions
 //
@@ -482,16 +577,31 @@ func ttrPushImage(ctx context.Context, t *testing.T, client apiclient.APIClient,
 	}
 }
 
-// ttrPullImage pulls a given image from the temporary test
-// registry. The image parameter must not include the registry name.
-func ttrPullImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+// ttrPullImage pulls a given image from the temporary test registry. The image
+// parameter must not include the registry name. Unlike the typical ttr*()
+// function, this one returns an error instead of doing the asserts internally.
+func ttrPullImageNoAsserts(ctx context.Context, client apiclient.APIClient, image string) error {
 	rc, err := client.ImagePull(ctx, ttrImageName(image), types.ImagePullOptions{RegistryAuth: "{}"})
-	assert.Assert(t, err)
+	if err != nil {
+		return err
+	}
 	if rc != nil {
 		body, err := readAllAndClose(rc)
-		assert.Assert(t, err)
-		assert.Assert(t, strings.Contains(body, "Status: Downloaded newer image"))
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(body, "Status: Downloaded newer image") {
+			return errors.New("image pull not successful")
+		}
 	}
+	return nil
+}
+
+// ttrPullImage pulls a given image from the temporary test registry. The image
+// parameter must not include the registry name. Asserts for any error.
+func ttrPullImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+	err := ttrPullImageNoAsserts(ctx, client, image)
+	assert.NilError(t, err)
 }
 
 // ttrQueryDeltaSize returns the size in bytes of a delta image.
@@ -556,7 +666,9 @@ func ttrImageHash(ctx context.Context, t *testing.T, client apiclient.APIClient,
 // deltaName returns the name we'll use in the tests for a delta from base to
 // target.
 func deltaName(base, target string) string {
-	return "delta-" + base + "-" + target
+	cleanBase := strings.ReplaceAll(base, ":", "_")
+	cleanTarget := strings.ReplaceAll(target, ":", "_")
+	return "delta-" + cleanBase + "-" + cleanTarget
 }
 
 // readAllAndClose reads everything from r, closes it, and returns whatever was
@@ -578,4 +690,17 @@ func sliceContains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// pullAndTag pulls a given image and tags it with a given tag. This function
+// asserts that all operations are successful.
+func pullAndTag(ctx context.Context, t *testing.T, client apiclient.APIClient, image, tag string) {
+	rc, err := client.ImagePull(ctx, image, types.ImagePullOptions{})
+	assert.NilError(t, err)
+
+	_, err = readAllAndClose(rc)
+	assert.NilError(t, err)
+
+	err = client.ImageTag(ctx, image, tag)
+	assert.NilError(t, err)
 }
