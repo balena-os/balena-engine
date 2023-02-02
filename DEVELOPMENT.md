@@ -28,6 +28,47 @@ Project](https://github.com/moby/moby/) repo.
       function](https://github.com/balena-os/balena-engine/blob/ad3f3a029cd911d4919e079df16e97922c3c437a/cmd/balena-engine/main.go#L25),
       where we dispatch the execution to the appropriate `Main()`.
 
+### Unique features
+
+This is an incomplete list of features unique to balenaEngine. I hope to make
+this more complete over time, with pointers to the relevant code.
+
+#### Delta updates
+
+With deltas we allow users to pull only the differences between an image they
+already have (the *basis*) and one they want to have (the *target*). Spares
+bandwidth from users and balena alike!
+
+#### Resilient image pulls
+
+In the event of network issues while pulling an image, balenaEngine will keep
+trying to resume the interrupted download for some time without the need of
+restarting from scratch. This is very useful for devices working with an
+unstable Internet connection.
+
+#### Alternative delta data root
+
+TL;DR: Enables the use of deltas for Host OS Updates (HUPs).
+
+Docker stores images in what is unsurprisingly called an Image Store. All images
+you pull or build are placed in a single Image Store. If you are familiar with
+that, the Image Store data is normally placed (along with other things) under
+`/var/lib/docker/` (or `/mnt/data/docker/` in the case of balenaOS).
+
+With balenaEngine we offer two command-line options, `--delta-data-root` and
+`--delta-storage-driver`, that allow to configure a second Image Store which is
+used exclusively when looking for the basis images for deltas.
+
+balenaEngine on balenaOS will normally not use these options: just like with
+Docker, a single Image Store is used. When we do a delta update of a user
+container, the basis will be in this Image Store.
+
+The only situation we use these options is during Host OS Updates (HUPs). In
+this case, the basis image (i.e., the old balenaOS version) is on [a different
+partition](https://os-docs.balena.io/architecture#image-partition-layout) than
+the target image. So, we use `--delta-data-root` and `--delta-storage-driver` to
+make sure we can find the basis image on that other partition.
+
 ### Day-to-day tasks / Cheat sheet
 
 Unless otherwise is specified, all commands described below are to be executed
