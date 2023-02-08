@@ -1,18 +1,17 @@
 name: Flowzone
-
 on:
   pull_request:
     types: [opened, synchronize, closed]
     branches:
       - "main"
       - "master"
-
 jobs:
   flowzone:
     name: Flowzone
-    uses: product-os/flowzone/.github/workflows/flowzone.yml@master
+    uses: product-os/flowzone/.github/workflows/flowzone.yml@df3a1573127d3cd01752d068839fe321365f0074 # 4127670518-1
     secrets: inherit
     with:
       # https://github.com/golang/go/blob/master/src/go/build/syslist.go
       custom_publish_matrix: "linux/arm/v5,linux/arm/v6,linux/arm/v7,linux/arm64,linux/amd64,linux/386"
       cloudflare_website: "balena-engine"
+      protect_branch: false
