@@ -2,6 +2,7 @@ package tarexport // import "github.com/docker/docker/image/tarexport"
 
 import (
 	"archive/tar"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -99,29 +100,22 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 		var deltaBase io.ReadSeeker
 
 		if img.Config != nil {
-			if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
-				digest, err := digest.Parse(base)
-				if err != nil {
-					return err
-				}
-
-				stream, err := imgConfigStore.GetTarSeekStream(digest)
-				if err != nil {
-					return fmt.Errorf("loading delta base image %v: %w", digest, err)
-				}
-				defer stream.Close()
-
-				deltaBase = stream
+			ctx := context.Background()
+			if _, found := mobyDistribution.FindTargetImageLocally(ctx, img.Config, imgConfigStore); found {
+				outStream.Write([]byte("Target image already exists locally, no need to load it.\n"))
+				return nil
 			}
 
-			if targetConfig, ok := img.Config.Labels["io.resin.delta.config"]; ok {
-				digest := digest.FromString(targetConfig)
-				if _, err := l.is.Get(image.ID(digest)); err == nil {
-					outStream.Write([]byte("Target image already exists locally, no need to load it.\n"))
-					return nil
-				}
-
-				config = []byte(targetConfig)
+			deltaBaseCloser, err := mobyDistribution.DeltaBaseImageFromConfig(img.Config, imgConfigStore)
+			if deltaBaseCloser != nil {
+				defer deltaBaseCloser.Close()
+			}
+			deltaBase = deltaBaseCloser
+			if err != nil {
+				return err
+			}
+			if targetConfig, found := mobyDistribution.TargetImageConfig(img.Config); found {
+				config = targetConfig
 			}
 		}
 

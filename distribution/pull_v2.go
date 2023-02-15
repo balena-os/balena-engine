@@ -18,6 +18,7 @@ import (
 	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/docker/distribution/reference"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
@@ -585,31 +586,20 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 	}
 
 	if img.Config != nil {
-		if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
-			baseDigest, err := digest.Parse(base)
-			if err != nil {
-				return "", err
-			}
-
-			stream, err := p.config.ImageStore.GetTarSeekStream(baseDigest)
-			if err != nil {
-				return "", fmt.Errorf("loading delta base image %v: %w", digest, err)
-			}
-			defer stream.Close()
-
-			deltaBase = stream
+		if digest, found := FindTargetImageLocally(ctx, img.Config, p.config.ImageStore); found {
+			// Target image already exists locally, no need to pull anything
+			return digest, nil
 		}
-
-		if config, ok := img.Config.Labels["io.resin.delta.config"]; ok {
-			configDigest := digest.FromString(config)
-
-			if _, err := p.config.ImageStore.Get(ctx, configDigest); err == nil {
-				// If the image already exists locally, no need to pull
-				// anything.
-				return configDigest, nil
-			}
-
-			configJSON = []byte(config)
+		deltaBaseCloser, err := DeltaBaseImageFromConfig(img.Config, p.config.ImageStore)
+		if deltaBaseCloser != nil {
+			defer deltaBaseCloser.Close()
+		}
+		deltaBase = deltaBaseCloser
+		if err != nil {
+			return "", err
+		}
+		if config, found := TargetImageConfig(img.Config); found {
+			configJSON = config
 		}
 	}
 
@@ -1040,6 +1030,8 @@ func maximumSpec() specs.Platform {
 // image associated with imgConfig. Passing an imgConfig that is not a delta
 // image is not considered an error: in this case the function returns a nil
 // ReadSeekCloser (and a nil error).
+//
+// The caller is responsible for Close()ing the returned stream.
 func DeltaBaseImageFromConfig(imgConfig *container.Config, imgConfigStore ImageConfigStore) (ioutils.ReadSeekCloser, error) {
 	if base, ok := imgConfig.Labels["io.resin.delta.base"]; ok {
 		digest, err := digest.Parse(base)
@@ -1051,7 +1043,6 @@ func DeltaBaseImageFromConfig(imgConfig *container.Config, imgConfigStore ImageC
 		if err != nil {
 			return nil, fmt.Errorf("loading delta base image %q: %w", digest, err)
 		}
-		defer stream.Close()
 
 		return stream, nil
 	}
