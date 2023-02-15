@@ -22,6 +22,7 @@ import (
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/registry/api/errcode"
 	"github.com/docker/distribution/registry/client/auth"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
@@ -592,31 +593,15 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 	}
 
 	if img.Config != nil {
-		if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
-			digest, err := digest.Parse(base)
-			if err != nil {
-				return "", err
-			}
-
-			stream, err := p.config.ImageStore.GetTarSeekStream(digest)
-			if err != nil {
-				return "", fmt.Errorf("loading delta base image %v: %w", digest, err)
-			}
-			defer stream.Close()
-
-			deltaBase = stream
+		if digest, found := FindTargetImageLocally(ctx, img.Config, p.config.ImageStore); found {
+			// Target image already exists locally, no need to pull anything
+			return digest, nil
 		}
-
-		if config, ok := img.Config.Labels["io.resin.delta.config"]; ok {
-			digest := digest.FromString(config)
-
-			if _, err := p.config.ImageStore.Get(digest); err == nil {
-				// If the image already exists locally, no need to pull
-				// anything.
-				return digest, nil
-			}
-
-			configJSON = []byte(config)
+		if err != nil {
+			return "", err
+		}
+		if config, found := TargetImageConfig(img.Config); found {
+			configJSON = config
 		}
 	}
 
@@ -1042,4 +1027,53 @@ func toOCIPlatform(p manifestlist.PlatformSpec) specs.Platform {
 		OSFeatures:   p.OSFeatures,
 		OSVersion:    p.OSVersion,
 	}
+}
+
+// DeltaBaseImageFromConfig returns the tar stream image data from the base
+// image associated with imgConfig. Passing an imgConfig that is not a delta
+// image is not considered an error: in this case the function returns a nil
+// ReadSeekCloser (and a nil error).
+func DeltaBaseImageFromConfig(imgConfig *container.Config, imgConfigStore ImageConfigStore) (ioutils.ReadSeekCloser, error) {
+	if base, ok := imgConfig.Labels["io.resin.delta.base"]; ok {
+		digest, err := digest.Parse(base)
+		if err != nil {
+			return nil, fmt.Errorf("parsing base image %q: %w", base, err)
+		}
+
+		stream, err := imgConfigStore.GetTarSeekStream(digest)
+		if err != nil {
+			return nil, fmt.Errorf("loading delta base image %q: %w", digest, err)
+		}
+		defer stream.Close()
+
+		return stream, nil
+	}
+
+	// imgConfig does not refer to delta image. So, no base image stream to
+	// return, but this is no error either
+	return nil, nil
+}
+
+// FindTargetImageLocally looks if the target image associated with imgConfig is
+// present locally in imgConfigStore. The first return value is the digest of
+// the image (if found locally). The second return value tells if the image was
+// found locally.
+func FindTargetImageLocally(ctx context.Context, imgConfig *container.Config, imgConfigStore ImageConfigStore) (digest.Digest, bool) {
+	if config, ok := imgConfig.Labels["io.resin.delta.config"]; ok {
+		digest := digest.FromString(config)
+		if _, err := imgConfigStore.Get(ctx, digest); err == nil {
+			return digest, true
+		}
+	}
+	return "", false
+}
+
+// TargetImageConfig returns the config of the target image associated with
+// imgConfig. The second return value tells if imgConfig was referring to a
+// delta image.
+func TargetImageConfig(imgConfig *container.Config) ([]byte, bool) {
+	if config, ok := imgConfig.Labels["io.resin.delta.config"]; ok {
+		return []byte(config), true
+	}
+	return []byte{}, false
 }
