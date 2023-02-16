@@ -1025,7 +1025,6 @@ func DeltaBaseImageFromConfig(imgConfig *container.Config, imgConfigStore ImageC
 		if err != nil {
 			return nil, fmt.Errorf("loading delta base image %q: %w", digest, err)
 		}
-		defer stream.Close()
 
 		return stream, nil
 	}
