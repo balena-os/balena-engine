@@ -25,6 +25,7 @@ type manifestItem struct {
 
 type tarexporter struct {
 	is             image.Store
+	ds             image.Store // Delta store (for balena delta basis images)
 	lss            map[string]layer.Store
 	rs             refstore.Store
 	loggerImgEvent LogImageEvent
@@ -37,9 +38,10 @@ type LogImageEvent interface {
 }
 
 // NewTarExporter returns new Exporter for tar packages
-func NewTarExporter(is image.Store, lss map[string]layer.Store, rs refstore.Store, loggerImgEvent LogImageEvent) image.Exporter {
+func NewTarExporter(is, ds image.Store, lss map[string]layer.Store, rs refstore.Store, loggerImgEvent LogImageEvent) image.Exporter {
 	return &tarexporter{
 		is:             is,
+		ds:             ds,
 		lss:            lss,
 		rs:             rs,
 		loggerImgEvent: loggerImgEvent,
