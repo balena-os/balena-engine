@@ -1,4 +1,67 @@
 - commits:
+    - subject: Rename test functions for better clarity
+      hash: f5b966a63503577b1b826dc23b95773fd073aacf
+      body: |
+        Added an `Asserting` suffix to all functions that internally call
+        `assert.*()`. This makes clearer what is really going on at the point of
+        call, without needing to look under the hood.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Add test case for the delta image store
+      hash: aecb27a8dc6af5a39bb882f2c2f30894ed0b2abd
+      body: ""
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Add dev-focused docs on some balenaEngine features
+      hash: 75b62a76df57767fcc1ab86f0adb3a9f210480a7
+      body: |
+        Most notably, on the "delta root" feature, which is important for HUPs,
+        not very well-known and not documented anywhere else I know.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Simplify test code by using new std lib function
+      hash: 2d192ea16be1df569c86028128397515d6d3322d
+      body: |
+        io.ReadAll() is available since Go 1.16 (to which we upgraded some time
+        ago).
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Set the delta image store, fix delta-based HUPs
+      hash: 9fe31eb8dad8dbcc35e48cb0f90a12b67256e490
+      body: |
+        We apparently have broken this during the 20.10 merge. Not setting the
+        delta image store breaks delta-based balenaOS updates (HUPs).
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.29
+  title: ""
+  date: 2023-02-20T13:34:08.745Z
+- commits:
     - subject: Disable builds for linux/386
       hash: ae2500b7e254b91f4a8f86e44d1ac6f2679c953a
       body: |
