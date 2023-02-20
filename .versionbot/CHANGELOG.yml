@@ -1,14 +1,29 @@
 - commits:
-  - subject: Merge upstream v20.10.17
-    hash: 013d0279ce25791b87a0a0d77686e2cd74f6462a
-    body: >-
-      For full changelog see:
-      https://github.com/balena-os/balena-engine/blob/20.10.17-balena/CHANGELOG.md#2023-02-07-upstream-release
-    footers:
-      change-type: patch
-      signed-off-by: Leandro Motta Barros <leandro@balena.io>
-    author: Leandro Motta Barros
-    nested: []
+    - subject: Disable builds for linux/386
+      hash: ae2500b7e254b91f4a8f86e44d1ac6f2679c953a
+      body: |
+        This is currently broken (apparently also upstream).
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.28
+  title: ""
+  date: 2023-02-20T12:32:22.989Z
+- commits:
+    - subject: Merge upstream v20.10.17
+      hash: 013d0279ce25791b87a0a0d77686e2cd74f6462a
+      body: "For full changelog see:
+        https://github.com/balena-os/balena-engine/blob/20.10.17-balena/CHANGEL\
+        OG.md#2023-02-07-upstream-release"
+      footers:
+        change-type: patch
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+      author: Leandro Motta Barros
+      nested: []
   version: 20.10.27
   date: 2023-02-07T12:00:00.000Z
 - commits:
