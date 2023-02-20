@@ -18,9 +18,9 @@ package container
 
 import (
 	"encoding/json"
+	"fmt"
 
-	"github.com/pkg/errors"
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // NOTE(random-liu):
@@ -85,5 +85,5 @@ func (c *Metadata) UnmarshalJSON(data []byte) error {
 		*c = Metadata(versioned.Metadata)
 		return nil
 	}
-	return errors.Errorf("unsupported version: %q", versioned.Version)
+	return fmt.Errorf("unsupported version: %q", versioned.Version)
 }

@@ -1,3 +1,4 @@
+//go:build !windows && !no_devmapper
 // +build !windows,!no_devmapper
 
 package main

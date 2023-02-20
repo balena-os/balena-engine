@@ -3,10 +3,10 @@ package daemon // import "github.com/docker/docker/daemon"
 import (
 	"context"
 
+	"github.com/containerd/containerd/pkg/apparmor"
 	"github.com/docker/docker/container"
 	"github.com/docker/docker/daemon/exec"
 	"github.com/docker/docker/oci/caps"
-	"github.com/opencontainers/runc/libcontainer/apparmor"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
 )
 
@@ -19,15 +19,13 @@ func (daemon *Daemon) execSetPlatformOpt(c *container.Container, ec *exec.Config
 		}
 	}
 	if ec.Privileged {
-		if p.Capabilities == nil {
-			p.Capabilities = &specs.LinuxCapabilities{}
+		p.Capabilities = &specs.LinuxCapabilities{
+			Bounding:  caps.GetAllCapabilities(),
+			Permitted: caps.GetAllCapabilities(),
+			Effective: caps.GetAllCapabilities(),
 		}
-		p.Capabilities.Bounding = caps.GetAllCapabilities()
-		p.Capabilities.Permitted = p.Capabilities.Bounding
-		p.Capabilities.Inheritable = p.Capabilities.Bounding
-		p.Capabilities.Effective = p.Capabilities.Bounding
 	}
-	if apparmor.IsEnabled() {
+	if apparmor.HostSupports() {
 		var appArmorProfile string
 		if c.AppArmorProfile != "" {
 			appArmorProfile = c.AppArmorProfile

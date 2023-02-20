@@ -1,5 +1,3 @@
-// +build windows
-
 /*
    Copyright The containerd Authors.
 
@@ -54,18 +52,15 @@ func DefaultConfig() PluginConfig {
 			TLSKeyFile:  "",
 			TLSCertFile: "",
 		},
-		SandboxImage:            "mcr.microsoft.com/oss/kubernetes/pause:1.4.0",
-		StatsCollectPeriod:      10,
-		MaxContainerLogLineSize: 16 * 1024,
-		Registry: Registry{
-			Mirrors: map[string]Mirror{
-				"docker.io": {
-					Endpoints: []string{"https://registry-1.docker.io"},
-				},
-			},
-		},
+		SandboxImage:              "k8s.gcr.io/pause:3.6",
+		StatsCollectPeriod:        10,
+		MaxContainerLogLineSize:   16 * 1024,
 		MaxConcurrentDownloads:    3,
 		IgnoreImageDefinedVolumes: false,
 		// TODO(windows): Add platform specific config, so that most common defaults can be shared.
+
+		ImageDecryption: ImageDecryption{
+			KeyModel: KeyModelNode,
+		},
 	}
 }

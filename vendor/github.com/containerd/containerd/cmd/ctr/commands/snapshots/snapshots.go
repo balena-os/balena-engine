@@ -18,6 +18,7 @@ package snapshots
 
 import (
 	gocontext "context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,7 +36,6 @@ import (
 	"github.com/containerd/containerd/snapshots"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
@@ -133,8 +133,6 @@ var diffCommand = cli.Command{
 		labels := commands.LabelArgs(context.StringSlice("label"))
 		snapshotter := client.SnapshotService(context.GlobalString("snapshotter"))
 
-		fmt.Println(context.String("media-type"))
-
 		if context.Bool("keep") {
 			labels["containerd.io/gc.root"] = time.Now().UTC().Format(time.RFC3339)
 		}
@@ -164,6 +162,7 @@ var diffCommand = cli.Command{
 		if err != nil {
 			return err
 		}
+		defer ra.Close()
 		_, err = io.Copy(os.Stdout, content.NewReader(ra))
 
 		return err
@@ -249,8 +248,8 @@ var usageCommand = cli.Command{
 }
 
 var removeCommand = cli.Command{
-	Name:      "remove",
-	Aliases:   []string{"rm"},
+	Name:      "delete",
+	Aliases:   []string{"del", "remove", "rm"},
 	ArgsUsage: "<key> [<key>, ...]",
 	Usage:     "remove snapshots",
 	Action: func(context *cli.Context) error {
@@ -263,7 +262,7 @@ var removeCommand = cli.Command{
 		for _, key := range context.Args() {
 			err = snapshotter.Remove(ctx, key)
 			if err != nil {
-				return errors.Wrapf(err, "failed to remove %q", key)
+				return fmt.Errorf("failed to remove %q: %w", key, err)
 			}
 		}
 
@@ -279,6 +278,10 @@ var prepareCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "target, t",
 			Usage: "mount target path, will print mount, if provided",
+		},
+		cli.BoolFlag{
+			Name:  "mounts",
+			Usage: "Print out snapshot mounts as JSON",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -310,6 +313,10 @@ var prepareCommand = cli.Command{
 			printMounts(target, mounts)
 		}
 
+		if context.Bool("mounts") {
+			commands.PrintAsJSON(mounts)
+		}
+
 		return nil
 	},
 }
@@ -322,6 +329,10 @@ var viewCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "target, t",
 			Usage: "mount target path, will print mount, if provided",
+		},
+		cli.BoolFlag{
+			Name:  "mounts",
+			Usage: "Print out snapshot mounts as JSON",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -347,6 +358,10 @@ var viewCommand = cli.Command{
 
 		if target != "" {
 			printMounts(target, mounts)
+		}
+
+		if context.Bool("mounts") {
+			commands.PrintAsJSON(mounts)
 		}
 
 		return nil

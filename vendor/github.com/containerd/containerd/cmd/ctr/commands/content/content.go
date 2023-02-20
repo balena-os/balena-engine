@@ -17,11 +17,10 @@
 package content
 
 import (
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
-	"os/exec"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -33,8 +32,8 @@ import (
 	units "github.com/docker/go-units"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
+	exec "golang.org/x/sys/execabs"
 )
 
 var (
@@ -53,6 +52,7 @@ var (
 			listCommand,
 			pushObjectCommand,
 			setLabelsCommand,
+			pruneCommand,
 		},
 	}
 
@@ -518,7 +518,7 @@ func edit(context *cli.Context, rd io.Reader) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("editor is required")
 	}
 
-	tmp, err := ioutil.TempFile(os.Getenv("XDG_RUNTIME_DIR"), "edit-")
+	tmp, err := os.CreateTemp(os.Getenv("XDG_RUNTIME_DIR"), "edit-")
 	if err != nil {
 		return nil, err
 	}

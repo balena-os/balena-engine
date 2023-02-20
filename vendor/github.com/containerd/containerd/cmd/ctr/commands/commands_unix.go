@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -36,5 +37,8 @@ func init() {
 	}, cli.Uint64Flag{
 		Name:  "cpu-period",
 		Usage: "Limit CPU CFS period",
+	}, cli.StringFlag{
+		Name:  "rootfs-propagation",
+		Usage: "set the propagation of the container rootfs",
 	})
 }

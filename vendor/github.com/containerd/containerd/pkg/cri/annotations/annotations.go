@@ -32,6 +32,16 @@ const (
 	// SandboxID is the sandbox ID annotation
 	SandboxID = "io.kubernetes.cri.sandbox-id"
 
+	// SandboxCPU annotations are based on the initial CPU configuration for the sandbox. This is calculated as the
+	// sum of container CPU resources, optionally provided by Kubelet (introduced  in 1.23) as part of the PodSandboxConfig
+	SandboxCPUPeriod = "io.kubernetes.cri.sandbox-cpu-period"
+	SandboxCPUQuota  = "io.kubernetes.cri.sandbox-cpu-quota"
+	SandboxCPUShares = "io.kubernetes.cri.sandbox-cpu-shares"
+
+	// SandboxMemory is the initial amount of memory associated with this sandbox. This is calculated as the sum
+	// of container memory, optionally provided by Kubelet (introduced in 1.23) as part of the PodSandboxConfig.
+	SandboxMem = "io.kubernetes.cri.sandbox-memory"
+
 	// SandboxLogDir is the pod log directory annotation.
 	// If the sandbox needs to generate any log, it will put it into this directory.
 	// Kubelet will be responsible for:
@@ -45,6 +55,21 @@ const (
 	// workload can only run on dedicated runtime for untrusted workload.
 	UntrustedWorkload = "io.kubernetes.cri.untrusted-workload"
 
-	// containerName is the name of the container in the pod
+	// SandboxNamespace is the name of the namespace of the sandbox (pod)
+	SandboxNamespace = "io.kubernetes.cri.sandbox-namespace"
+
+	// SandboxName is the name of the sandbox (pod)
+	SandboxName = "io.kubernetes.cri.sandbox-name"
+
+	// ContainerName is the name of the container in the pod
 	ContainerName = "io.kubernetes.cri.container-name"
+
+	// ImageName is the name of the image used to create the container
+	ImageName = "io.kubernetes.cri.image-name"
+
+	// PodAnnotations are the annotations of the pod
+	PodAnnotations = "io.kubernetes.cri.pod-annotations"
+
+	// WindowsHostProcess is used by hcsshim to identify windows pods that are running HostProcesses
+	WindowsHostProcess = "microsoft.com/hostprocess-container"
 )
