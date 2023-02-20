@@ -5,9 +5,11 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"github.com/docker/docker/api/types"
 	apiclient "github.com/docker/docker/client"
 	"github.com/docker/docker/daemon/graphdriver/copy"
+	"github.com/docker/docker/testutil/daemon"
 	"github.com/docker/docker/testutil/fakecontext"
 	"github.com/docker/docker/testutil/registry"
 	"gotest.tools/v3/assert"
@@ -305,16 +308,16 @@ func TestDeltaSize(t *testing.T) {
 			// Build all required images
 			if tc.images != nil {
 				for _, image := range tc.images {
-					defer ttrBuildImage(ctx, t, client, image)()
+					defer ttrBuildImageAsserting(ctx, t, client, image)()
 				}
 			} else {
-				defer ttrBuildImage(ctx, t, client, tc.base)()
-				defer ttrBuildImage(ctx, t, client, tc.target)()
+				defer ttrBuildImageAsserting(ctx, t, client, tc.base)()
+				defer ttrBuildImageAsserting(ctx, t, client, tc.target)()
 			}
 
 			// Create the delta, check its size
-			defer ttrCreateDelta(ctx, t, client, tc.base, tc.target)()
-			gotSize := ttrQueryDeltaSize(ctx, t, client, delta)
+			defer ttrCreateDeltaAsserting(ctx, t, client, tc.base, tc.target)()
+			gotSize := ttrQueryDeltaSizeAsserting(ctx, t, client, delta)
 			if gotSize > tc.wantSizeMax {
 				t.Errorf("Delta too big: got %v bytes, expected at most %v",
 					gotSize, tc.wantSizeMax)
@@ -366,7 +369,7 @@ func TestDeltaCorrectness(t *testing.T) {
 			// Build all required images
 			var imageRemovers []func()
 			for _, image := range imagesToBuild {
-				removeImage := ttrBuildImage(ctx, t, client, image)
+				removeImage := ttrBuildImageAsserting(ctx, t, client, image)
 				if sliceContains(imagesToRemove, image) {
 					imageRemovers = append(imageRemovers, removeImage)
 				} else {
@@ -375,12 +378,12 @@ func TestDeltaCorrectness(t *testing.T) {
 			}
 
 			// Create delta of them and push this delta.
-			removeDelta := ttrCreateDelta(ctx, t, client, tc.base, tc.target)
-			ttrPushImage(ctx, t, client, delta)
+			removeDelta := ttrCreateDeltaAsserting(ctx, t, client, tc.base, tc.target)
+			ttrPushImageAsserting(ctx, t, client, delta)
 
 			// The delta we have locally shall not be the same as the target image.
-			targetHash := ttrImageHash(ctx, t, client, tc.target)
-			deltaHash := ttrImageHash(ctx, t, client, delta)
+			targetHash := ttrHashImageAsserting(ctx, t, client, tc.target)
+			deltaHash := ttrHashImageAsserting(ctx, t, client, delta)
 			assert.Assert(t, !reflect.DeepEqual(targetHash, deltaHash))
 
 			// Remove the delta and the target image.
@@ -390,13 +393,105 @@ func TestDeltaCorrectness(t *testing.T) {
 			removeDelta()
 
 			// Pull the delta. This will cause it to be applied.
-			ttrPullImage(ctx, t, client, delta)
+			ttrPullImageAsserting(ctx, t, client, delta)
 
 			// The (now applied) delta shall be the same the target image was.
-			appliedDeltaHash := ttrImageHash(ctx, t, client, delta)
+			appliedDeltaHash := ttrHashImageAsserting(ctx, t, client, delta)
 			assert.Assert(t, reflect.DeepEqual(targetHash, appliedDeltaHash))
 		})
 	}
+}
+
+// TestPullUsingDeltaStore checks if balenaEngine's alternative delta root
+// feature is working as expected.
+func TestPullUsingDeltaStore(t *testing.T) {
+	// Basis and target for delta.
+	const basis = "busybox:1.34"
+	const target = "busybox:1.35"
+	delta := deltaName(basis, target)
+
+	// We'll push the delta to this registry.
+	defer setupTemporaryTestRegistry(t)()
+
+	// Create a delta, push it to the temporary test registry.
+	func() {
+		d := daemon.New(t)
+		d.Start(t)
+		defer d.Stop(t)
+
+		client := d.NewClientT(t)
+		ctx := context.Background()
+
+		pullAndTagAsserting(ctx, t, client, basis, ttrImageName(basis))
+		pullAndTagAsserting(ctx, t, client, target, ttrImageName(target))
+
+		ttrCreateDeltaAsserting(ctx, t, client, basis, target)
+		ttrPushImageAsserting(ctx, t, client, delta)
+	}()
+
+	// This is the path we'll eventually use as the delta data root.
+	deltaDataRootDir, err := os.MkdirTemp("", "")
+	assert.NilError(t, err)
+	defer os.RemoveAll(deltaDataRootDir)
+
+	// Place the basis image on `deltaDataRootDir`. We do that by pulling it from
+	// the temporary registry to a temporary daemon that uses `deltaDataRootDir`
+	// as its regular data root.
+	func() {
+		d := daemon.New(t)
+		args := []string{
+			fmt.Sprintf("--data-root=%s", deltaDataRootDir),
+		}
+		d.Start(t, args...)
+		defer d.Stop(t)
+
+		client := d.NewClientT(t)
+		ctx := context.Background()
+
+		rc, err := client.ImagePull(ctx, basis, types.ImagePullOptions{})
+		_, err = readAllAndClose(rc)
+		assert.NilError(t, err)
+
+		imgs, err := client.ImageList(ctx, types.ImageListOptions{All: true})
+		assert.NilError(t, err)
+		assert.Equal(t, len(imgs), 1)
+
+		assert.NilError(t, err)
+	}()
+
+	// Just to help detecting issues with the test itself, try to pull the delta
+	// from the temporary test registry using a daemon that doesn't have the
+	// delta data root set. It should fail, because this daemon doesn't have
+	// access to the basis image.
+	func() {
+		d := daemon.New(t)
+		d.Start(t)
+		defer d.Stop(t)
+
+		client := d.NewClientT(t)
+		ctx := context.Background()
+
+		err = ttrPullImage(ctx, client, delta)
+		assert.Error(t, err, "image pull not successful")
+	}()
+
+	// Finally everything is set up for the real test. Create a daemon using
+	// `deltaDataRootDir` as the delta data root, then try to pull the delta. It
+	// should work.
+	func() {
+		d := daemon.New(t)
+		args := []string{
+			fmt.Sprintf("--delta-data-root=%s", deltaDataRootDir),
+			fmt.Sprintf("--delta-storage-driver=%s", d.StorageDriver()),
+		}
+		d.Start(t, args...)
+		defer d.Stop(t)
+
+		client := d.NewClientT(t)
+		ctx := context.Background()
+
+		ttrPullImageAsserting(ctx, t, client, delta)
+	}()
 }
 
 //
@@ -411,9 +506,10 @@ func TestDeltaCorrectness(t *testing.T) {
 // pull operations need the registry.)
 //
 
-// ttrBuildImage builds a given image and tags it. Returns a function that, when
-// called, remove the image built.
-func ttrBuildImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) func() {
+// ttrBuildImageAsserting builds a given image and tags it. It asserts that all
+// operations succeeded. Returns a function that, when called, remove the image
+// built.
+func ttrBuildImageAsserting(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) func() {
 	source := fakecontext.New(t, "")
 	defer source.Close()
 
@@ -436,21 +532,22 @@ func ttrBuildImage(ctx context.Context, t *testing.T, client apiclient.APIClient
 	}
 
 	return func() {
-		ttrRemoveImage(ctx, t, client, image)
+		ttrRemoveImageAsserting(ctx, t, client, image)
 	}
 }
 
-// ttrRemoveImage removes a given image.
-func ttrRemoveImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+// ttrRemoveImageAsserting removes a given image. Asserts that the operation
+// succeeded.
+func ttrRemoveImageAsserting(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
 	resp, err := client.ImageRemove(ctx, ttrImageName(image), types.ImageRemoveOptions{})
 	assert.Assert(t, err)
 	assert.Assert(t, len(resp) > 0)
 }
 
-// ttrCreateDelta creates a delta between base and target, and tags the delta as
-// deltaName(base, target). Returns a function that, when called, removes the
-// created delta.
-func ttrCreateDelta(ctx context.Context, t *testing.T, client apiclient.APIClient,
+// ttrCreateDeltaAsserting creates a delta between base and target, and tags the
+// delta as deltaName(base, target). Returns a function that, when called,
+// removes the created delta.
+func ttrCreateDeltaAsserting(ctx context.Context, t *testing.T, client apiclient.APIClient,
 	base, target string) func() {
 
 	delta := deltaName(base, target)
@@ -467,12 +564,13 @@ func ttrCreateDelta(ctx context.Context, t *testing.T, client apiclient.APIClien
 	}
 
 	return func() {
-		ttrRemoveImage(ctx, t, client, delta)
+		ttrRemoveImageAsserting(ctx, t, client, delta)
 	}
 }
 
-// ttrPushImage pushes a given image to the temporary test registry.
-func ttrPushImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+// ttrPushImageAsserting pushes a given image to the temporary test registry. It
+// asserts that the operation succeeded.
+func ttrPushImageAsserting(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
 	rc, err := client.ImagePush(ctx, ttrImageName(image), types.ImagePushOptions{RegistryAuth: "{}"})
 	assert.Assert(t, err)
 	if rc != nil {
@@ -482,20 +580,37 @@ func ttrPushImage(ctx context.Context, t *testing.T, client apiclient.APIClient,
 	}
 }
 
-// ttrPullImage pushes a given image to the temporary test
-// registry. The image parameter must not include the registry name.
-func ttrPullImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+// ttrPullImage pulls a given image from the temporary test registry. The image
+// parameter must not include the registry name. Unlike the typical ttr*()
+// function, this one returns an error instead of doing the asserts internally.
+func ttrPullImage(ctx context.Context, client apiclient.APIClient, image string) error {
 	rc, err := client.ImagePull(ctx, ttrImageName(image), types.ImagePullOptions{RegistryAuth: "{}"})
-	assert.Assert(t, err)
+	if err != nil {
+		return err
+	}
 	if rc != nil {
 		body, err := readAllAndClose(rc)
-		assert.Assert(t, err)
-		assert.Assert(t, strings.Contains(body, "Status: Downloaded newer image"))
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(body, "Status: Downloaded newer image") {
+			return errors.New("image pull not successful")
+		}
 	}
+	return nil
 }
 
-// ttrQueryDeltaSize returns the size in bytes of a delta image.
-func ttrQueryDeltaSize(ctx context.Context, t *testing.T, client apiclient.APIClient,
+// ttrPullImageAsserting pulls a given image from the temporary test registry.
+// The image parameter must not include the registry name. Asserts that the
+// operation succeeded.
+func ttrPullImageAsserting(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
+	err := ttrPullImage(ctx, client, image)
+	assert.NilError(t, err)
+}
+
+// ttrQueryDeltaSizeAsserting returns the size in bytes of a delta image.
+// Asserts that the operation succeeded.
+func ttrQueryDeltaSizeAsserting(ctx context.Context, t *testing.T, client apiclient.APIClient,
 	image string) int64 {
 
 	tarRC, err := client.ImageSave(ctx, []string{ttrImageName(image)})
@@ -534,8 +649,9 @@ func ttrImageName(image string) string {
 	return registry.DefaultURL + "/" + image
 }
 
-// ttrImageHash computes a hash based on the contents of a given image.
-func ttrImageHash(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) []byte {
+// ttrHashImageAsserting computes a hash based on the contents of a given image.
+// Asserts that the operation succeeded.
+func ttrHashImageAsserting(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) []byte {
 	ii, _, err := client.ImageInspectWithRaw(ctx, ttrImageName(image))
 	assert.Assert(t, err)
 
@@ -556,37 +672,23 @@ func ttrImageHash(ctx context.Context, t *testing.T, client apiclient.APIClient,
 // deltaName returns the name we'll use in the tests for a delta from base to
 // target.
 func deltaName(base, target string) string {
-	return "delta-" + base + "-" + target
+	cleanBase := strings.ReplaceAll(base, ":", "_")
+	cleanTarget := strings.ReplaceAll(target, ":", "_")
+	return "delta-" + cleanBase + "-" + cleanTarget
 }
 
 // readAllAndClose reads everything from r, closes it, and returns whatever was
 // read as a string.
 func readAllAndClose(rc io.ReadCloser) (string, error) {
-	// TODO: Simplify this code once we adopt Go 1.16 or later. That version of
-	// Go brought io.ReadAll(), of which the code below is a simple variation.
-	b := make([]byte, 0, 512)
-	for {
-		if len(b) == cap(b) {
-			// Add more capacity (let append pick how much).
-			b = append(b, 0)[:len(b)]
-		}
-		n, err := rc.Read(b[len(b):cap(b)])
-		b = b[:len(b)+n]
-		if err != nil {
-			if err == io.EOF {
-				err = nil
-			}
-			// This call to Close() and the conversion to string are the only
-			// changes from io.ReadAll().
-			closeErr := rc.Close()
-			if err == nil {
-				err = closeErr
-			}
-			return string(b), err
-		}
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		return "", err
 	}
+	rc.Close()
+	return string(data), nil
 }
 
+// sliceContains checks if the haystack slice contains the needle string.
 func sliceContains(haystack []string, needle string) bool {
 	for _, e := range haystack {
 		if e == needle {
@@ -594,4 +696,17 @@ func sliceContains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// pullAndTagAsserting pulls a given image and tags it with a given tag. This
+// function asserts that all operations are successful.
+func pullAndTagAsserting(ctx context.Context, t *testing.T, client apiclient.APIClient, image, tag string) {
+	rc, err := client.ImagePull(ctx, image, types.ImagePullOptions{})
+	assert.NilError(t, err)
+
+	_, err = readAllAndClose(rc)
+	assert.NilError(t, err)
+
+	err = client.ImageTag(ctx, image, tag)
+	assert.NilError(t, err)
 }
