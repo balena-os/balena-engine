@@ -359,32 +359,8 @@ func (ldm *LayerDownloadManager) makeDownloadFunc(descriptor DownloadDescriptor,
 				return
 			}
 
-			layerData := inflatedLayerData
-
 			deltaBase := descriptor.DeltaBase()
-
-			if deltaBase != nil {
-				pR, pW := io.Pipe()
-				go func() {
-					tr := tar.NewReader(inflatedLayerData)
-
-					_, err := tr.Next()
-					if err == io.EOF {
-						d.err = fmt.Errorf("unexpected EOF. Invalid delta tar archive")
-						pW.CloseWithError(err)
-						return
-					}
-
-					err = librsync.Patch(deltaBase, tr, pW)
-					if err != nil {
-						pW.CloseWithError(err)
-					}
-
-					pW.Close()
-				}()
-
-				layerData = pR
-			}
+			layerData := DecorateWithDeltaPatcher(inflatedLayerData, deltaBase, &d.err)
 
 			var src distribution.Descriptor
 			if fs, ok := descriptor.(distribution.Describable); ok {
@@ -516,4 +492,39 @@ func (ldm *LayerDownloadManager) makeDownloadFuncFromDownload(descriptor Downloa
 
 		return d
 	}
+}
+
+// DecorateWithDeltaPatcher returns an io.ReadCloser that applies a delta. The
+// delta itself is read from layerData. If deltaBase is nil, this returns
+// layerData itself -- in other words, this transparently handles the case of
+// being passed non-delta data.
+//
+// Error applying the delta are reported when reading the returned
+// io.ReadCloser. Additionally, some errors will be written to pErr (yes, this
+// is an imprecise statement, but at the moment we are just refactoring old code
+// and therefore keeping old semantics that are not fully understood).
+func DecorateWithDeltaPatcher(layerData io.ReadCloser, deltaBase io.ReadSeeker, pErr *error) io.ReadCloser {
+	if deltaBase != nil {
+		pR, pW := io.Pipe()
+		go func() {
+			tr := tar.NewReader(layerData)
+
+			_, err := tr.Next()
+			if err == io.EOF {
+				*pErr = fmt.Errorf("unexpected EOF. Invalid delta tar archive")
+				pW.CloseWithError(err)
+				return
+			}
+
+			err = librsync.Patch(deltaBase, tr, pW)
+			if err != nil {
+				pW.CloseWithError(err)
+			}
+
+			pW.Close()
+		}()
+
+		return pR
+	}
+	return layerData
 }
