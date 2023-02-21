@@ -358,6 +358,7 @@ func (ldm *LayerDownloadManager) makeDownloadFunc(descriptor DownloadDescriptor,
 				d.err = fmt.Errorf("could not get decompression stream: %v", err)
 				return
 			}
+			defer inflatedLayerData.Close()
 
 			deltaBase := descriptor.DeltaBase()
 			layerData := DecorateWithDeltaPatcher(inflatedLayerData, deltaBase)
