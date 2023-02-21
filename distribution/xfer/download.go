@@ -360,7 +360,7 @@ func (ldm *LayerDownloadManager) makeDownloadFunc(descriptor DownloadDescriptor,
 			}
 
 			deltaBase := descriptor.DeltaBase()
-			layerData := DecorateWithDeltaPatcher(inflatedLayerData, deltaBase, &d.err)
+			layerData := DecorateWithDeltaPatcher(inflatedLayerData, deltaBase)
 
 			var src distribution.Descriptor
 			if fs, ok := descriptor.(distribution.Describable); ok {
@@ -499,11 +499,9 @@ func (ldm *LayerDownloadManager) makeDownloadFuncFromDownload(descriptor Downloa
 // layerData itself -- in other words, this transparently handles the case of
 // being passed non-delta data.
 //
-// Error applying the delta are reported when reading the returned
-// io.ReadCloser. Additionally, some errors will be written to pErr (yes, this
-// is an imprecise statement, but at the moment we are just refactoring old code
-// and therefore keeping old semantics that are not fully understood).
-func DecorateWithDeltaPatcher(layerData io.ReadCloser, deltaBase io.ReadSeeker, pErr *error) io.ReadCloser {
+// Errors while applying the delta are reported when reading the returned
+// io.ReadCloser.
+func DecorateWithDeltaPatcher(layerData io.ReadCloser, deltaBase io.ReadSeeker) io.ReadCloser {
 	if deltaBase != nil {
 		pR, pW := io.Pipe()
 		go func() {
@@ -511,13 +509,14 @@ func DecorateWithDeltaPatcher(layerData io.ReadCloser, deltaBase io.ReadSeeker, 
 
 			_, err := tr.Next()
 			if err == io.EOF {
-				*pErr = fmt.Errorf("unexpected EOF. Invalid delta tar archive")
+				err = errors.New("unexpected EOF, invalid delta tar archive")
 				pW.CloseWithError(err)
 				return
 			}
 
 			err = librsync.Patch(deltaBase, tr, pW)
 			if err != nil {
+				err = fmt.Errorf("applying delta: %w", err)
 				pW.CloseWithError(err)
 			}
 
