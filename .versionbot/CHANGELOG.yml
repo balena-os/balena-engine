@@ -1,4 +1,26 @@
 - commits:
+    - subject: Fix typos in the masterclass docs
+      hash: 0633e148120feffef1d2d13aece801a4d43d4a49
+      body: ""
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: "patch: Migrate balenaEngine Debugging docs from masterclass"
+      hash: 8a5f98ef25b951ed3108ff6e12cf23841508d9ec
+      body: ""
+      footer:
+        Signed-off-by: Vipul Gupta (@vipulgupta2048) <vipul@balena.io>
+        signed-off-by: Vipul Gupta (@vipulgupta2048) <vipul@balena.io>
+      author: Vipul Gupta (@vipulgupta2048)
+      nested: []
+  version: 20.10.30
+  title: ""
+  date: 2023-03-13T17:03:36.999Z
+- commits:
     - subject: Rename test functions for better clarity
       hash: f5b966a63503577b1b826dc23b95773fd073aacf
       body: |
