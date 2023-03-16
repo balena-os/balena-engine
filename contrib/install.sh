@@ -5,6 +5,18 @@ set -eo pipefail
 tag="v20.10.19"
 tag=$(echo "$tag" | sed 's|+|.|g')
 
+# Check and warn about missing required commands before doing any actual work.
+abort=0
+for cmd in curl tar; do
+	if [[ -z $(command -v $cmd) ]]; then
+		cat >&2 <<-EOF
+		Error: unable to find required command: $cmd
+		EOF
+		abort=1
+	fi
+done
+[ $abort == 1 ] && exit 1
+
 machine=$(uname -m)
 
 case "$machine" in
@@ -50,17 +62,6 @@ if [[ $(id -u) -ne 0 ]]; then
 	fi
 fi
 
-# check for curl and tar
-abort=0
-for cmd in curl tar; do
-	if [[ -z $(command -v $cmd) ]]; then
-		cat >&2 <<-EOF
-		Error: unable to find required command: $cmd
-		EOF
-		abort=1
-	fi
-done
-[ $abort ] && exit 1
 
 curl -sL "$url" | $sudo tar xzv -C /usr/local/bin --strip-components=1
 
