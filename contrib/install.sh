@@ -23,12 +23,6 @@ case "$machine" in
 	"aarch64"*)
 		arch="aarch64"
 		;;
-	"i386")
-		arch="i386"
-		;;
-	"i686")
-		arch="i386"
-		;;
 	"x86_64")
 		arch="x86_64"
 		;;
