@@ -1,4 +1,27 @@
 - commits:
+    - subject: Remove references to deprecated build targets
+      hash: 9e72257bf1ced842076f4df8d488c10580561711
+      body: ""
+      footer:
+        Change-type: patch
+        change-type: patch
+      author: Kyle Harding
+      nested: []
+    - subject: Revert "Cross-build the dynbinary target"
+      hash: 9562704af9213870b7f861dcd394a06be6782678
+      body: |
+        This reverts commit 0240d94e35a43be595cd5e79b0653440c228229f.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Kyle Harding <kyle@balena.io>
+        signed-off-by: Kyle Harding <kyle@balena.io>
+      author: Kyle Harding
+      nested: []
+  version: 20.10.31
+  title: ""
+  date: 2023-03-20T20:13:05.215Z
+- commits:
     - subject: Fix typos in the masterclass docs
       hash: 0633e148120feffef1d2d13aece801a4d43d4a49
       body: ""
