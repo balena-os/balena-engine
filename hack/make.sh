@@ -33,10 +33,7 @@ echo
 # List of bundles to create when no argument is passed
 DEFAULT_BUNDLES=(
 	binary-daemon
-	binary-balena
 	dynbinary
-	dynbinary-balena
-
 	test-integration
 	test-docker-py
 	cross
