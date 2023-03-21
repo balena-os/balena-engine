@@ -1,4 +1,83 @@
 - commits:
+    - subject: "Installer: Make the script POSIX-compliant"
+      hash: cc0683f0aa5cdd5cae54cf278e060328e2c2595f
+      body: |
+        There were various usages of Bash-specific features. As a result, the
+        script would work correctly only on OSes that have `sh` as an alias to
+        `bash`. It would fail on Ubuntu, for example.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: "Installer: Improve handling of su/sudo"
+      hash: 0a46c1fbce94daff87799074a8243dbdd75b39c2
+      body: |
+        A couple of changes here:
+
+        * Check for sudo necessity and availability before doing any real work.
+          Better to warn and exit quick and early!
+        * Remove the support for using `su`. It was broken for two reasons.
+          First, unlike `sudo`, `su -c` expects the command as a single
+          argument. Second, `su`, unlike `sudo`, reads the password from stdin
+          which in this case "contains" the tarball being downloaded. The second
+          point is particularly tricky to solve without saving the tarball to
+          storage (and we want to avoid extra storage space and wear). And,
+          anyway, users that can `su -c` can also `su` manually before
+          installing.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: "Installer: Improve checking for dependencies"
+      hash: a0a285599586bd6167c7eb4b73c7a2a2c0b3be1c
+      body: |
+        A couple of changes here:
+
+        * Check for missing dependencies before doing any real work. Better to
+          warn and exit quick and early!
+        * Fix the actual check. We previously used `[ $abort ] && exit 1` which
+          caused the script to always exit (`abort` is never empty).
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: "Installer: remove support for the 386 architecture"
+      hash: 7403e49d04e41907d89d81054ee4d6a14bb32b9b
+      body: |
+        We disabled builds for linux/386 in v20.10.28 (commit
+        ae2500b7e254b91f4a8f86e44d1ac6f2679c953a).
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+    - subject: Remove the installation script from docs/
+      hash: 5305ab263ffebd08d0346de2bdbed34585805f4f
+      body: |
+        This is removing a duplicate, since the same script is also present
+        under contrib/
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.32
+  title: ""
+  date: 2023-03-21T20:13:28.900Z
+- commits:
     - subject: Remove references to deprecated build targets
       hash: 9e72257bf1ced842076f4df8d488c10580561711
       body: ""
