@@ -1,10 +1,35 @@
 #!/bin/sh
 
-set -eo pipefail
+set -e
 
 tag="v20.10.19"
 tag=$(echo "$tag" | sed 's|+|.|g')
 
+# Check and warn about missing required commands before doing any actual work.
+abort=0
+for cmd in curl tar; do
+	if [ -z "$(command -v $cmd)" ]; then
+		cat >&2 <<-EOF
+		Error: unable to find required command: $cmd
+		EOF
+		abort=1
+	fi
+done
+[ $abort = 1 ] && exit 1
+
+sudo=
+if [ "$(id -u)" -ne 0 ]; then
+	if [ -z "$(command -v sudo)" ]; then
+		cat >&2 <<-EOF
+		Error: this installer needs the ability to run commands as root.
+		You are not running as root and we are unable to find "sudo" available.
+		EOF
+		exit 1
+	fi
+	sudo="sudo -E"
+fi
+
+# Detect the system architecture
 machine=$(uname -m)
 
 case "$machine" in
@@ -23,12 +48,6 @@ case "$machine" in
 	"aarch64"*)
 		arch="arm64"
 		;;
-	"i386")
-		arch="386"
-		;;
-	"i686")
-		arch="386"
-		;;
 	"x86_64")
 		arch="amd64"
 		;;
@@ -37,36 +56,8 @@ case "$machine" in
 		exit 1
 esac
 
+# Download and decompress into the target location
 url="https://github.com/balena-os/balena-engine/releases/download/${tag}/balena-engine-${tag}-${arch}.tar.gz"
-
-sudo=
-if [[ $(id -u) -ne 0 ]]; then
-	if [[ $(command -v sudo) ]]; then
-		sudo='sudo -E'
-	fi
-	if [[ $(command -v su) ]]; then
-		sudo='su -c'
-	fi
-	if [[ -z $sudo ]]; then
-		cat >&2 <<-EOF
-		Error: this installer needs the ability to run commands as root.
-		We are unable to find either "sudo" or "su" available to make this happen.
-		EOF
-		exit 1
-	fi
-fi
-
-# check for curl and tar
-abort=0
-for cmd in curl tar; do
-	if [[ -z $(command -v $cmd) ]]; then
-		cat >&2 <<-EOF
-		Error: unable to find required command: $cmd
-		EOF
-		abort=1
-	fi
-done
-[ $abort ] && exit 1
 
 curl -sL "$url" | $sudo tar xzv -C /usr/local/bin --strip-components=1
 
