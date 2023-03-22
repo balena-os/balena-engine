@@ -1,16 +1,14 @@
 name: Flowzone
-
 on:
   pull_request:
     types: [opened, synchronize, closed]
     branches:
       - "main"
       - "master"
-
 jobs:
   flowzone:
     name: Flowzone
-    uses: product-os/flowzone/.github/workflows/flowzone.yml@master
+    uses: product-os/flowzone/.github/workflows/flowzone.yml@master # 4493978087-1
     secrets: inherit
     with:
       # https://github.com/golang/go/blob/master/src/go/build/syslist.go
