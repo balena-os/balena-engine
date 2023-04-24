@@ -1,4 +1,23 @@
 - commits:
+    - subject: Update libnetwork to fix port binding issue
+      hash: 56aa6337c29329e6100c24f6775840c47081cd06
+      body: |
+        This new version has a patch cherry-picked from here:
+        https://github.com/moby/libnetwork/pull/1805
+
+        This patch is meant to avoid cases in which libnetwork internal state
+        gets inconsistent in case of crashes.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.35
+  title: ""
+  date: 2023-04-24T13:11:04.337Z
+- commits:
     - subject: Update librsync-go to v0.8.5, circbuf to v0.1.3
       hash: a7c917a97048314e956d7264e97598465f88c1c7
       body: |
