@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/url"
 	"os"
 	"runtime"
@@ -44,8 +43,6 @@ var (
 	errRootFSMismatch = errors.New("layers from manifest don't match image configuration")
 	errRootFSInvalid  = errors.New("invalid rootfs in image configuration")
 )
-
-const maxDownloadAttempts = 10
 
 // ImageConfigPullError is an error pulling the image config blob
 // (only applies to schema2).
@@ -155,7 +152,7 @@ type v2LayerDescriptor struct {
 	src               distribution.Descriptor
 	ctx               context.Context
 	layerDownload     io.ReadCloser
-	downloadRetries   uint8 // Number of retries since last successful download attempt
+	downloadRetries   int // Number of retries since last successful download attempt
 	downloadOffset    int64
 	deltaBase         io.ReadSeeker
 	progressOutput    progress.Output
@@ -197,18 +194,19 @@ func (ld *v2LayerDescriptor) reset() error {
 }
 
 func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
-	if ld.downloadRetries > maxDownloadAttempts {
-		logrus.Warnf("giving up layer download after %v retries", maxDownloadAttempts)
-		return 0, fmt.Errorf("no request retries left")
-	}
-
 	if ld.downloadRetries > 0 {
-		sleepDurationInSecs := int(math.Pow(2, float64(ld.downloadRetries-1)))
-		logrus.Infof("waiting %vs before retrying layer download", sleepDurationInSecs)
+		sleepDurationInSecs := 5 * 60 // max sleep duration
+		if ld.downloadRetries <= 8 {
+			sleepDurationInSecs = 1 << ld.downloadRetries
+		}
+
+		logDownloadRetry(ld.downloadRetries, "waiting %vs before retrying layer download", sleepDurationInSecs)
+
 		for sleepDurationInSecs > 0 {
 			if ld.ctx.Err() == context.Canceled {
-				// Stop the pull immediately on context cancellation (caused
-				// e.g. by Ctrl+C).
+				// Stop the pull immediately on context cancelation, caused
+				// when the HTTP connection of the REST API is closed (e.g. by
+				// Ctrl+C in the CLI or killing curl in a direct API call).
 				logrus.Info("context canceled during wait, interrupting layer download")
 				return 0, context.Canceled
 			}
@@ -221,9 +219,9 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 
 	if ld.layerDownload == nil {
 		if err := ld.reset(); err != nil {
-			logrus.Infof("failed to reset layer download: %v", err)
 			ld.downloadRetries += 1
-			// Don't report this as an error, as we might still want to retry
+			logDownloadRetry(ld.downloadRetries, "failed to reset layer download: %v", err)
+			// Don't report this as an error, because we want to keep retrying.
 			return 0, nil
 		}
 	}
@@ -232,9 +230,6 @@ func (ld *v2LayerDescriptor) Read(p []byte) (int, error) {
 	ld.downloadOffset += int64(n)
 	switch err {
 	case nil:
-		// We want to give up only after a long period failing to download
-		// anything at all. So, we reset the retries counter after every bit
-		// successfully downloaded.
 		if ld.downloadRetries > 0 {
 			logrus.Infof("download resumed after %v retries", ld.downloadRetries)
 			ld.downloadRetries = 0
@@ -1076,4 +1071,26 @@ func TargetImageConfig(imgConfig *container.Config) ([]byte, bool) {
 		return []byte(config), true
 	}
 	return []byte{}, false
+}
+
+// logDownloadRetry logs a message related with retrying a download. Initially,
+// it logs every time it is called, but after a certain number of retries it
+// enters a regime of reduced logging frequency to avoid flooding the log stream
+// and filling up the often-limited log buffer of IoT/edge devices.
+func logDownloadRetry(retries int, format string, args ...interface{}) {
+	// We'll log every retry attempt up to this many retries; after that we
+	// enter in the reduced logging regime.
+	const logEveryRetryLimit = 10
+
+	// When in the reduced log regime, we'll log only every this many retries.
+	const reducedLogInterval = 25
+
+	switch {
+	case retries < logEveryRetryLimit:
+		logrus.Infof(format, args...)
+	case retries == logEveryRetryLimit:
+		logrus.Infof(format+" (and reducing log frequency from now on)", args...)
+	case (retries-logEveryRetryLimit)%reducedLogInterval == 0:
+		logrus.Infof(format+" (logging with reduced frequency)", args...)
+	}
 }
