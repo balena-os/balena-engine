@@ -282,7 +282,7 @@ var deltaTestCases = []struct {
 	},
 }
 
-// TestDeltaSizes checks if the sizes of generated deltas have not increased. In
+// TestDeltaSize checks if the sizes of generated deltas have not increased. In
 // other words, this test is designed to catch regressions in the delta sizes.
 //
 // The expected sizes (wantSize) were defined empirically so that they match
@@ -615,8 +615,8 @@ func ttrQueryDeltaSizeAsserting(ctx context.Context, t *testing.T, client apicli
 
 	tarRC, err := client.ImageSave(ctx, []string{ttrImageName(image)})
 	assert.Assert(t, err)
+	defer tarRC.Close()
 	size := deltaSizeFromTar(t, tarRC)
-	tarRC.Close()
 	return size
 }
 
