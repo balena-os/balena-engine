@@ -205,8 +205,8 @@ var deltaTestCases = []struct {
 		images:      []string{"000", "001", "003"},
 		base:        "001",
 		target:      "003",
-		wantSizeMin: 8736,
-		wantSizeMax: 9248,
+		wantSizeMin: 4689,
+		wantSizeMax: 5201,
 	},
 
 	// Similar to the case above, but we diff between 000 and 003. (003 extends
@@ -234,16 +234,16 @@ var deltaTestCases = []struct {
 	{
 		base:        "006",
 		target:      "007",
-		wantSizeMin: 21888,
-		wantSizeMax: 21888,
+		wantSizeMin: 381,
+		wantSizeMax: 381,
 	},
 
 	// 008 has the same files as 006, but all on a single layer.
 	{
 		base:        "006",
 		target:      "008",
-		wantSizeMin: 21622,
-		wantSizeMax: 21622,
+		wantSizeMin: 115,
+		wantSizeMax: 115,
 	},
 	{
 		base:        "008",
@@ -263,8 +263,8 @@ var deltaTestCases = []struct {
 		images:      []string{"009", "010", "011"},
 		base:        "010",
 		target:      "011",
-		wantSizeMin: 49188,
-		wantSizeMax: 59940,
+		wantSizeMin: 1567,
+		wantSizeMax: 1567,
 	},
 
 	// This simulates the case in which the large base image itself was
