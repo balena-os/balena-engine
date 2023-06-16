@@ -142,6 +142,19 @@ func New(ic *plugin.InitContext) (interface{}, error) {
 }
 
 // Runtime for a linux based system
+//
+// LMB: We are currently using containerd's runtime v1, so this should be the
+// one. Not sure if this is relevant though. I mean, this probably isn't
+// runtime-specific.
+//
+// LMB: The real point, I think, is to figure out:
+//   - Are the tasks really being persisted? I guess so, because otherwise we
+//     wouldn't get an "already exists" error after the crash/restart.
+//   - Where?!
+//   - Don't know in the code, but I assume we are talking about stuff like
+//     /mnt/data/docker/containerd/daemon/io.containerd.runtime.v1.linux/moby/<UUID>
+//   - And then, of course, identify critical points where crashing would
+//     cause the issue.
 type Runtime struct {
 	root    string
 	state   string
@@ -334,7 +347,7 @@ func (r *Runtime) Delete(ctx context.Context, id string) (*runtime.Exit, error) 
 		return nil, err
 	}
 
-	r.tasks.Delete(ctx, id)
+	r.tasks.Delete(ctx, id) // LMB: This just removes the task from the map (all in-memory)
 	return exit, nil
 }
 

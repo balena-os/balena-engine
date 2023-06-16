@@ -218,11 +218,20 @@ func (l *local) Create(ctx context.Context, r *api.CreateTaskRequest, _ ...grpc.
 	if err != nil {
 		return nil, err
 	}
+
+	// LMB: rtime.Get() seems to be all from memory. So, either the task was
+	// restored from persistent storage... or containerd didn't crash. Could
+	// this be the case? Like balenad thinks the task is gone, but containerd is
+	// actually right and it does exist? (I don't think so: we looked for the
+	// container process in a failed device and it wasn't there.)
 	_, err = rtime.Get(ctx, r.ContainerID)
 	if err != nil && err != runtime.ErrTaskNotExists {
 		return nil, errdefs.ToGRPC(err)
 	}
 	if err == nil {
+		// LMB: Error raised here(?). We expected the task (process) to not
+		// exist, but it does. (Well, actually it doesn't, but containerd thinks
+		// it does.)
 		return nil, errdefs.ToGRPC(fmt.Errorf("task %s: %w", r.ContainerID, errdefs.ErrAlreadyExists))
 	}
 	c, err := rtime.Create(ctx, r.ContainerID, opts)
@@ -287,6 +296,8 @@ func (l *local) Delete(ctx context.Context, r *api.DeleteTaskRequest, _ ...grpc.
 	if err := l.monitor.Stop(t); err != nil {
 		return nil, err
 	}
+
+	// LMB: Critical point for crashes?!
 
 	exit, err := rtime.Delete(ctx, r.ContainerID)
 	if err != nil {
