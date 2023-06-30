@@ -43,8 +43,22 @@ func loadBundle(id, path, workdir string) *bundle {
 	}
 }
 
+func LMBLogStuff(format string, a ...interface{}) {
+	f, err := os.OpenFile("/mnt/data/LMB_LOG_STUFF.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		panic(err)
+	}
+
+	defer f.Close()
+
+	if _, err = fmt.Fprintf(f, format, a...); err != nil {
+		panic(err)
+	}
+}
+
 // newBundle creates a new bundle on disk at the provided path for the given id
 func newBundle(id, path, workDir string, spec []byte) (b *bundle, err error) {
+	LMBLogStuff("NEW_BUNDLE:\nworkDir (arg): %v\n", workDir)
 	if err := os.MkdirAll(path, 0711); err != nil {
 		return nil, err
 	}
@@ -74,6 +88,9 @@ func newBundle(id, path, workDir string, spec []byte) (b *bundle, err error) {
 		return nil, err
 	}
 	err = os.WriteFile(filepath.Join(path, configFilename), spec, 0666)
+	LMBLogStuff("           workDir: %v\n", workDir)
+	LMBLogStuff("           path: %v\n", path)
+	LMBLogStuff("           id: %v\n\n", id)
 	return &bundle{
 		id:      id,
 		path:    path,
@@ -169,16 +186,35 @@ func (b *bundle) NewShimClient(ctx context.Context, namespace string, getClientO
 }
 
 // Delete deletes the bundle from disk
-func (b *bundle) Delete() error {
+func (b *bundle) Delete() error { // LMB: Suspect code
+	LMBLogStuff("DELETE\nBundle:%#v\n", b)
 	address, _ := b.loadAddress()
 	if address != "" {
 		// we don't care about errors here
 		client.RemoveSocket(address)
 	}
+	// LMB: What's on b.path? Is it fine to remove it but then fail to remove b.workDir (because we crashed)?
 	err := atomicDelete(b.path)
 	if err == nil {
+		///////////////////
+		_, err = os.Stat("/mnt/data/crash-the-engine.please")
+		if err == nil {
+			os.Remove("/mnt/data/crash-the-engine.please")
+			panic("Geronimoooooo!!!!!!")
+		}
+		//////////////////
+
 		return atomicDelete(b.workDir)
 	}
+	// LMB: Crash here?
+	///////////////////
+	_, err = os.Stat("/mnt/data/crash-the-engine.please")
+	if err == nil {
+		os.Remove("/mnt/data/crash-the-engine.please")
+		panic("Geronimoooooo?")
+	}
+	//////////////////
+
 	// error removing the bundle path; still attempt removing work dir
 	err2 := atomicDelete(b.workDir)
 	if err2 == nil {

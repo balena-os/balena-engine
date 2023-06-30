@@ -352,6 +352,7 @@ func (r *Runtime) Delete(ctx context.Context, id string) (*runtime.Exit, error) 
 }
 
 func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
+	LMBLogStuff("LOAD_TASKS: %v  /  %v\n", r.state, ns)
 	dir, err := os.ReadDir(filepath.Join(r.state, ns))
 	if err != nil {
 		return nil, err

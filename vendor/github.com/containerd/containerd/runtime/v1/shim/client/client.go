@@ -192,7 +192,7 @@ func newCommand(binary, daemonAddress string, debug bool, config shim.Config, so
 	}
 	args := []string{
 		"-namespace", config.Namespace,
-		"-workdir", config.WorkDir,
+		"-workdir", config.WorkDir, // LMB: Here's where we pass /mnt/data/docker/containerd/daemon/io.containerd.runtime.v1.linux/moby/ (or some prefix thereof)
 		"-address", daemonAddress,
 		"-containerd-binary", selfExe,
 		"-containerd-binary-argv0", os.Args[0],
