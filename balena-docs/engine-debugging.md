@@ -485,3 +485,29 @@ One example could be due to corruption in the `/var/lib/docker` directory, usual
 
 Many examples of these are documented in the support knowledge base, so we will
 not delve into them here.
+
+#### 9.3 Quick Troubleshooting Tips
+
+Here are some quick tips we have found useful when troubleshooting balenaEngine
+issues.
+
+**Running health check manually.** If you suspect balenaEngine's health check
+may be failing, a good thing to try is running the check manually:
+
+```shell
+root@debug-device:~# /usr/lib/balena/balena-healthcheck
+```
+
+On success, this return 0 and will not print any output. But on error, this may
+provide you more information than you'd get anywhere else.
+
+**Is a pull running?** It's not always obvious that an image pull is really
+running. A quick way to check this is to look for any `docker-untar` processes:
+
+```shell
+root@b96099c:~# ps aux | grep docker-untar
+root        2980 91.0  4.1 1267328 40488 ?       Rl   13:28   0:00 docker-untar / /var/lib/docker/overlay2/1f03416754d567ad88d58ea7fd40db3cdc8275c61de63c0ad8aa644bc87bb690/diff
+```
+
+This `docker-untar` process is spawned by balenaEngine to decompress the image
+data as it arrives, so it's a subtle but sure clue that a pull is running.
