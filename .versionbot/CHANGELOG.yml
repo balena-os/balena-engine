@@ -1,4 +1,20 @@
 - commits:
+    - subject: Document a couple of troubleshooting tips
+      hash: c8cc7e6e22d65ece306d125fee17e65b51bde84a
+      body: |
+        These are some smaller things I do every now and then when
+        troubleshooting and are worth documenting.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.38
+  title: ""
+  date: 2023-07-03T14:00:04.969Z
+- commits:
     - subject: "Bugfix: concatReadSeekCloser.Read() with buffers of any size"
       hash: 84471473ce02a0b8820e13105f845b67c19903c9
       body: >
