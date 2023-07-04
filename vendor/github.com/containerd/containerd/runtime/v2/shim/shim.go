@@ -33,6 +33,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/shutdown"
 	"github.com/containerd/containerd/plugin"
+	"github.com/containerd/containerd/runtime/v2/balena"
 	shimapi "github.com/containerd/containerd/runtime/v2/task"
 	"github.com/containerd/containerd/version"
 	"github.com/containerd/ttrpc"
@@ -367,7 +368,7 @@ func run(ctx context.Context, manager Manager, initFunc Init, name string, confi
 		initialized   = plugin.NewPluginSet()
 		ttrpcServices = []ttrpcService{}
 	)
-	plugins := plugin.Graph(func(*plugin.Registration) bool { return false })
+	plugins := plugin.Graph(balena.DisableShimPlugins)
 	for _, p := range plugins {
 		id := p.URI()
 		log.G(ctx).WithField("type", p.Type).Infof("loading plugin %q...", id)
