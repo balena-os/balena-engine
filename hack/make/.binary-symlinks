@@ -9,10 +9,10 @@ symlink_binaries() {
         balenad
         balena-engine-daemon
         balena-engine-containerd
-        balena-engine-containerd-shim
         balena-engine-containerd-ctr
         balena-engine-runc
         balena-engine-proxy
+        balena-containerd-shim-runc-v2
     )
 
     for file in "${binaries[@]}"; do
