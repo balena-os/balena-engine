@@ -31,7 +31,7 @@ Project](https://github.com/moby/moby/) repo.
 ### Unique features
 
 This is an incomplete list of features unique to balenaEngine. I hope to make
-this more complete over time, with pointers to the relevant code.
+this more complete over time.
 
 #### Delta updates
 
@@ -39,12 +39,38 @@ With deltas we allow users to pull only the differences between an image they
 already have (the *basis*) and one they want to have (the *target*). Spares
 bandwidth from users and balena alike!
 
+Relevant code:
+
+* The delta algorithms themselves are implemented in balena's [librsync-go
+  library](https://github.com/balena-os/librsync-go). This is the library that supports
+* On the Engine side, delta creation is implemented in the
+  [`ImageService.DeltaCreate()`](https://github.com/balena-os/balena-engine/blob/2cd17c44b267813dfc1153f7d08306024d1fc032/daemon/images/image_delta.go#L29)
+  function (at `daemon/images/image_delta.go`). This code is pretty much
+  self-contained.
+* Applying deltas is a bit more complicated, as our code is "mixed" with Moby's
+  code. The main point of interest is the
+  `LayerDownloadManager.makeDownloadFunc()` function (at
+  `distribution/xfer/download.go`), particularly the code around the [call to
+  `DecorateWithDeltaPatcher()`](https://github.com/balena-os/balena-engine/blob/2cd17c44b267813dfc1153f7d08306024d1fc032/distribution/xfer/download.go#L364C55-L364C55).
+  In a nutshell, what we have here is a pipeline of operations: downloading the
+  layer data, decompressing it, etc. What we do is adding our own step into this
+  pipeline. This step takes the delta itself on the input and produces the
+  target layer on the output.
+
 #### Resilient image pulls
 
 In the event of network issues while pulling an image, balenaEngine will keep
-trying to resume the interrupted download for some time without the need of
-restarting from scratch. This is very useful for devices working with an
-unstable Internet connection.
+trying to resume the interrupted download without the need of restarting from
+scratch. This is very useful for devices working with an unstable Internet
+connection.
+
+Relevant code: Our changes have been to the [`v2LayerDescriptor.Read()`
+function](https://github.com/balena-os/balena-engine/blob/2cd17c44b267813dfc1153f7d08306024d1fc032/distribution/pull_v2.go#L196)
+(`distribution/pull_v2.go`), which basically implements Go's `Reader` interface
+with data coming from an HTTP source. The idea behind our changes is simple:
+instead of returning an `error` when a download error happens, we return `nil`.
+This will cause the caller to keep trying until the network connectivity is
+reestablished.
 
 #### Alternative delta data root
 
@@ -324,7 +350,6 @@ Finally your should bump the version found in [`VERSION`](./VERSION) to the new 
 
 ### Random tips
 
-* As I write this (balenaEngine 20.10.18), we support only cgroups v1.
 * This is something we need to look deeper, but I have seen some errors in
   automated tests when using very recent kernel versions. This happens because
   of changes in some kernel interface. AFAIR, this was fixed upstream, but yet
