@@ -17,7 +17,8 @@ Project](https://github.com/moby/moby/) repo.
     * [balena-containerd](https://github.com/balena-os/balena-containerd/)
     * [balena-engine-cli](https://github.com/balena-os/balena-engine-cli)
     * [balena-runc](https://github.com/balena-os/balena-runc/)
-    * [balena-libnetwork](https://github.com/balena-os/balena-libnetwork)
+* Note: libnetwork was merged into moby/moby in v22.06, so balena-libnetwork is
+  no longer needed for newer versions.
 * Each of these forks contains a commit allowing them to be used as a library.
   These commits rename the package `main` and export the main function by
   renaming it from `main()` to `Main()`. These changes enable the busybox-style
@@ -201,19 +202,51 @@ suite while changing them to make use of the API.
 
 #### Vendoring
 
-Moby 22.06 will make use of the standard Go modules/vendoring system. Until
-then, we are using [vndr](https://github.com/LK4D4/vndr).
+Starting with v23, Moby uses Go modules for vendoring via `vendor.mod` (not a
+standard `go.mod` to avoid SemVer requirements since Moby uses CalVer).
 
-Here's what you'd do to update a dependency:
+The balena forks are integrated using `replace` directives in `vendor.mod`:
 
-1. Edit `vendor.conf`, making the desired dependency point to the desired
-   version or commit hash.
-2. Run `make BIND_DIR=. shell` to enter into the "development environment".
-   container.
-3. Run `vndr` for the desired dependency, e.g., `vndr
-   github.com/balena-os/librsync-go`.
-4. Leave the development environment (`exit` or Ctrl+D). The code under
-   `vendor/` will be updated.
+```
+replace github.com/opencontainers/runc => github.com/balena-os/balena-runc <version>
+replace github.com/containerd/containerd => github.com/balena-os/balena-containerd <version>
+replace github.com/docker/cli => github.com/balena-os/balena-engine-cli <version>
+```
+
+##### Getting prerelease version strings for forks
+
+Go modules require pseudo-version strings for branches/commits. To get the
+correct version string for a balena fork branch:
+
+```sh
+GOPROXY=direct ./hack/with-go-mod.sh go get -d github.com/balena-os/balena-containerd@<branch-name>
+```
+
+This will fail with a module path mismatch error, but will print the resolved
+version string, e.g., `v1.6.23-0.20251204223054-27af7c297d34`.
+
+##### Adding/updating replace directives
+
+Use the hack wrapper to add or update replace directives:
+
+```sh
+./hack/with-go-mod.sh go mod edit -modfile=vendor.mod \
+  -replace=github.com/containerd/containerd=github.com/balena-os/balena-containerd@<version>
+```
+
+##### Running the vendor process
+
+After updating `vendor.mod` with the replace directives:
+
+```sh
+./hack/vendor.sh all
+```
+
+This runs `go mod tidy` followed by `go mod vendor` to update `vendor.mod`,
+`vendor.sum`, and the `vendor/` directory.
+
+**Important:** Make sure there is no `go.mod` or `go.sum` file in the repository
+root before running `vendor.sh`, as these will interfere with the process.
 
 ## Update to a new upstream release
 
@@ -226,63 +259,116 @@ First, fetch the new commits and tags from upstream:
 `git fetch --tags https://github.com/moby/moby.git`.
 
 Use `git merge <TARGET_VERSION>` and solve the merge conflicts. You can ignore
-`vendor.conf` for now.
+`vendor.mod` for now.
 
 You can also ignore everything under `./vendor`. To make it easier you can do:
 `git reset ./vendor/ && git checkout -- ./vendor/ && git clean -df ./vendor/`
 
 ### Bring components up-to-date
 
-This is the time to update the balena forks of some  components:
+This is the time to update the balena forks of some components:
 
-* github.com/balena-os/balena-runc (github.com/opencontainers/runc)
-* github.com/balena-os/balena-containerd (github.com/containerd/containerd)
-* github.com/balena-os/balena-libnetwork (github.com/docker/libnetwork)
-* github.com/balena-os/balena-engine-cli (github.com/docker/cli)
+| Balena Fork | Upstream |
+|-------------|----------|
+| <https://github.com/balena-os/balena-runc> | <https://github.com/opencontainers/runc> |
+| <https://github.com/balena-os/balena-containerd> | <https://github.com/containerd/containerd> |
+| <https://github.com/balena-os/balena-engine-cli> | <https://github.com/docker/cli> |
 
-The first step is to figure out what's the new commit hashes to base our forks
-on:
+Note: libnetwork was merged into moby/moby in v22.06, so balena-libnetwork is
+no longer needed.
 
-* Normally, the desired hash is the one present in the updated `vendor.conf`.
-* However, be aware that the version of containerd bundled by Moby is defined by
-  the `CONTAINERD_VERSION` in `hack/dockerfile/install/containerd.installer`.
-  So, you may want to use the hash of this version instead (or the newest among
-  it and the one in `vendor.conf`), to make sure balenaEngine will bundle the
-  same containerd version as Moby.
-* We used containerd as an example above, but the same is valid for the other
-  components.
+#### Determine target versions
 
-Anyway, once you figure out the target commit hash for a given component, you
-can proceed to update it. The easiest way to do that is to:
+Check `vendor.mod` for the version of each dependency that upstream uses.
 
-* Find out what is the current version branch (these are branches named
-  `<VERSION>-balena`).
-* Find out what is the earliest balena patch on this repo. (Look below in the
-  Tips section for some help.)
-* Fetch the changes and tags from upstream. For containerd, you'd use
-  `git fetch --tags https://github.com/containerd/containerd.git`.
-* Copy the current version branch to `<TARGET_VERSION>-balena`:
-  `git checkout <CURRENT_BRANCH> && git checkout -b <TARGET_VERSION>-balena`
-* Run `git rebase --onto <TARGET_COMMIT> <FIRST_PATCH>^`. Don't forget to add
-  the `^`.
+**Important:** Always use the version from `vendor.mod`, not from installer
+scripts like `hack/dockerfile/install/containerd.installer`. Using a different
+version can cause dependency conflicts (e.g., mismatched OpenTelemetry versions
+between containerd and buildkit).
 
-There might be merge conflicts.
+For docker/cli, check the tags in the upstream cli repo - note that cli versions
+may not match moby versions exactly (e.g., moby v23.0.18 uses cli v23.0.15).
 
-And if any of the components added new files to their `main` package, you need
-to update the `package` declaration on these new files to enable importing as a
-package. (Like in [this commit](https://github.com/balena-os/balena-containerd/commit/bdc9478300894cf34bbbd975df1c11b26eb20f63).)
+#### Rebase the balena forks
+
+For each fork, rebase the balena patches onto the new upstream version:
+
+1. Clone the fork and fetch upstream tags:
+
+   ```sh
+   git clone https://github.com/balena-os/balena-containerd.git
+   cd balena-containerd
+   git fetch --tags https://github.com/containerd/containerd.git
+   ```
+
+2. Find the current balena branch and earliest balena patch. Balena branches are
+   named `<VERSION>-balena` (e.g., `1.6.22-balena`). See the "Earliest balena
+   patches" section below to identify the first balena commit.
+
+3. Create a new branch and rebase onto the target version:
+
+   ```sh
+   git checkout <CURRENT_VERSION>-balena
+   git checkout -b <TARGET_VERSION>-balena
+   git rebase --onto v<TARGET_VERSION> <FIRST_BALENA_PATCH>^
+   ```
+
+   Don't forget the `^` after the first patch hash.
+
+4. Resolve any merge conflicts.
+
+5. If the component added new files to their `main` package, update the
+   `package` declaration on these new files to enable importing as a package.
+   (See https://github.com/balena-os/balena-containerd/commit/bdc9478300894cf34bbbd975df1c11b26eb20f63
+   for an example.)
+
+6. Push the new branch and the upstream tag to the balena fork:
+
+   ```sh
+   git push origin <TARGET_VERSION>-balena
+   git push origin v<TARGET_VERSION>
+   ```
+
+   **Important:** Pushing the upstream tag (e.g., `v1.6.22`) ensures that Go's
+   pseudo-version calculation works correctly. The pseudo-version is based on
+   the most recent tag in the commit history.
 
 ### Reconstruct vendor/
 
-Go through the changes/merge conflicts in `vendor.conf`. We need to update the
-revisions of our components above to the new `HEAD`.
+1. Start with the upstream `vendor.mod` from the merged release.
 
-There might be missing new dependencies introduced in the components that we
-need to copy under the respective section at the bottom of the engine's vendor
-file.
+2. Get the prerelease version strings for each balena fork. The branch names
+   follow the pattern `<TARGET_VERSION>-balena` (e.g., `1.6.22-balena` for
+   containerd, `1.1.12-balena` for runc, `23.0.15-balena` for cli):
 
-After that you can bring back the vendor directory with `make BIND_DIR=. shell`
-and run `hack/vendor.sh`.
+   ```sh
+   GOPROXY=direct ./hack/with-go-mod.sh go get -d github.com/balena-os/balena-runc@1.1.12-balena
+   GOPROXY=direct ./hack/with-go-mod.sh go get -d github.com/balena-os/balena-containerd@1.6.22-balena
+   GOPROXY=direct ./hack/with-go-mod.sh go get -d github.com/balena-os/balena-engine-cli@23.0.15-balena
+   ```
+
+   Each command will fail with a module path mismatch error but will print the
+   resolved pseudo-version string (e.g., `v1.6.23-0.20251204223054-27af7c297d34`).
+
+3. Add the replace directives to `vendor.mod` using the resolved versions:
+
+   ```sh
+   ./hack/with-go-mod.sh go mod edit -modfile=vendor.mod \
+     -replace=github.com/opencontainers/runc=github.com/balena-os/balena-runc@<version>
+   ./hack/with-go-mod.sh go mod edit -modfile=vendor.mod \
+     -replace=github.com/containerd/containerd=github.com/balena-os/balena-containerd@<version>
+   ./hack/with-go-mod.sh go mod edit -modfile=vendor.mod \
+     -replace=github.com/docker/cli=github.com/balena-os/balena-engine-cli@<version>
+   ```
+
+4. Run the vendor process:
+
+   ```sh
+   ./hack/vendor.sh all
+   ```
+
+   This will run `go mod tidy` to resolve transitive dependencies and then
+   `go mod vendor` to populate the vendor directory.
 
 ### Testing if everything works
 
@@ -377,19 +463,6 @@ Author: Petros Angelatos <petrosagg@gmail.com>
 Date:   Wed Jan 17 19:06:48 2018 -0800
 
     export all commands as packages
-
-    Signed-off-by: Petros Angelatos <petrosagg@gmail.com>
-```
-
-For balena-libnetwork:
-
-```text
-Author: Petros Angelatos <petrosagg@gmail.com>
-Date:   Tue Jul 25 16:04:43 2017 -0700
-
-    cmd/proxy: export main package as a library
-
-    Allows it to be used as part of a busybox-like binary
 
     Signed-off-by: Petros Angelatos <petrosagg@gmail.com>
 ```
