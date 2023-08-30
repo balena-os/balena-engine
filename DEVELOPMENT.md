@@ -175,19 +175,29 @@ suite while changing them to make use of the API.
 
 #### Vendoring
 
-Moby 22.06 will make use of the standard Go modules/vendoring system. Until
-then, we are using [vndr](https://github.com/LK4D4/vndr).
+More recent versions of Moby use of the standard Go modules/vendoring system.
+Until we update, we are using [vndr](https://github.com/LK4D4/vndr).
 
-Here's what you'd do to update a dependency:
+The safest way to vendor dependencies is this:
 
 1. Edit `vendor.conf`, making the desired dependency point to the desired
    version or commit hash.
 2. Run `make BIND_DIR=. shell` to enter into the "development environment".
    container.
-3. Run `vndr` for the desired dependency, e.g., `vndr
-   github.com/balena-os/librsync-go`.
+3. Run `./hack/vendor.sh`. This will take a while to run, and will re-download
+   all dependencies.
 4. Leave the development environment (`exit` or Ctrl+D). The code under
    `vendor/` will be updated.
+
+You probably want to stick with the steps above.
+
+However, if you are in a hurry, really know what you are doing, and don't mind
+some manual tweaking, you can ask for a single dependency to be vendored. To do
+this, simply replace step 3 above with a command like `vndr
+github.com/balena-os/librsync-go` (adjusting for the desired dependency). The
+danger is that you'll skip some smartness built into the `vendor.sh` script. For
+example, as I write this, calling `vndr` directly will *also* remove everything
+under `vendor/archive/tar/` (which is needed and must be manually restored).
 
 ## Update to a new upstream release
 
