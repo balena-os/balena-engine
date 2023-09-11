@@ -36,7 +36,7 @@ import (
 )
 
 const (
-	shimBinaryFormat = "containerd-shim-%s-%s"
+	shimBinaryFormat = "balena-containerd-shim-%s-%s"
 	socketPathLimit  = 106
 )
 

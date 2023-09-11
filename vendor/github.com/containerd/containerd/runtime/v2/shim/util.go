@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/runtime/v2/balena"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	exec "golang.org/x/sys/execabs"
@@ -49,7 +50,7 @@ func Command(ctx context.Context, config *CommandConfig) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	self, err := os.Executable()
+	self, err := balena.Executable()
 	if err != nil {
 		return nil, err
 	}
