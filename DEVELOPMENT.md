@@ -352,7 +352,7 @@ Finally your should bump the version found in [`VERSION`](./VERSION) to the new 
 
 * This is something we need to look deeper, but I have seen some errors in
   automated tests when using very recent kernel versions. This happens because
-  of changes in some kernel interface. AFAIR, this was fixed upstream, but yet
+  of changes in some kernel interface. AFFAIR, this was fixed upstream, but yet
   brought to balenaEngine.
     * I know this is a very vage tip -- just be aware that things like this can
       happen.
