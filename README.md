@@ -43,6 +43,22 @@ engine. Specifically, we’ve excluded:
 Unless you depend on one of the features in Docker that balenaEngine omits, using
 balenaEngine should be a drop-in replacement.
 
+## Contributing pull requests
+
+If you're interested in contributing, that's awesome! Here's a few guidelines to
+make the process easier for everyone involved.
+
+- We use [Versionist](https://github.com/product-os/versionist) to manage
+  versioning and generate the changelog for this project.
+- However, we (like Moby) don't not use semantic versioning. Instead, every PR
+  merged will increment only the "patch" part of the version (in a
+  major.minor.patch scheme).
+- The practical consequence of all that: at least one commit in the PR must have
+  a `Change-Type: patch` footer. The subject of this commit will be added to the
+  changelog.
+- Commits should be squashed as much as makes sense.
+- Commits should be signed-off (`git commit -s`)
+
 ## License
 
 balenaEngine is licensed under the Apache License, Version 2.0. See
