@@ -1,4 +1,18 @@
 - commits:
+    - subject: Simplified development doc 'Build and run' instructions
+      hash: e23a01b24a60f3a686e1ed9d3667dcc56db437a3
+      body: ""
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Ken Bannister <kb2ma@runbox.com>
+        signed-off-by: Ken Bannister <kb2ma@runbox.com>
+      author: Ken Bannister
+      nested: []
+  version: 20.10.41
+  title: ""
+  date: 2023-12-01T18:50:14.756Z
+- commits:
     - subject: Re-vendor to get the containerd-shim-runc-v2 sources
       hash: 155b7771ff14a9dc9abf65f34bdf716baac04481
       body: |
