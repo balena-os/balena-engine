@@ -126,8 +126,8 @@ can run it. What I usually do to run the Engine inside this container is:
 # Copy the binary and symlinks to somewhere in the $PATH
 cp bundles/dynbinary-daemon/balena* /bin
 
-# Run the required daemons in the background
-balena-engine-containerd &
+# Run the required daemons in the background.
+# The engine daemon also starts the balena-engine-containerd daemon
 balena-engine-daemon &
 
 # Now you can run balena-engine as you wish
