@@ -310,6 +310,9 @@ func adjustParallelLimit(n int, limit int) int {
 }
 
 func checkKernel() error {
+	// Stub the kernel check as the builder workers are using the UNAME26 personality
+	// to return armv6l
+	return nil
 	// Check for unsupported kernel versions
 	// FIXME: it would be cleaner to not test for specific versions, but rather
 	// test for specific functionalities.
