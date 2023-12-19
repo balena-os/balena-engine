@@ -1,4 +1,18 @@
 - commits:
+    - subject: Update actions/upload-artifact to v4 and generate unique artifacts
+      hash: 8326bf0a7eda3214b4b9c0641b81d0d717a2d15d
+      body: ""
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Kyle Harding <kyle@balena.io>
+        signed-off-by: Kyle Harding <kyle@balena.io>
+      author: Kyle Harding
+      nested: []
+  version: 20.10.42
+  title: ""
+  date: 2023-12-19T19:09:00.979Z
+- commits:
     - subject: Simplified development doc 'Build and run' instructions
       hash: e23a01b24a60f3a686e1ed9d3667dcc56db437a3
       body: ""
