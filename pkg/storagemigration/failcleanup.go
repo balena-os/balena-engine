@@ -10,7 +10,6 @@ import (
 // FailCleanup should be run after a failed migration.
 // It will remove any files left over from the migration process
 // and migrate containers back to aufs.
-//
 func failCleanup(root string) error {
 	logrus.WithField("storage_root", root).Warning("recovering from failed aufs to overlay migration")
 

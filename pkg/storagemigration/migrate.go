@@ -128,7 +128,6 @@ func Migrate(root string) (err error) {
 	if err != nil {
 		return fmt.Errorf("Error migrating containers to overlay2: %v", err)
 	}
-
 	return nil
 }
 
@@ -336,10 +335,17 @@ func SwitchAllContainersStorageDriver(root, newStorageDriver string) error {
 	logrus.Debugf("migrating %v container(s) to %s", len(containerIDs), newStorageDriver)
 	for _, containerID := range containerIDs {
 		err := switchContainerStorageDriver(root, containerID, newStorageDriver)
-		if err != nil {
+		switch err {
+		case nil:
+			logrus.WithField("container_id", containerID).Debugf("reconfigured storage-driver to %s", newStorageDriver)
+		case errNoConfigV2JSON:
+			if newStorageDriver == "overlay2" {
+				return fmt.Errorf("Error containerID %s: %v", containerID, err)
+			}
+			logrus.WithField("container_id", containerID).Errorf("has no config.v2.json %s", newStorageDriver)
+		default:
 			return fmt.Errorf("Error rewriting container config for %s: %v", containerID, err)
 		}
-		logrus.WithField("container_id", containerID).Debugf("reconfigured storage-driver to %s", newStorageDriver)
 	}
 	return nil
 }

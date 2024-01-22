@@ -2,6 +2,7 @@ package storagemigration
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/sirupsen/logrus/hooks/writer"
 	"golang.org/x/sys/unix"
 )
+
+var errNoConfigV2JSON = errors.New("config.v2.json not found for container")
 
 // exists checks if a file  (or if isDir is set to "true" a directory) exists
 func exists(path string, isDir bool) (bool, error) {
@@ -60,6 +63,10 @@ func replicate(sourceDir, targetDir string) error {
 // this is the only change needed to make it work after the migration
 func switchContainerStorageDriver(root, containerID, newStorageDriver string) error {
 	containerConfigPath := filepath.Join(root, "containers", containerID, "config.v2.json")
+	if ok, _ := exists(containerConfigPath, false); !ok {
+		return errNoConfigV2JSON
+	}
+
 	f, err := os.OpenFile(containerConfigPath, os.O_RDWR, os.ModePerm)
 	if err != nil {
 		return err
