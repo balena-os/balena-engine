@@ -592,6 +592,11 @@ func (p *v2Puller) pullSchema2Layers(ctx context.Context, target distribution.De
 			// Target image already exists locally, no need to pull anything
 			return digest, nil
 		}
+		deltaBaseCloser, err := DeltaBaseImageFromConfig(img.Config, p.config.ImageStore)
+		if deltaBaseCloser != nil {
+			defer deltaBaseCloser.Close()
+		}
+		deltaBase = deltaBaseCloser
 		if err != nil {
 			return "", err
 		}
@@ -1028,6 +1033,8 @@ func toOCIPlatform(p manifestlist.PlatformSpec) specs.Platform {
 // image associated with imgConfig. Passing an imgConfig that is not a delta
 // image is not considered an error: in this case the function returns a nil
 // ReadSeekCloser (and a nil error).
+//
+// The caller is responsible for Close()ing the returned stream.
 func DeltaBaseImageFromConfig(imgConfig *container.Config, imgConfigStore ImageConfigStore) (ioutils.ReadSeekCloser, error) {
 	if base, ok := imgConfig.Labels["io.resin.delta.base"]; ok {
 		digest, err := digest.Parse(base)
@@ -1039,7 +1046,6 @@ func DeltaBaseImageFromConfig(imgConfig *container.Config, imgConfigStore ImageC
 		if err != nil {
 			return nil, fmt.Errorf("loading delta base image %q: %w", digest, err)
 		}
-		defer stream.Close()
 
 		return stream, nil
 	}

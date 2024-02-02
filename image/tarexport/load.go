@@ -114,7 +114,11 @@ func (l *tarexporter) Load(inTar io.ReadCloser, outStream io.Writer, quiet bool)
 				return nil
 			}
 
-			deltaBase, err = mobyDistribution.DeltaBaseImageFromConfig(img.Config, imgConfigStore)
+			deltaBaseCloser, err := mobyDistribution.DeltaBaseImageFromConfig(img.Config, imgConfigStore)
+			if deltaBaseCloser != nil {
+				defer deltaBaseCloser.Close()
+			}
+			deltaBase = deltaBaseCloser
 			if err != nil {
 				return err
 			}
