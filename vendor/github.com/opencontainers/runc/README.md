@@ -15,6 +15,8 @@
 
 You can find official releases of `runc` on the [release](https://github.com/opencontainers/runc/releases) page.
 
+All releases are signed by one of the keys listed in the [`runc.keyring` file in the root of this repository](runc.keyring).
+
 ## Security
 
 The reporting process and disclosure communications are outlined [here](https://github.com/opencontainers/org/blob/master/SECURITY.md).
@@ -24,7 +26,7 @@ A third party security audit was performed by Cure53, you can see the full repor
 
 ## Building
 
-`runc` only supports Linux. It must be built with Go version 1.16 or higher.
+`runc` only supports Linux. It must be built with Go version 1.17 or higher.
 
 In order to enable seccomp support you will need to install `libseccomp` on your platform.
 > e.g. `libseccomp-devel` for CentOS, or `libseccomp-dev` for Ubuntu
