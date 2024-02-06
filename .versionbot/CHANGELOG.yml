@@ -1,4 +1,21 @@
 - commits:
+    - subject: Update runc component to v1.1.12 from balena-runc repo
+      hash: 9cdf0321cbb1dee0b1712f4e537f1b90caad45ea
+      body: >
+        Also update containerd component from balena-containerd to also use
+
+        runc v1.1.12. Also update dependencies as indicated from balena-runc go.mod.
+      footer:
+        Change-type: patch
+        change-type: patch
+        Signed-off-by: Ken Bannister <kb2ma@runbox.com>
+        signed-off-by: Ken Bannister <kb2ma@runbox.com>
+      author: Ken Bannister
+      nested: []
+  version: 20.10.43
+  title: ""
+  date: 2024-02-06T08:42:31.660Z
+- commits:
     - subject: Update actions/upload-artifact to v4 and generate unique artifacts
       hash: 8326bf0a7eda3214b4b9c0641b81d0d717a2d15d
       body: ""
