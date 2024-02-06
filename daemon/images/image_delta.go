@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/ioutil"
+	"math"
 	"os"
 	"time"
 
@@ -64,8 +65,9 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 	progressReader := progress.NewProgressReader(srcData, progressOutput, srcDataLen, deltaSrc, "Fingerprinting")
 	defer progressReader.Close()
 
+	blockLen := deltaBlockSize(srcDataLen)
 	sigStart := time.Now()
-	srcSig, err := librsync.Signature(bufio.NewReaderSize(progressReader, 65536), ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
+	srcSig, err := librsync.Signature(bufio.NewReaderSize(progressReader, 65536), ioutil.Discard, blockLen, 32, librsync.BLAKE2_SIG_MAGIC)
 	if err != nil {
 		return err
 	}
@@ -284,4 +286,31 @@ func (lock *imglock) unlock(ls layer.Store) {
 	for _, l := range lock.layers {
 		layer.ReleaseAndLog(ls, l)
 	}
+}
+
+// deltaBlockSize returns the block size to use when generating a delta for a
+// basis file that is basisSize bytes long.
+func deltaBlockSize(basisSize int64) uint32 {
+	// Start with the "ideal" size recommended by the librsync devs. See
+	// https://github.com/librsync/librsync/pull/109/files#diff-7a3cd9075c1eaa0d219f7c0a516a10679dae11922bd1dd0ff54a10cdaa457f6fR147
+	if basisSize <= 256*256 {
+		return 256
+	}
+	x := uint32(math.Sqrt(float64(basisSize)))
+
+	// Avoid overflowing.
+	if x >= 2147483648 {
+		return 2147483648 // the largest power of two that fits into an uint32.
+	}
+
+	// Round to the next power of two (because librsync-go has an optimized code
+	// path for power of two blocks). This algorithm is from Hacker's Delight,
+	// 2nd Edition, p.62.
+	x -= 1
+	x |= x >> 1
+	x |= x >> 2
+	x |= x >> 4
+	x |= x >> 8
+	x |= x >> 16
+	return x + 1
 }
