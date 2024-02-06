@@ -168,15 +168,17 @@ static void write_log(int level, const char *format, ...)
 
 	message = escape_json_string(message);
 
-	if (current_stage == STAGE_SETUP)
+	if (current_stage == STAGE_SETUP) {
 		stage = strdup("nsexec");
-	else
+		if (stage == NULL)
+			goto out;
+	} else {
 		ret = asprintf(&stage, "nsexec-%d", current_stage);
-	if (ret < 0) {
-		stage = NULL;
-		goto out;
+		if (ret < 0) {
+			stage = NULL;
+			goto out;
+		}
 	}
-
 	ret = asprintf(&json, "{\"level\":\"%s\", \"msg\": \"%s[%d]: %s\"}\n",
 		       level_str[level], stage, getpid(), message);
 	if (ret < 0) {
@@ -416,11 +418,9 @@ static int getenv_int(const char *name)
 	if (val == endptr || *endptr != '\0')
 		bail("unable to parse %s=%s", name, val);
 	/*
-	 * Sanity check: this must be a small non-negative number.
-	 * Practically, we pass two fds (3 and 4) and a log level,
-	 * for which the maximum is 6 (TRACE).
-	 * */
-	if (ret < 0 || ret > TRACE)
+	 * Sanity check: this must be a non-negative number.
+	 */
+	if (ret < 0)
 		bail("bad value for %s=%s (%d)", name, val, ret);
 
 	return ret;
@@ -832,6 +832,25 @@ void send_mountsources(int sockfd, pid_t child, char *mountsources, size_t mount
 		bail("failed to close container mount namespace fd %d", container_mntns_fd);
 }
 
+void try_unshare(int flags, const char *msg)
+{
+	write_log(DEBUG, "unshare %s", msg);
+	/*
+	 * Kernels prior to v4.3 may return EINVAL on unshare when another process
+	 * reads runc's /proc/$PID/status or /proc/$PID/maps. To work around this,
+	 * retry on EINVAL a few times.
+	 */
+	int retries = 5;
+	for (; retries > 0; retries--) {
+		if (unshare(flags) == 0) {
+			return;
+		}
+		if (errno != EINVAL)
+			break;
+	}
+	bail("failed to unshare %s", msg);
+}
+
 void nsexec(void)
 {
 	int pipenum;
@@ -1070,7 +1089,7 @@ void nsexec(void)
 
 					s = SYNC_MOUNTSOURCES_ACK;
 					if (write(syncfd, &s, sizeof(s)) != sizeof(s)) {
-						kill(stage1_pid, SIGKILL);
+						sane_kill(stage1_pid, SIGKILL);
 						bail("failed to sync with child: write(SYNC_MOUNTSOURCES_ACK)");
 					}
 					break;
@@ -1170,9 +1189,7 @@ void nsexec(void)
 			 * problem.
 			 */
 			if (config.cloneflags & CLONE_NEWUSER) {
-				write_log(DEBUG, "unshare user namespace");
-				if (unshare(CLONE_NEWUSER) < 0)
-					bail("failed to unshare user namespace");
+				try_unshare(CLONE_NEWUSER, "user namespace");
 				config.cloneflags &= ~CLONE_NEWUSER;
 
 				/*
@@ -1224,15 +1241,13 @@ void nsexec(void)
 			 * some old kernel versions where clone(CLONE_PARENT | CLONE_NEWPID)
 			 * was broken, so we'll just do it the long way anyway.
 			 */
-			write_log(DEBUG, "unshare remaining namespace (except cgroupns)");
-			if (unshare(config.cloneflags & ~CLONE_NEWCGROUP) < 0)
-				bail("failed to unshare remaining namespaces (except cgroupns)");
+			try_unshare(config.cloneflags & ~CLONE_NEWCGROUP, "remaining namespaces (except cgroupns)");
 
 			/* Ask our parent to send the mount sources fds. */
 			if (config.mountsources) {
 				s = SYNC_MOUNTSOURCES_PLS;
 				if (write(syncfd, &s, sizeof(s)) != sizeof(s)) {
-					kill(stage2_pid, SIGKILL);
+					sane_kill(stage2_pid, SIGKILL);
 					bail("failed to sync with parent: write(SYNC_MOUNTSOURCES_PLS)");
 				}
 
@@ -1241,11 +1256,11 @@ void nsexec(void)
 
 				/* Parent finished to send the mount sources fds. */
 				if (read(syncfd, &s, sizeof(s)) != sizeof(s)) {
-					kill(stage2_pid, SIGKILL);
+					sane_kill(stage2_pid, SIGKILL);
 					bail("failed to sync with parent: read(SYNC_MOUNTSOURCES_ACK)");
 				}
 				if (s != SYNC_MOUNTSOURCES_ACK) {
-					kill(stage2_pid, SIGKILL);
+					sane_kill(stage2_pid, SIGKILL);
 					bail("failed to sync with parent: SYNC_MOUNTSOURCES_ACK: got %u", s);
 				}
 			}
@@ -1344,8 +1359,7 @@ void nsexec(void)
 			}
 
 			if (config.cloneflags & CLONE_NEWCGROUP) {
-				if (unshare(CLONE_NEWCGROUP) < 0)
-					bail("failed to unshare cgroup namespace");
+				try_unshare(CLONE_NEWCGROUP, "cgroup namespace");
 			}
 
 			write_log(DEBUG, "signal completion to stage-0");
