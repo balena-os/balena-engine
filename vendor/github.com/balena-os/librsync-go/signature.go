@@ -37,6 +37,13 @@ func CalcStrongSum(data []byte, sigType MagicNumber, strongLen uint32) ([]byte, 
 }
 
 func Signature(input io.Reader, output io.Writer, blockLen, strongLen uint32, sigType MagicNumber) (*SignatureType, error) {
+	return SignatureWithBlockCount(input, output, blockLen, strongLen, sigType, 0)
+}
+
+// SignatureWithBlockCount is a version of Signature that allows the caller to
+// pass in the expected number of blocks in the Signature. This is used to
+// pre-allocate the internal data structures.
+func SignatureWithBlockCount(input io.Reader, output io.Writer, blockLen, strongLen uint32, sigType MagicNumber, blockCount int) (*SignatureType, error) {
 	var maxStrongLen uint32
 
 	switch sigType {
@@ -68,7 +75,8 @@ func Signature(input io.Reader, output io.Writer, blockLen, strongLen uint32, si
 	block := make([]byte, blockLen)
 
 	var ret SignatureType
-	ret.weak2block = make(map[uint32]int)
+	ret.weak2block = make(map[uint32]int, blockCount)
+	ret.strongSigs = make([][]byte, 0, blockCount)
 	ret.sigType = sigType
 	ret.strongLen = strongLen
 	ret.blockLen = blockLen
