@@ -65,7 +65,10 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 	defer progressReader.Close()
 
 	sigStart := time.Now()
-	srcSig, err := librsync.Signature(bufio.NewReaderSize(progressReader, 65536), ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
+
+	bufioReader := bufio.NewReaderSize(progressReader, 65536)
+	numBlocks := int(srcDataLen/512) + 1
+	srcSig, err := librsync.SignatureWithBlockCount(bufioReader, ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC, numBlocks)
 	if err != nil {
 		return err
 	}
