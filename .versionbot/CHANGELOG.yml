@@ -1,10 +1,28 @@
 - commits:
+    - subject: "Bugfix: Don't close base images prematurely"
+      hash: 01a3fc31a37f2252af0ac5504659e9fbeb5c3d1d
+      body: |
+        Our previous implementation was closing the base image stream before it
+        was even used. With this commit we make it clear who is responsible for
+        closing this stream, and ensure it is closed only after it's used.
+      footer:
+        Signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        signed-off-by: Leandro Motta Barros <leandro@balena.io>
+        Change-type: patch
+        change-type: patch
+      author: Leandro Motta Barros
+      nested: []
+  version: 20.10.44
+  title: ""
+  date: 2024-05-21T09:33:13.440Z
+- commits:
     - subject: Update runc component to v1.1.12 from balena-runc repo
       hash: 9cdf0321cbb1dee0b1712f4e537f1b90caad45ea
       body: >
         Also update containerd component from balena-containerd to also use
 
-        runc v1.1.12. Also update dependencies as indicated from balena-runc go.mod.
+        runc v1.1.12. Also update dependencies as indicated from balena-runc
+        go.mod.
       footer:
         Change-type: patch
         change-type: patch
@@ -76,7 +94,8 @@
       body: >
         This commit updates balena-containerd to a new version in which we
 
-        cherry-picked the change from here: https://github.com/containerd/containerd/pull/8086
+        cherry-picked the change from here:
+        https://github.com/containerd/containerd/pull/8086
 
 
         This change avoids enabling AppArmor if the `/sbin/apparmor_parser`
@@ -958,7 +977,9 @@
       body: >
         See https://github.com/containerd/containerd/pull/4530
 
-        and `git log ad25c1a9c34361e4071f508b9a91946b05fce165^..2055e12953bb538228d8d9fe627fa545d7cf82be ./platforms/`
+        and `git log
+        ad25c1a9c34361e4071f508b9a91946b05fce165^..2055e12953bb538228d8d9fe627fa545d7cf82be
+        ./platforms/`
 
         in the containerd repo
       footer:
@@ -1273,12 +1294,14 @@
       body: >
         Earlier engine versions were not properly persisting cacheID
 
-        in layer metadata. As a result, because of abruptly terminated transactions,
+        in layer metadata. As a result, because of abruptly terminated
+        transactions,
 
         a lot of devices have unreferenced graphdriver layers on disk.
 
 
-        With this change, the engine will be able to clean up such unreferenced layers.
+        With this change, the engine will be able to clean up such unreferenced
+        layers.
       footer:
         Change-type: patch
         change-type: patch
@@ -1291,11 +1314,13 @@
       body: >
         When layer store is created, its tmp directory may contain information
 
-        about transactions that were abruptly treminated during the previous process run.
+        about transactions that were abruptly treminated during the previous
+        process run.
 
         Such data is now identified before any new transactions can be created,
 
-        and a background process is started to delete both meta data and graph driver layeres.
+        and a background process is started to delete both meta data and graph
+        driver layeres.
       footer:
         Change-type: patch
         change-type: patch
@@ -1309,17 +1334,21 @@
         If the engine process is terminated during the layer extraction
         transaction,
 
-        before Commit or Cancel is called on the transaction, a new FS layer can be created
+        before Commit or Cancel is called on the transaction, a new FS layer can
+        be created
 
         by the graph driver without any link to the layers metadata.
 
 
-        This change ensures we don't perform any actions on the graph driver storage until
+        This change ensures we don't perform any actions on the graph driver
+        storage until
 
-        the FS layer ID (the cacheID) is  persisted as a part of the transaction data.
+        the FS layer ID (the cacheID) is  persisted as a part of the transaction
+        data.
 
 
-        We can use this data to clean up the graph driver storage on next process start
+        We can use this data to clean up the graph driver storage on next
+        process start
 
         deleting all data associated with the transactions terminated abruptly.
       footer:
@@ -1335,7 +1364,8 @@
         On macOS, unit tests where failing with
 
 
-        root@c4101a75c792:/go/src/github.com/docker/docker/pkg/authorization# go test .
+        root@c4101a75c792:/go/src/github.com/docker/docker/pkg/authorization# go
+        test .
 
         --- FAIL: TestAuthZRequestPluginError (0.00s)
             authz_unix_test.go:295: listen unix authz-test-plugin.sock: bind: file name too long
@@ -1343,7 +1373,8 @@
             authz_unix_test.go:295: listen unix authz-test-plugin.sock: bind: file name too long
         --- FAIL: TestAuthZResponsePlugin (0.00s)
             authz_unix_test.go:295: listen unix authz-test-plugin.sock: bind: file name too long
-        time="2020-04-07T10:07:04Z" level=warning msg="Request body is larger than: '1048576' skipping body"
+        time="2020-04-07T10:07:04Z" level=warning msg="Request body is larger
+        than: '1048576' skipping body"
 
         --- FAIL: TestMiddlewareWrapHandler (0.00s)
             authz_unix_test.go:295: listen unix authz-test-plugin.sock: bind: file name too long
@@ -1352,7 +1383,8 @@
         FAIL	github.com/docker/docker/pkg/authorization	0.120s
 
 
-        This change moves the socket creation from a working test directory to a tmp directory,
+        This change moves the socket creation from a working test directory to a
+        tmp directory,
 
         so the path is shorter.
       footer:
@@ -1530,7 +1562,8 @@
       body: >
         The only test from integration/ that covers any resource constrained
 
-        container scenarios is the OomKilled check in integration/container/kill_test.go
+        container scenarios is the OomKilled check in
+        integration/container/kill_test.go
 
 
         This adds two addional checks that try to create, startk, stop and
@@ -1709,7 +1742,9 @@
       body: >
         See https://github.com/containerd/containerd/pull/4530
 
-        and `git log ad25c1a9c34361e4071f508b9a91946b05fce165^..2055e12953bb538228d8d9fe627fa545d7cf82be ./platforms/`
+        and `git log
+        ad25c1a9c34361e4071f508b9a91946b05fce165^..2055e12953bb538228d8d9fe627fa545d7cf82be
+        ./platforms/`
 
         in the containerd repo
       footer:
@@ -2040,12 +2075,14 @@
       body: >-
         Earlier engine versions were not properly persisting cacheID
 
-        in layer metadata. As a result, because of abruptly terminated transactions,
+        in layer metadata. As a result, because of abruptly terminated
+        transactions,
 
         a lot of devices have unreferenced graphdriver layers on disk.
 
 
-        With this change, the engine will be able to clean up such unreferenced layers.
+        With this change, the engine will be able to clean up such unreferenced
+        layers.
     - hash: 01e4688f8c4f42e769d319353accdc0c34ffcc0b
       author: Roman Mazur
       footers:
@@ -2055,11 +2092,13 @@
       body: >-
         When layer store is created, its tmp directory may contain information
 
-        about transactions that were abruptly treminated during the previous process run.
+        about transactions that were abruptly treminated during the previous
+        process run.
 
         Such data is now identified before any new transactions can be created,
 
-        and a background process is started to delete both meta data and graph driver layeres.
+        and a background process is started to delete both meta data and graph
+        driver layeres.
     - hash: b1709e0881b3ed61c1608ef5ed19acf8008b2275
       author: Roman Mazur
       footers:
@@ -2070,17 +2109,21 @@
         If the engine process is terminated during the layer extraction
         transaction,
 
-        before Commit or Cancel is called on the transaction, a new FS layer can be created
+        before Commit or Cancel is called on the transaction, a new FS layer can
+        be created
 
         by the graph driver without any link to the layers metadata.
 
 
-        This change ensures we don't perform any actions on the graph driver storage until
+        This change ensures we don't perform any actions on the graph driver
+        storage until
 
-        the FS layer ID (the cacheID) is  persisted as a part of the transaction data.
+        the FS layer ID (the cacheID) is  persisted as a part of the transaction
+        data.
 
 
-        We can use this data to clean up the graph driver storage on next process start
+        We can use this data to clean up the graph driver storage on next
+        process start
 
         deleting all data associated with the transactions terminated abruptly.
     - hash: 6e9af0514461f1ce3945ed308ef13e3ddbc7dc4f
@@ -2093,7 +2136,8 @@
         On macOS, unit tests where failing with
 
 
-        root@c4101a75c792:/go/src/github.com/docker/docker/pkg/authorization# go test .
+        root@c4101a75c792:/go/src/github.com/docker/docker/pkg/authorization# go
+        test .
 
         --- FAIL: TestAuthZRequestPluginError (0.00s)
             authz_unix_test.go:295: listen unix authz-test-plugin.sock: bind: file name too long
@@ -2101,7 +2145,8 @@
             authz_unix_test.go:295: listen unix authz-test-plugin.sock: bind: file name too long
         --- FAIL: TestAuthZResponsePlugin (0.00s)
             authz_unix_test.go:295: listen unix authz-test-plugin.sock: bind: file name too long
-        time="2020-04-07T10:07:04Z" level=warning msg="Request body is larger than: '1048576' skipping body"
+        time="2020-04-07T10:07:04Z" level=warning msg="Request body is larger
+        than: '1048576' skipping body"
 
         --- FAIL: TestMiddlewareWrapHandler (0.00s)
             authz_unix_test.go:295: listen unix authz-test-plugin.sock: bind: file name too long
@@ -2110,7 +2155,8 @@
         FAIL    github.com/docker/docker/pkg/authorization      0.120s
 
 
-        This change moves the socket creation from a working test directory to a tmp directory,
+        This change moves the socket creation from a working test directory to a
+        tmp directory,
 
         so the path is shorter.
 - version: 19.03.10
@@ -2161,7 +2207,8 @@
         stubbed out implementation of the builder interface regardless.
 
 
-        Return empty return values on all methods except the build endpoint, which
+        Return empty return values on all methods except the build endpoint,
+        which
 
         will panic if the tag is set.
     - hash: 00779c76431d22673d36a3e45113f380548aa11f
@@ -2257,15 +2304,19 @@
         If the engine process is terminated during the layer extraction
         transaction,
 
-        before Commit or Cancel is called on the transaction, a new FS layer can be created
+        before Commit or Cancel is called on the transaction, a new FS layer can
+        be created
 
         by the graph driver without any link to the layers metadata.
 
-        This change ensures we don't perform any actions on the graph driver storage until
+        This change ensures we don't perform any actions on the graph driver
+        storage until
 
-        the FS layer ID (the cacheID) is  persisted as a part of the transaction data.
+        the FS layer ID (the cacheID) is  persisted as a part of the transaction
+        data.
 
-        We can use this data to clean up the graph driver storage on next process start
+        We can use this data to clean up the graph driver storage on next
+        process start
 
         deleting all data associated with the transactions terminated abruptly.
     - hash: cb3ac097d01e02c1e7f293c507275a7e92791cda
@@ -2277,11 +2328,13 @@
       body: >-
         When layer store is created, its tmp directory may contain information
 
-        about transactions that were abruptly treminated during the previous process run.
+        about transactions that were abruptly treminated during the previous
+        process run.
 
         Such data is now identified before any new transactions can be created,
 
-        and a background process is started to delete both meta data and graph driver layeres.
+        and a background process is started to delete both meta data and graph
+        driver layeres.
     - hash: d8c12518881844671dc8da16fe3db2398973c4b4
       author: Roman Mazur
       footers:
@@ -2291,11 +2344,13 @@
       body: >-
         Earlier engine versions were not properly persisting cacheID
 
-        in layer metadata. As a result, because of abruptly terminated transactions,
+        in layer metadata. As a result, because of abruptly terminated
+        transactions,
 
         a lot of devices have unreferenced graphdriver layers on disk.
 
-        With this change, the engine will be able to clean up such unreferenced layers.
+        With this change, the engine will be able to clean up such unreferenced
+        layers.
     - hash: c9f9f36988cb5557f66010862d00d1e9cf30c49d
       author: Roman Mazur
       footers:
@@ -2464,13 +2519,15 @@
 
         Before this commit:
 
-        > $ docker logs -t --tail=6000 --since="2019-03-10T03:54:25.00" $ID | head
+        > $ docker logs -t --tail=6000 --since="2019-03-10T03:54:25.00" $ID |
+        head
 
         > 2019-03-10T03:54:24.999821000Z 95981
 
         After:
 
-        > $ docker logs -t --tail=6000 --since="2019-03-10T03:54:25.00" $ID | head
+        > $ docker logs -t --tail=6000 --since="2019-03-10T03:54:25.00" $ID |
+        head
 
         > 2019-03-10T03:54:25.000013000Z 95982
 
@@ -2553,13 +2610,15 @@
 
         descriptors for rotated (deleted) journal files.
 
-        This code is modelled after that of journalctl [1]; the above explanation
+        This code is modelled after that of journalctl [1]; the above
+        explanation
 
         as well as the value of 1024 is taken from there.
 
         [v2: fix CErr() argument]
 
-        [1] https://github.com/systemd/systemd/blob/dc16327c48d/src/journal/journalctl.c#L2676
+        [1]
+        https://github.com/systemd/systemd/blob/dc16327c48d/src/journal/journalctl.c#L2676
 
         (cherry picked from commit b73fb8fd5d521081c92b5c2cce334c21b2e0ff5f)
     - hash: df07da90ca8a30f46785e7c1603fb4b3254d829a
@@ -2921,11 +2980,13 @@
       body: >-
         This test case checks that followLogs() exits once the reader is gone.
 
-        Currently it does not (i.e. this test is supposed to fail) due to #37391.
+        Currently it does not (i.e. this test is supposed to fail) due to
+        #37391.
 
         [kolyshkin@: test case Brian Goff, changelog and all bugs are by me]
 
-        Source: https://gist.github.com/cpuguy83/e538793de18c762608358ee0eaddc197
+        Source:
+        https://gist.github.com/cpuguy83/e538793de18c762608358ee0eaddc197
 
         Signed-off-by: Kir Kolyshkin <kolyshkin@gmail.com>
     - hash: 2a82480df9ad91593d59be4b5283917dbea2da39
@@ -2981,7 +3042,8 @@
 
         > 00:22:08.887 --- FAIL: TestServiceWithDefaultAddressPoolInit (1.30s)
 
-        > 00:22:08.887 	daemon.go:290: [d905878b35bb9] waiting for daemon to start
+        > 00:22:08.887 	daemon.go:290: [d905878b35bb9] waiting for daemon to
+        start
 
         > 00:22:08.887 	daemon.go:322: [d905878b35bb9] daemon started
 
@@ -3001,9 +3063,12 @@
 
         > 00:22:08.890 	/usr/local/go/src/runtime/panic.go:502 +0x229
 
-        > 00:22:08.890 github.com/docker/docker/integration/network.TestServiceWithDefaultAddressPoolInit(0xc42069d770)
+        > 00:22:08.890
+        github.com/docker/docker/integration/network.TestServiceWithDefaultAddressPoolInit(0xc42069d770)
 
-        > 00:22:08.891 	/go/src/github.com/docker/docker/integration/network/service_test.go:348 +0xb53
+        >
+        00:22:08.891 	/go/src/github.com/docker/docker/integration/network/service_test.go:348
+        +0xb53
 
         > .....
 
@@ -3071,9 +3136,11 @@
 
         that the CLI (if executed as non-root) can also access this directory.
 
-        > **NOTE**: "strictly", this patch is only needed for situations where no _custom_
+        > **NOTE**: "strictly", this patch is only needed for situations where
+        no _custom_
 
-        > location for the trustkey is specified (not overridden with `--deprecated-key-path`),
+        > location for the trustkey is specified (not overridden with
+        `--deprecated-key-path`),
 
         > but setting the permissions only for the "default" case would make
 
@@ -3158,7 +3225,8 @@
 
         The `travis_wait` command is used to prevent timeouts of emulated builds
 
-        See https://docs.travis-ci.com/user/common-build-problems/#build-times-out-because-no-output-was-received
+        See
+        https://docs.travis-ci.com/user/common-build-problems/#build-times-out-because-no-output-was-received
     - hash: 7486436688c818c256c6584baac9055bf3178bb1
       author: Robert Günzler
       footers:
@@ -3422,7 +3490,8 @@
 
         containerd, resulting in the `docker info` output to show:
 
-        containerd version: 89623f28b87a6004d4b785663257362d1658a729 (expected: v1.0.0)
+        containerd version: 89623f28b87a6004d4b785663257362d1658a729 (expected:
+        v1.0.0)
 
         This patch changes the `v1.0.0` tag to the commit that
 
@@ -3454,7 +3523,8 @@
         The `repository:shortid` syntax for referencing images is very little
         used,
 
-        collides with with tag references can be confused with digest references.
+        collides with with tag references can be confused with digest
+        references.
 
         The `repository:shortid` notation was deprecated in Docker 1.13 through
 
