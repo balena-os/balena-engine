@@ -23,7 +23,7 @@ runs:
 
     # https://github.com/moby/moby/blob/master/.github/workflows
     - name: Build release
-      uses: docker/bake-action@v2
+      uses: docker/bake-action@6460b33ba7ba95e2dfe2fd545b1b9bbb347e9735 # v5
       with:
         targets: cross
       env:
