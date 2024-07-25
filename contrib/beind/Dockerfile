@@ -1,4 +1,4 @@
-FROM docker.io/library/alpine:3.8 as balena
+FROM docker.io/library/alpine:3.20 as balena
 
 ARG BALENA_VERSION=v18.9.7
 
