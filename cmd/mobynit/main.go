@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	LAYER_ROOT = "/docker"
+	LAYER_ROOT = "/balena"
 	PIVOT_PATH = "/mnt/sysroot/active"
 )
 
