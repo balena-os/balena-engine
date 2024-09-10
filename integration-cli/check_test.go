@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/http/httptest"
 	"os"
 	"path"
 	"path/filepath"
@@ -603,7 +602,6 @@ func (s *DockerDaemonSuite) TearDownSuite(ctx context.Context, c *testing.T) {
 const defaultSwarmPort = 2477
 
 type DockerSwarmSuite struct {
-	server      *httptest.Server
 	ds          *DockerSuite
 	daemonsLock sync.Mutex // protect access to daemons and portIndex
 	daemons     []*daemon.Daemon

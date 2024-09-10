@@ -10,14 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/integration-cli/checker"
 	"github.com/docker/docker/integration-cli/cli"
 	"github.com/docker/docker/integration-cli/cli/build"
-	"github.com/docker/docker/integration-cli/daemon"
 	"github.com/docker/docker/testutil"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/icmd"
-	"gotest.tools/v3/poll"
 )
 
 func (s *DockerCLIPruneSuite) TearDownTest(ctx context.Context, c *testing.T) {
@@ -26,27 +23,6 @@ func (s *DockerCLIPruneSuite) TearDownTest(ctx context.Context, c *testing.T) {
 
 func (s *DockerCLIPruneSuite) OnTimeout(c *testing.T) {
 	s.ds.OnTimeout(c)
-}
-
-func pruneNetworkAndVerify(c *testing.T, d *daemon.Daemon, kept, pruned []string) {
-	_, err := d.Cmd("network", "prune", "--force")
-	assert.NilError(c, err)
-
-	for _, s := range kept {
-		poll.WaitOn(c, pollCheck(c, func(*testing.T) (interface{}, string) {
-			out, err := d.Cmd("network", "ls", "--format", "{{.Name}}")
-			assert.NilError(c, err)
-			return out, ""
-		}, checker.Contains(s)), poll.WithTimeout(defaultReconciliationTimeout))
-	}
-
-	for _, s := range pruned {
-		poll.WaitOn(c, pollCheck(c, func(*testing.T) (interface{}, string) {
-			out, err := d.Cmd("network", "ls", "--format", "{{.Name}}")
-			assert.NilError(c, err)
-			return out, ""
-		}, checker.Not(checker.Contains(s))), poll.WithTimeout(defaultReconciliationTimeout))
-	}
 }
 
 func (s *DockerDaemonSuite) TestPruneImageDangling(c *testing.T) {

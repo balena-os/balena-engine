@@ -1971,7 +1971,7 @@ func (s *DockerDaemonSuite) TestDaemonRestartWithUnpausedRunningContainer(t *tes
 	poll.WaitOn(t, pollCheck(t, func(*testing.T) (interface{}, string) {
 		result := icmd.RunCommand("kill", "-0", strings.TrimSpace(pid))
 		return result.ExitCode, ""
-	}, checker.Equals(0)), poll.WithTimeout(defaultReconciliationTimeout))
+	}, checker.Equals(0)), poll.WithTimeout(30*time.Second))
 
 	// restart the daemon
 	s.d.Start(t, "--live-restore")

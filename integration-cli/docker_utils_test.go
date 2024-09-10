@@ -417,10 +417,7 @@ func getErrorMessage(c *testing.T, body []byte) string {
 	return strings.TrimSpace(resp.Message)
 }
 
-type (
-	checkF  func(*testing.T) (interface{}, string)
-	reducer func(...interface{}) interface{}
-)
+type checkF func(*testing.T) (interface{}, string)
 
 func pollCheck(t *testing.T, f checkF, compare func(x interface{}) assert.BoolOrComparison) poll.Check {
 	return func(poll.LogT) poll.Result {
@@ -441,30 +438,6 @@ func pollCheck(t *testing.T, f checkF, compare func(x interface{}) assert.BoolOr
 		}
 		return poll.Continue("%v", comment)
 	}
-}
-
-func reducedCheck(r reducer, funcs ...checkF) checkF {
-	return func(c *testing.T) (interface{}, string) {
-		c.Helper()
-		var values []interface{}
-		var comments []string
-		for _, f := range funcs {
-			v, comment := f(c)
-			values = append(values, v)
-			if len(comment) > 0 {
-				comments = append(comments, comment)
-			}
-		}
-		return r(values...), fmt.Sprintf("%v", strings.Join(comments, ", "))
-	}
-}
-
-func sumAsIntegers(vals ...interface{}) interface{} {
-	var s int
-	for _, v := range vals {
-		s += v.(int)
-	}
-	return s
 }
 
 func loadSpecialImage(c *testing.T, imageFunc specialimage.SpecialImageFunc) string {
