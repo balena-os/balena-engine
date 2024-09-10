@@ -19,6 +19,8 @@ import (
 	"gotest.tools/v3/poll"
 )
 
+var defaultReconciliationTimeout = 30 * time.Second
+
 func (s *DockerCLIPruneSuite) TearDownTest(c *testing.T) {
 	s.ds.TearDownTest(c)
 }
