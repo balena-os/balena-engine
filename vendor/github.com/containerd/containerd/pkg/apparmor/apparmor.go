@@ -1,5 +1,3 @@
-// +build apparmor,linux
-
 /*
    Copyright The containerd Authors.
 
@@ -18,31 +16,13 @@
 
 package apparmor
 
-import (
-	"io/ioutil"
-	"os"
-	"sync"
-)
-
-var (
-	appArmorSupported bool
-	checkAppArmor     sync.Once
-)
-
-// HostSupports returns true if apparmor is enabled for the host, if
-// apparmor_parser is enabled, and if we are not running docker-in-docker.
+// HostSupports returns true if apparmor is enabled for the host:
+//   - On Linux returns true if apparmor is enabled, apparmor_parser is
+//     present, and if we are not running docker-in-docker.
+//   - On non-Linux returns false.
 //
-// It is a modified version of libcontainer/apparmor.IsEnabled(), which does not
-// check for apparmor_parser to be present, or if we're running docker-in-docker.
+// This is derived from libcontainer/apparmor.IsEnabled(), with the addition
+// of checks for apparmor_parser to be present and docker-in-docker.
 func HostSupports() bool {
-	checkAppArmor.Do(func() {
-		// see https://github.com/docker/docker/commit/de191e86321f7d3136ff42ff75826b8107399497
-		if _, err := os.Stat("/sys/kernel/security/apparmor"); err == nil && os.Getenv("container") == "" {
-			if _, err = os.Stat("/sbin/apparmor_parser"); err == nil {
-				buf, err := ioutil.ReadFile("/sys/module/apparmor/parameters/enabled")
-				appArmorSupported = err == nil && len(buf) > 1 && buf[0] == 'Y'
-			}
-		}
-	})
-	return appArmorSupported
+	return hostSupports()
 }

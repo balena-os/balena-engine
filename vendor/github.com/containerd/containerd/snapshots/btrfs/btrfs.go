@@ -1,4 +1,5 @@
-// +build linux,!no_btrfs
+//go:build linux && !no_btrfs && cgo
+// +build linux,!no_btrfs,cgo
 
 /*
    Copyright The containerd Authors.
@@ -26,30 +27,16 @@ import (
 	"strings"
 
 	"github.com/containerd/btrfs"
+	"github.com/containerd/continuity/fs"
+
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/storage"
-	"github.com/containerd/continuity/fs"
 
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
-
-func init() {
-	plugin.Register(&plugin.Registration{
-		ID:   "btrfs",
-		Type: plugin.SnapshotPlugin,
-		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			ic.Meta.Platforms = []ocispec.Platform{platforms.DefaultSpec()}
-			ic.Meta.Exports = map[string]string{"root": ic.Root}
-			return NewSnapshotter(ic.Root)
-		},
-	})
-}
 
 type snapshotter struct {
 	device string // device of the root
@@ -63,11 +50,15 @@ type snapshotter struct {
 // root needs to be a mount point of btrfs.
 func NewSnapshotter(root string) (snapshots.Snapshotter, error) {
 	// If directory does not exist, create it
-	if _, err := os.Stat(root); err != nil {
+	if st, err := os.Stat(root); err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
 		}
-		if err := os.Mkdir(root, 0755); err != nil {
+		if err := os.Mkdir(root, 0700); err != nil {
+			return nil, err
+		}
+	} else if st.Mode()&os.ModePerm != 0700 {
+		if err := os.Chmod(root, 0700); err != nil {
 			return nil, err
 		}
 	}
@@ -77,7 +68,7 @@ func NewSnapshotter(root string) (snapshots.Snapshotter, error) {
 		return nil, err
 	}
 	if mnt.FSType != "btrfs" {
-		return nil, errors.Wrapf(plugin.ErrSkipPlugin, "path %s must be a btrfs filesystem to be used with the btrfs snapshotter", root)
+		return nil, fmt.Errorf("path %s (%s) must be a btrfs filesystem to be used with the btrfs snapshotter: %w", root, mnt.FSType, plugin.ErrSkipPlugin)
 	}
 	var (
 		active    = filepath.Join(root, "active")
@@ -186,13 +177,13 @@ func (b *snapshotter) usage(ctx context.Context, key string) (snapshots.Usage, e
 }
 
 // Walk the committed snapshots.
-func (b *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapshots.Info) error) error {
+func (b *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...string) error {
 	ctx, t, err := b.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return err
 	}
 	defer t.Rollback()
-	return storage.WalkInfo(ctx, fn)
+	return storage.WalkInfo(ctx, fn, fs...)
 }
 
 func (b *snapshotter) Prepare(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
@@ -283,7 +274,7 @@ func (b *snapshotter) mounts(dir string, s storage.Snapshot) ([]mount.Mount, err
 func (b *snapshotter) Commit(ctx context.Context, name, key string, opts ...snapshots.Opt) (err error) {
 	usage, err := b.usage(ctx, key)
 	if err != nil {
-		return errors.Wrap(err, "failed to compute usage")
+		return fmt.Errorf("failed to compute usage: %w", err)
 	}
 
 	ctx, t, err := b.ms.TransactionContext(ctx, true)
@@ -300,7 +291,7 @@ func (b *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 
 	id, err := storage.CommitActive(ctx, key, name, usage, opts...) // TODO(stevvooe): Resolve a usage value for btrfs
 	if err != nil {
-		return errors.Wrap(err, "failed to commit")
+		return fmt.Errorf("failed to commit: %w", err)
 	}
 
 	source := filepath.Join(b.root, "active", id)
@@ -339,7 +330,7 @@ func (b *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 	s, err := storage.GetSnapshot(ctx, key)
 	t.Rollback()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get active snapshot")
+		return nil, fmt.Errorf("failed to get active snapshot: %w", err)
 	}
 
 	dir := filepath.Join(b.root, strings.ToLower(s.Kind.String()), s.ID)
@@ -374,7 +365,7 @@ func (b *snapshotter) Remove(ctx context.Context, key string) (err error) {
 
 	id, k, err := storage.Remove(ctx, key)
 	if err != nil {
-		return errors.Wrap(err, "failed to remove snapshot")
+		return fmt.Errorf("failed to remove snapshot: %w", err)
 	}
 
 	switch k {
@@ -397,7 +388,7 @@ func (b *snapshotter) Remove(ctx context.Context, key string) (err error) {
 	}
 
 	if err := btrfs.SubvolDelete(source); err != nil {
-		return errors.Wrapf(err, "failed to remove snapshot %v", source)
+		return fmt.Errorf("failed to remove snapshot %v: %w", source, err)
 	}
 
 	err = t.Commit()

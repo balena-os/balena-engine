@@ -111,24 +111,22 @@ func runLogin(dockerCli command.Cli, opts loginOptions) error { //nolint: gocycl
 		serverAddress = authServer
 	}
 
-	var err error
-	var authConfig *types.AuthConfig
 	var response registrytypes.AuthenticateOKBody
 	isDefaultRegistry := serverAddress == authServer
-	authConfig, err = command.GetDefaultAuthConfig(dockerCli, opts.user == "" && opts.password == "", serverAddress, isDefaultRegistry)
+	authConfig, err := command.GetDefaultAuthConfig(dockerCli, opts.user == "" && opts.password == "", serverAddress, isDefaultRegistry)
 	if err == nil && authConfig.Username != "" && authConfig.Password != "" {
-		response, err = loginWithCredStoreCreds(ctx, dockerCli, authConfig)
+		response, err = loginWithCredStoreCreds(ctx, dockerCli, &authConfig)
 	}
 	if err != nil || authConfig.Username == "" || authConfig.Password == "" {
-		err = command.ConfigureAuth(dockerCli, opts.user, opts.password, authConfig, isDefaultRegistry)
+		err = command.ConfigureAuth(dockerCli, opts.user, opts.password, &authConfig, isDefaultRegistry)
 		if err != nil {
 			return err
 		}
 
-		response, err = clnt.RegistryLogin(ctx, *authConfig)
+		response, err = clnt.RegistryLogin(ctx, authConfig)
 		if err != nil && client.IsErrConnectionFailed(err) {
 			// If the server isn't responding (yet) attempt to login purely client side
-			response, err = loginClientSide(ctx, *authConfig)
+			response, err = loginClientSide(ctx, authConfig)
 		}
 		// If we (still) have an error, give up
 		if err != nil {
@@ -151,7 +149,7 @@ func runLogin(dockerCli command.Cli, opts loginOptions) error { //nolint: gocycl
 		}
 	}
 
-	if err := creds.Store(configtypes.AuthConfig(*authConfig)); err != nil {
+	if err := creds.Store(configtypes.AuthConfig(authConfig)); err != nil {
 		return errors.Errorf("Error saving credentials: %v", err)
 	}
 

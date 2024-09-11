@@ -31,7 +31,6 @@ import (
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/typeurl"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
@@ -55,7 +54,7 @@ var createCommand = cli.Command{
 	Name:      "create",
 	Usage:     "create container",
 	ArgsUsage: "[flags] Image|RootFS CONTAINER [COMMAND] [ARG...]",
-	Flags:     append(commands.SnapshotterFlags, commands.ContainerFlags...),
+	Flags:     append(append(commands.SnapshotterFlags, []cli.Flag{commands.SnapshotterLabels}...), commands.ContainerFlags...),
 	Action: func(context *cli.Context) error {
 		var (
 			id     string
@@ -66,17 +65,17 @@ var createCommand = cli.Command{
 		if config {
 			id = context.Args().First()
 			if context.NArg() > 1 {
-				return errors.New("with spec config file, only container id should be provided")
+				return fmt.Errorf("with spec config file, only container id should be provided: %w", errdefs.ErrInvalidArgument)
 			}
 		} else {
 			id = context.Args().Get(1)
 			ref = context.Args().First()
 			if ref == "" {
-				return errors.New("image ref must be provided")
+				return fmt.Errorf("image ref must be provided: %w", errdefs.ErrInvalidArgument)
 			}
 		}
 		if id == "" {
-			return errors.New("container id must be provided")
+			return fmt.Errorf("container id must be provided: %w", errdefs.ErrInvalidArgument)
 		}
 		client, ctx, cancel, err := commands.NewClient(context)
 		if err != nil {
@@ -125,7 +124,7 @@ var listCommand = cli.Command{
 		w := tabwriter.NewWriter(os.Stdout, 4, 8, 4, ' ', 0)
 		fmt.Fprintln(w, "CONTAINER\tIMAGE\tRUNTIME\t")
 		for _, c := range containers {
-			info, err := c.Info(ctx)
+			info, err := c.Info(ctx, containerd.WithoutRefreshedMetadata)
 			if err != nil {
 				return err
 			}
@@ -149,7 +148,7 @@ var deleteCommand = cli.Command{
 	Name:      "delete",
 	Usage:     "delete one or more existing containers",
 	ArgsUsage: "[flags] CONTAINER [CONTAINER, ...]",
-	Aliases:   []string{"del", "rm"},
+	Aliases:   []string{"del", "remove", "rm"},
 	Flags: []cli.Flag{
 		cli.BoolFlag{
 			Name:  "keep-snapshot",
@@ -169,7 +168,7 @@ var deleteCommand = cli.Command{
 		}
 
 		if context.NArg() == 0 {
-			return errors.New("must specify at least one container to delete")
+			return fmt.Errorf("must specify at least one container to delete: %w", errdefs.ErrInvalidArgument)
 		}
 		for _, arg := range context.Args() {
 			if err := deleteContainer(ctx, client, arg, deleteOpts...); err != nil {
@@ -215,7 +214,7 @@ var setLabelsCommand = cli.Command{
 	Action: func(context *cli.Context) error {
 		containerID, labels := commands.ObjectWithLabelArgs(context)
 		if containerID == "" {
-			return errors.New("container id must be provided")
+			return fmt.Errorf("container id must be provided: %w", errdefs.ErrInvalidArgument)
 		}
 		client, ctx, cancel, err := commands.NewClient(context)
 		if err != nil {
@@ -248,10 +247,16 @@ var infoCommand = cli.Command{
 	Name:      "info",
 	Usage:     "get info about a container",
 	ArgsUsage: "CONTAINER",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name:  "spec",
+			Usage: "only display the spec",
+		},
+	},
 	Action: func(context *cli.Context) error {
 		id := context.Args().First()
 		if id == "" {
-			return errors.New("container id must be provided")
+			return fmt.Errorf("container id must be provided: %w", errdefs.ErrInvalidArgument)
 		}
 		client, ctx, cancel, err := commands.NewClient(context)
 		if err != nil {
@@ -262,9 +267,17 @@ var infoCommand = cli.Command{
 		if err != nil {
 			return err
 		}
-		info, err := container.Info(ctx)
+		info, err := container.Info(ctx, containerd.WithoutRefreshedMetadata)
 		if err != nil {
 			return err
+		}
+		if context.Bool("spec") {
+			v, err := typeurl.UnmarshalAny(info.Spec)
+			if err != nil {
+				return err
+			}
+			commands.PrintAsJSON(v)
+			return nil
 		}
 
 		if info.Spec != nil && info.Spec.Value != nil {
@@ -283,150 +296,5 @@ var infoCommand = cli.Command{
 		}
 		commands.PrintAsJSON(info)
 		return nil
-	},
-}
-
-var checkpointCommand = cli.Command{
-	Name:      "checkpoint",
-	Usage:     "checkpoint a container",
-	ArgsUsage: "CONTAINER REF",
-	Flags: []cli.Flag{
-		cli.BoolFlag{
-			Name:  "rw",
-			Usage: "include the rw layer in the checkpoint",
-		},
-		cli.BoolFlag{
-			Name:  "image",
-			Usage: "include the image in the checkpoint",
-		},
-		cli.BoolFlag{
-			Name:  "task",
-			Usage: "checkpoint container task",
-		},
-	},
-	Action: func(context *cli.Context) error {
-		id := context.Args().First()
-		if id == "" {
-			return errors.New("container id must be provided")
-		}
-		ref := context.Args().Get(1)
-		if ref == "" {
-			return errors.New("ref must be provided")
-		}
-		client, ctx, cancel, err := commands.NewClient(context)
-		if err != nil {
-			return err
-		}
-		defer cancel()
-		opts := []containerd.CheckpointOpts{
-			containerd.WithCheckpointRuntime,
-		}
-
-		if context.Bool("image") {
-			opts = append(opts, containerd.WithCheckpointImage)
-		}
-		if context.Bool("rw") {
-			opts = append(opts, containerd.WithCheckpointRW)
-		}
-		if context.Bool("task") {
-			opts = append(opts, containerd.WithCheckpointTask)
-		}
-		container, err := client.LoadContainer(ctx, id)
-		if err != nil {
-			return err
-		}
-		task, err := container.Task(ctx, nil)
-		if err != nil {
-			if !errdefs.IsNotFound(err) {
-				return err
-			}
-		}
-		// pause if running
-		if task != nil {
-			if err := task.Pause(ctx); err != nil {
-				return err
-			}
-			defer func() {
-				if err := task.Resume(ctx); err != nil {
-					fmt.Println(errors.Wrap(err, "error resuming task"))
-				}
-			}()
-		}
-
-		if _, err := container.Checkpoint(ctx, ref, opts...); err != nil {
-			return err
-		}
-
-		return nil
-	},
-}
-
-var restoreCommand = cli.Command{
-	Name:      "restore",
-	Usage:     "restore a container from checkpoint",
-	ArgsUsage: "CONTAINER REF",
-	Flags: []cli.Flag{
-		cli.BoolFlag{
-			Name:  "rw",
-			Usage: "restore the rw layer from the checkpoint",
-		},
-		cli.BoolFlag{
-			Name:  "live",
-			Usage: "restore the runtime and memory data from the checkpoint",
-		},
-	},
-	Action: func(context *cli.Context) error {
-		id := context.Args().First()
-		if id == "" {
-			return errors.New("container id must be provided")
-		}
-		ref := context.Args().Get(1)
-		if ref == "" {
-			return errors.New("ref must be provided")
-		}
-		client, ctx, cancel, err := commands.NewClient(context)
-		if err != nil {
-			return err
-		}
-		defer cancel()
-
-		checkpoint, err := client.GetImage(ctx, ref)
-		if err != nil {
-			if !errdefs.IsNotFound(err) {
-				return err
-			}
-			// TODO (ehazlett): consider other options (always/never fetch)
-			ck, err := client.Fetch(ctx, ref)
-			if err != nil {
-				return err
-			}
-			checkpoint = containerd.NewImage(client, ck)
-		}
-
-		opts := []containerd.RestoreOpts{
-			containerd.WithRestoreImage,
-			containerd.WithRestoreSpec,
-			containerd.WithRestoreRuntime,
-		}
-		if context.Bool("rw") {
-			opts = append(opts, containerd.WithRestoreRW)
-		}
-
-		ctr, err := client.Restore(ctx, id, checkpoint, opts...)
-		if err != nil {
-			return err
-		}
-
-		topts := []containerd.NewTaskOpts{}
-		if context.Bool("live") {
-			topts = append(topts, containerd.WithTaskCheckpoint(checkpoint))
-		}
-
-		task, err := ctr.NewTask(ctx, cio.NewCreator(cio.WithStdio), topts...)
-		if err != nil {
-			return err
-		}
-
-		return task.Start(ctx)
 	},
 }

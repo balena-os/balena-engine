@@ -17,18 +17,19 @@
 package tasks
 
 import (
+	"errors"
+
 	"github.com/containerd/console"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/cmd/ctr/commands"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
 var startCommand = cli.Command{
 	Name:      "start",
-	Usage:     "start a container that have been created",
+	Usage:     "start a container that has been created",
 	ArgsUsage: "CONTAINER",
 	Flags: []cli.Flag{
 		cli.BoolFlag{

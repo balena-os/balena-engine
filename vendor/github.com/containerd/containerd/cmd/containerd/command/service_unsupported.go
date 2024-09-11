@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -29,7 +30,7 @@ func serviceFlags() []cli.Flag {
 	return nil
 }
 
-// applyPlatformFlags applys platform-specific flags.
+// applyPlatformFlags applies platform-specific flags.
 func applyPlatformFlags(context *cli.Context) {
 }
 

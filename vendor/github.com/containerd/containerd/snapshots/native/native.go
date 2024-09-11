@@ -18,31 +18,17 @@ package native
 
 import (
 	"context"
-	"io/ioutil"
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/storage"
 
 	"github.com/containerd/continuity/fs"
-	"github.com/pkg/errors"
 )
-
-func init() {
-	plugin.Register(&plugin.Registration{
-		Type: plugin.SnapshotPlugin,
-		ID:   "native",
-		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			ic.Meta.Platforms = append(ic.Meta.Platforms, platforms.DefaultSpec())
-			return NewSnapshotter(ic.Root)
-		},
-	})
-}
 
 type snapshotter struct {
 	root string
@@ -151,7 +137,7 @@ func (o *snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 	s, err := storage.GetSnapshot(ctx, key)
 	t.Rollback()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get snapshot mount")
+		return nil, fmt.Errorf("failed to get snapshot mount: %w", err)
 	}
 	return o.mounts(s), nil
 }
@@ -164,11 +150,17 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 
 	id, _, _, err := storage.GetInfo(ctx, key)
 	if err != nil {
+		if rerr := t.Rollback(); rerr != nil {
+			log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
+		}
 		return err
 	}
 
 	usage, err := fs.DiskUsage(ctx, o.getSnapshotDir(id))
 	if err != nil {
+		if rerr := t.Rollback(); rerr != nil {
+			log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
+		}
 		return err
 	}
 
@@ -176,7 +168,7 @@ func (o *snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 		if rerr := t.Rollback(); rerr != nil {
 			log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
 		}
-		return errors.Wrap(err, "failed to commit snapshot")
+		return fmt.Errorf("failed to commit snapshot: %w", err)
 	}
 	return t.Commit()
 }
@@ -198,14 +190,14 @@ func (o *snapshotter) Remove(ctx context.Context, key string) (err error) {
 
 	id, _, err := storage.Remove(ctx, key)
 	if err != nil {
-		return errors.Wrap(err, "failed to remove")
+		return fmt.Errorf("failed to remove: %w", err)
 	}
 
 	path := o.getSnapshotDir(id)
 	renamed := filepath.Join(o.root, "snapshots", "rm-"+id)
 	if err := os.Rename(path, renamed); err != nil {
 		if !os.IsNotExist(err) {
-			return errors.Wrap(err, "failed to rename")
+			return fmt.Errorf("failed to rename: %w", err)
 		}
 		renamed = ""
 	}
@@ -216,10 +208,10 @@ func (o *snapshotter) Remove(ctx context.Context, key string) (err error) {
 		if renamed != "" {
 			if err1 := os.Rename(renamed, path); err1 != nil {
 				// May cause inconsistent data on disk
-				log.G(ctx).WithError(err1).WithField("path", renamed).Errorf("failed to rename after failed commit")
+				log.G(ctx).WithError(err1).WithField("path", renamed).Error("failed to rename after failed commit")
 			}
 		}
-		return errors.Wrap(err, "failed to commit")
+		return fmt.Errorf("failed to commit: %w", err)
 	}
 	if renamed != "" {
 		if err := os.RemoveAll(renamed); err != nil {
@@ -232,13 +224,13 @@ func (o *snapshotter) Remove(ctx context.Context, key string) (err error) {
 }
 
 // Walk the committed snapshots.
-func (o *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapshots.Info) error) error {
+func (o *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...string) error {
 	ctx, t, err := o.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return err
 	}
 	defer t.Rollback()
-	return storage.WalkInfo(ctx, fn)
+	return storage.WalkInfo(ctx, fn, fs...)
 }
 
 func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts []snapshots.Opt) (_ []mount.Mount, err error) {
@@ -247,23 +239,23 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 	)
 
 	if kind == snapshots.KindActive || parent == "" {
-		td, err = ioutil.TempDir(filepath.Join(o.root, "snapshots"), "new-")
+		td, err = os.MkdirTemp(filepath.Join(o.root, "snapshots"), "new-")
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to create temp dir")
+			return nil, fmt.Errorf("failed to create temp dir: %w", err)
 		}
 		if err := os.Chmod(td, 0755); err != nil {
-			return nil, errors.Wrapf(err, "failed to chmod %s to 0755", td)
+			return nil, fmt.Errorf("failed to chmod %s to 0755: %w", td, err)
 		}
 		defer func() {
 			if err != nil {
 				if td != "" {
 					if err1 := os.RemoveAll(td); err1 != nil {
-						err = errors.Wrapf(err, "remove failed: %v", err1)
+						err = fmt.Errorf("remove failed: %v: %w", err1, err)
 					}
 				}
 				if path != "" {
 					if err1 := os.RemoveAll(path); err1 != nil {
-						err = errors.Wrapf(err, "failed to remove path: %v", err1)
+						err = fmt.Errorf("failed to remove path: %v: %w", err1, err)
 					}
 				}
 			}
@@ -280,14 +272,25 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 		if rerr := t.Rollback(); rerr != nil {
 			log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
 		}
-		return nil, errors.Wrap(err, "failed to create snapshot")
+		return nil, fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
 	if td != "" {
 		if len(s.ParentIDs) > 0 {
 			parent := o.getSnapshotDir(s.ParentIDs[0])
-			if err := fs.CopyDir(td, parent); err != nil {
-				return nil, errors.Wrap(err, "copying of parent failed")
+			xattrErrorHandler := func(dst, src, xattrKey string, copyErr error) error {
+				// security.* xattr cannot be copied in most cases (moby/buildkit#1189)
+				log.G(ctx).WithError(copyErr).Debugf("failed to copy xattr %q", xattrKey)
+				return nil
+			}
+			copyDirOpts := []fs.CopyDirOpt{
+				fs.WithXAttrErrorHandler(xattrErrorHandler),
+			}
+			if err := fs.CopyDir(td, parent, copyDirOpts...); err != nil {
+				if rerr := t.Rollback(); rerr != nil {
+					log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
+				}
+				return nil, fmt.Errorf("copying of parent failed: %w", err)
 			}
 		}
 
@@ -296,13 +299,13 @@ func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 			if rerr := t.Rollback(); rerr != nil {
 				log.G(ctx).WithError(rerr).Warn("failed to rollback transaction")
 			}
-			return nil, errors.Wrap(err, "failed to rename")
+			return nil, fmt.Errorf("failed to rename: %w", err)
 		}
 		td = ""
 	}
 
 	if err := t.Commit(); err != nil {
-		return nil, errors.Wrap(err, "commit failed")
+		return nil, fmt.Errorf("commit failed: %w", err)
 	}
 
 	return o.mounts(s), nil
@@ -332,12 +335,9 @@ func (o *snapshotter) mounts(s storage.Snapshot) []mount.Mount {
 
 	return []mount.Mount{
 		{
-			Source: source,
-			Type:   "bind",
-			Options: []string{
-				roFlag,
-				"rbind",
-			},
+			Source:  source,
+			Type:    mountType,
+			Options: append(defaultMountOptions, roFlag),
 		},
 	}
 }

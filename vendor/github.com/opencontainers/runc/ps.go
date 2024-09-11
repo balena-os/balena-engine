@@ -1,9 +1,8 @@
-// +build linux
-
 package runc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -52,11 +51,11 @@ var psCommand = cli.Command{
 		case "json":
 			return json.NewEncoder(os.Stdout).Encode(pids)
 		default:
-			return fmt.Errorf("invalid format option")
+			return errors.New("invalid format option")
 		}
 
 		// [1:] is to remove command name, ex:
-		// context.Args(): [containet_id ps_arg1 ps_arg2 ...]
+		// context.Args(): [container_id ps_arg1 ps_arg2 ...]
 		// psArgs:         [ps_arg1 ps_arg2 ...]
 		//
 		psArgs := context.Args()[1:]
@@ -67,7 +66,7 @@ var psCommand = cli.Command{
 		cmd := exec.Command("ps", psArgs...)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("%s: %s", err, output)
+			return fmt.Errorf("%w: %s", err, output)
 		}
 
 		lines := strings.Split(string(output), "\n")
@@ -84,7 +83,7 @@ var psCommand = cli.Command{
 			fields := strings.Fields(line)
 			p, err := strconv.Atoi(fields[pidIndex])
 			if err != nil {
-				return fmt.Errorf("unexpected pid '%s': %s", fields[pidIndex], err)
+				return fmt.Errorf("unable to parse pid: %w", err)
 			}
 
 			for _, pid := range pids {
@@ -109,5 +108,5 @@ func getPidIndex(title string) (int, error) {
 		}
 	}
 
-	return pidIndex, fmt.Errorf("couldn't find PID field in ps output")
+	return pidIndex, errors.New("couldn't find PID field in ps output")
 }
