@@ -19,6 +19,7 @@ package walking
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -33,7 +34,6 @@ import (
 	"github.com/containerd/containerd/mount"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 )
 
 type walkingDiff struct {
@@ -65,17 +65,24 @@ func (s *walkingDiff) Compare(ctx context.Context, lower, upper []mount.Mount, o
 		}
 	}
 
-	if config.MediaType == "" {
-		config.MediaType = ocispec.MediaTypeImageLayerGzip
-	}
-
 	var isCompressed bool
-	switch config.MediaType {
-	case ocispec.MediaTypeImageLayer:
-	case ocispec.MediaTypeImageLayerGzip:
+	if config.Compressor != nil {
+		if config.MediaType == "" {
+			return emptyDesc, errors.New("media type must be explicitly specified when using custom compressor")
+		}
 		isCompressed = true
-	default:
-		return emptyDesc, errors.Wrapf(errdefs.ErrNotImplemented, "unsupported diff media type: %v", config.MediaType)
+	} else {
+		if config.MediaType == "" {
+			config.MediaType = ocispec.MediaTypeImageLayerGzip
+		}
+
+		switch config.MediaType {
+		case ocispec.MediaTypeImageLayer:
+		case ocispec.MediaTypeImageLayerGzip:
+			isCompressed = true
+		default:
+			return emptyDesc, fmt.Errorf("unsupported diff media type: %v: %w", config.MediaType, errdefs.ErrNotImplemented)
+		}
 	}
 
 	var ocidesc ocispec.Descriptor
@@ -93,35 +100,46 @@ func (s *walkingDiff) Compare(ctx context.Context, lower, upper []mount.Mount, o
 					MediaType: config.MediaType, // most contentstore implementations just ignore this
 				}))
 			if err != nil {
-				return errors.Wrap(err, "failed to open writer")
+				return fmt.Errorf("failed to open writer: %w", err)
 			}
+
+			// errOpen is set when an error occurs while the content writer has not been
+			// committed or closed yet to force a cleanup
+			var errOpen error
 			defer func() {
-				if err != nil {
+				if errOpen != nil {
 					cw.Close()
 					if newReference {
-						if err := s.store.Abort(ctx, config.Reference); err != nil {
-							log.G(ctx).WithField("ref", config.Reference).Warnf("failed to delete diff upload")
+						if abortErr := s.store.Abort(ctx, config.Reference); abortErr != nil {
+							log.G(ctx).WithError(abortErr).WithField("ref", config.Reference).Warnf("failed to delete diff upload")
 						}
 					}
 				}
 			}()
 			if !newReference {
-				if err = cw.Truncate(0); err != nil {
-					return err
+				if errOpen = cw.Truncate(0); errOpen != nil {
+					return errOpen
 				}
 			}
 
 			if isCompressed {
 				dgstr := digest.SHA256.Digester()
 				var compressed io.WriteCloser
-				compressed, err = compression.CompressStream(cw, compression.Gzip)
-				if err != nil {
-					return errors.Wrap(err, "failed to get compressed stream")
+				if config.Compressor != nil {
+					compressed, errOpen = config.Compressor(cw, config.MediaType)
+					if errOpen != nil {
+						return fmt.Errorf("failed to get compressed stream: %w", errOpen)
+					}
+				} else {
+					compressed, errOpen = compression.CompressStream(cw, compression.Gzip)
+					if errOpen != nil {
+						return fmt.Errorf("failed to get compressed stream: %w", errOpen)
+					}
 				}
-				err = archive.WriteDiff(ctx, io.MultiWriter(compressed, dgstr.Hash()), lowerRoot, upperRoot)
+				errOpen = archive.WriteDiff(ctx, io.MultiWriter(compressed, dgstr.Hash()), lowerRoot, upperRoot)
 				compressed.Close()
-				if err != nil {
-					return errors.Wrap(err, "failed to write compressed diff")
+				if errOpen != nil {
+					return fmt.Errorf("failed to write compressed diff: %w", errOpen)
 				}
 
 				if config.Labels == nil {
@@ -129,8 +147,8 @@ func (s *walkingDiff) Compare(ctx context.Context, lower, upper []mount.Mount, o
 				}
 				config.Labels[uncompressed] = dgstr.Digest().String()
 			} else {
-				if err = archive.WriteDiff(ctx, cw, lowerRoot, upperRoot); err != nil {
-					return errors.Wrap(err, "failed to write diff")
+				if errOpen = archive.WriteDiff(ctx, cw, lowerRoot, upperRoot); errOpen != nil {
+					return fmt.Errorf("failed to write diff: %w", errOpen)
 				}
 			}
 
@@ -140,22 +158,25 @@ func (s *walkingDiff) Compare(ctx context.Context, lower, upper []mount.Mount, o
 			}
 
 			dgst := cw.Digest()
-			if err := cw.Commit(ctx, 0, dgst, commitopts...); err != nil {
-				if !errdefs.IsAlreadyExists(err) {
-					return errors.Wrap(err, "failed to commit")
+			if errOpen = cw.Commit(ctx, 0, dgst, commitopts...); errOpen != nil {
+				if !errdefs.IsAlreadyExists(errOpen) {
+					return fmt.Errorf("failed to commit: %w", errOpen)
 				}
+				errOpen = nil
 			}
 
 			info, err := s.store.Info(ctx, dgst)
 			if err != nil {
-				return errors.Wrap(err, "failed to get info from content store")
+				return fmt.Errorf("failed to get info from content store: %w", err)
 			}
-
+			if info.Labels == nil {
+				info.Labels = make(map[string]string)
+			}
 			// Set uncompressed label if digest already existed without label
 			if _, ok := info.Labels[uncompressed]; !ok {
 				info.Labels[uncompressed] = config.Labels[uncompressed]
 				if _, err := s.store.Update(ctx, info, "labels."+uncompressed); err != nil {
-					return errors.Wrap(err, "error setting uncompressed label")
+					return fmt.Errorf("error setting uncompressed label: %w", err)
 				}
 			}
 

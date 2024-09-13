@@ -2,9 +2,9 @@ package system
 
 import (
 	"context"
-	"fmt"
 	"runtime"
 	"sort"
+	"strconv"
 	"text/tabwriter"
 	"text/template"
 	"time"
@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"github.com/tonistiigi/go-rosetta"
 )
 
 var versionTemplate = `{{with .Client -}}
@@ -26,6 +27,7 @@ Client:{{if ne .Platform.Name ""}} {{.Platform.Name}}{{end}}
  Git commit:	{{.GitCommit}}
  Built:	{{.BuildTime}}
  OS/Arch:	{{.Os}}/{{.Arch}}
+ Context:	{{.Context}}
  Experimental:	{{.Experimental}}
 {{- end}}
 
@@ -74,7 +76,8 @@ type clientVersion struct {
 	Os                string
 	Arch              string
 	BuildTime         string `json:",omitempty"`
-	Experimental      bool
+	Context           string
+	Experimental      bool `json:",omitempty"` // Deprecated: experimental CLI features always enabled. This field is kept for backward-compatibility, and is always "true"
 }
 
 // ServerOK returns true when the client could connect to the docker server
@@ -110,6 +113,14 @@ func reformatDate(buildTime string) string {
 	return buildTime
 }
 
+func arch() string {
+	arch := runtime.GOARCH
+	if rosetta.Enabled() {
+		arch += " (rosetta)"
+	}
+	return arch
+}
+
 func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 	var err error
 	tmpl, err := newVersionTemplate(opts.format)
@@ -127,8 +138,9 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 			GitCommit:         version.GitCommit,
 			BuildTime:         reformatDate(version.BuildTime),
 			Os:                runtime.GOOS,
-			Arch:              runtime.GOARCH,
-			Experimental:      dockerCli.ClientInfo().HasExperimental,
+			Arch:              arch(),
+			Experimental:      true,
+			Context:           dockerCli.CurrentContext(),
 		},
 	}
 
@@ -159,7 +171,7 @@ func runVersion(dockerCli command.Cli, opts *versionOptions) error {
 					"Os":            sv.Os,
 					"Arch":          sv.Arch,
 					"BuildTime":     reformatDate(vd.Server.BuildTime),
-					"Experimental":  fmt.Sprintf("%t", sv.Experimental),
+					"Experimental":  strconv.FormatBool(sv.Experimental),
 				},
 			})
 		}

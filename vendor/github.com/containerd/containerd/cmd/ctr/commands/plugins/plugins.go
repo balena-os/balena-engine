@@ -23,11 +23,11 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	introspection "github.com/containerd/containerd/api/services/introspection/v1"
 	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/containerd/containerd/platforms"
-	"github.com/opencontainers/image-spec/specs-go/v1"
+	pluginutils "github.com/containerd/containerd/plugin"
+	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/urfave/cli"
 	"google.golang.org/grpc/codes"
 )
@@ -67,9 +67,7 @@ var listCommand = cli.Command{
 		}
 		defer cancel()
 		ps := client.IntrospectionService()
-		response, err := ps.Plugins(ctx, &introspection.PluginsRequest{
-			Filters: context.Args(),
-		})
+		response, err := ps.Plugins(ctx, context.Args())
 		if err != nil {
 			return err
 		}
@@ -124,7 +122,11 @@ var listCommand = cli.Command{
 			status := "ok"
 
 			if plugin.InitErr != nil {
-				status = "error"
+				if strings.Contains(plugin.InitErr.Message, pluginutils.ErrSkipPlugin.Error()) {
+					status = "skip"
+				} else {
+					status = "error"
+				}
 			}
 
 			var platformColumn = "-"

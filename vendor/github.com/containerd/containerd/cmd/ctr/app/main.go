@@ -18,7 +18,7 @@ package app
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 
 	"github.com/containerd/containerd/cmd/ctr/commands/containers"
 	"github.com/containerd/containerd/cmd/ctr/commands/content"
@@ -27,6 +27,7 @@ import (
 	"github.com/containerd/containerd/cmd/ctr/commands/install"
 	"github.com/containerd/containerd/cmd/ctr/commands/leases"
 	namespacesCmd "github.com/containerd/containerd/cmd/ctr/commands/namespaces"
+	ociCmd "github.com/containerd/containerd/cmd/ctr/commands/oci"
 	"github.com/containerd/containerd/cmd/ctr/commands/plugins"
 	"github.com/containerd/containerd/cmd/ctr/commands/pprof"
 	"github.com/containerd/containerd/cmd/ctr/commands/run"
@@ -45,18 +46,23 @@ var extraCmds = []cli.Command{}
 
 func init() {
 	// Discard grpc logs so that they don't mess with our stdio
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
-
-	cli.VersionPrinter = func(c *cli.Context) {
-		fmt.Println(c.App.Name, version.Package, c.App.Version)
-	}
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
 }
 
 // New returns a *cli.App instance.
 func New() *cli.App {
+	cli.VersionPrinter = func(c *cli.Context) {
+		fmt.Println(c.App.Name, version.Package, c.App.Version)
+	}
+
 	app := cli.NewApp()
 	app.Name = "ctr"
 	app.Version = version.Version
+	app.Description = `
+ctr is an unsupported debug and administrative client for interacting
+with the containerd daemon. Because it is unsupported, the commands,
+options, and operations are not guaranteed to be backward compatible or
+stable from release to release of the containerd project.`
 	app.Usage = `
         __
   _____/ /______
@@ -66,15 +72,17 @@ func New() *cli.App {
 
 containerd CLI
 `
+	app.EnableBashCompletion = true
 	app.Flags = []cli.Flag{
 		cli.BoolFlag{
 			Name:  "debug",
 			Usage: "enable debug output in logs",
 		},
 		cli.StringFlag{
-			Name:  "address, a",
-			Usage: "address for containerd's GRPC server",
-			Value: defaults.DefaultAddress,
+			Name:   "address, a",
+			Usage:  "address for containerd's GRPC server",
+			Value:  defaults.DefaultAddress,
+			EnvVar: "CONTAINERD_ADDRESS",
 		},
 		cli.DurationFlag{
 			Name:  "timeout",
@@ -105,6 +113,7 @@ containerd CLI
 		snapshots.Command,
 		tasks.Command,
 		install.Command,
+		ociCmd.Command,
 	}, extraCmds...)
 	app.Before = func(context *cli.Context) error {
 		if context.GlobalBool("debug") {

@@ -32,8 +32,10 @@ import (
 	"github.com/moby/buildkit/session/sshforward/sshprovider"
 	"github.com/moby/buildkit/util/appcontext"
 	"github.com/moby/buildkit/util/progress/progressui"
+	"github.com/moby/buildkit/util/progress/progresswriter"
 	"github.com/pkg/errors"
 	fsutiltypes "github.com/tonistiigi/fsutil/types"
+	"github.com/tonistiigi/go-rosetta"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -76,7 +78,7 @@ func runBuildBuildKit(dockerCli command.Cli, options buildOptions) error {
 		if options.dockerfileFromStdin() {
 			return errStdinConflict
 		}
-		rc, isArchive, err := build.DetectArchiveReader(os.Stdin)
+		rc, isArchive, err := build.DetectArchiveReader(dockerCli.In())
 		if err != nil {
 			return err
 		}
@@ -96,7 +98,7 @@ func runBuildBuildKit(dockerCli command.Cli, options buildOptions) error {
 	case isLocalDir(options.context):
 		contextDir = options.context
 		if options.dockerfileFromStdin() {
-			dockerfileReader = os.Stdin
+			dockerfileReader = dockerCli.In()
 		} else if options.dockerfileName != "" {
 			dockerfileName = filepath.Base(options.dockerfileName)
 			dockerfileDir = filepath.Dir(options.dockerfileName)
@@ -175,7 +177,8 @@ func runBuildBuildKit(dockerCli command.Cli, options buildOptions) error {
 		}))
 	}
 
-	s.Allow(authprovider.NewDockerAuthProvider(os.Stderr))
+	dockerAuthProvider := authprovider.NewDockerAuthProvider(os.Stderr)
+	s.Allow(dockerAuthProvider)
 	if len(options.secrets) > 0 {
 		sp, err := parseSecretSpecs(options.secrets)
 		if err != nil {
@@ -222,7 +225,9 @@ func runBuildBuildKit(dockerCli command.Cli, options buildOptions) error {
 	}
 
 	if strings.EqualFold(options.platform, "local") {
-		options.platform = platforms.DefaultString()
+		p := platforms.DefaultSpec()
+		p.Architecture = rosetta.NativeArch() // current binary architecture might be emulated
+		options.platform = platforms.Format(p)
 	}
 
 	eg.Go(func() error {
@@ -233,19 +238,19 @@ func runBuildBuildKit(dockerCli command.Cli, options buildOptions) error {
 		buildOptions := imageBuildOptions(dockerCli, options)
 		buildOptions.Version = types.BuilderBuildKit
 		buildOptions.Dockerfile = dockerfileName
-		//buildOptions.AuthConfigs = authConfigs   // handled by session
+		// buildOptions.AuthConfigs = authConfigs   // handled by session
 		buildOptions.RemoteContext = remote
 		buildOptions.SessionID = s.ID()
 		buildOptions.BuildID = buildID
 		buildOptions.Outputs = outputs
-		return doBuild(ctx, eg, dockerCli, stdoutUsed, options, buildOptions)
+		return doBuild(ctx, eg, dockerCli, stdoutUsed, options, buildOptions, dockerAuthProvider)
 	})
 
 	return eg.Wait()
 }
 
 //nolint: gocyclo
-func doBuild(ctx context.Context, eg *errgroup.Group, dockerCli command.Cli, stdoutUsed bool, options buildOptions, buildOptions types.ImageBuildOptions) (finalErr error) {
+func doBuild(ctx context.Context, eg *errgroup.Group, dockerCli command.Cli, stdoutUsed bool, options buildOptions, buildOptions types.ImageBuildOptions, at session.Attachable) (finalErr error) {
 	response, err := dockerCli.Client().ImageBuild(context.Background(), nil, buildOptions)
 	if err != nil {
 		return err
@@ -276,10 +281,17 @@ func doBuild(ctx context.Context, eg *errgroup.Group, dockerCli command.Cli, std
 		if cons, err := console.ConsoleFromFile(out); err == nil && (options.progress == "auto" || options.progress == "tty") {
 			c = cons
 		}
-		// not using shared context to not disrupt display but let is finish reporting errors
+		// not using shared context to not disrupt display but let it finish reporting errors
 		eg.Go(func() error {
 			return progressui.DisplaySolveStatus(context.TODO(), "", c, out, displayCh)
 		})
+		if s, ok := at.(interface {
+			SetLogger(progresswriter.Logger)
+		}); ok {
+			s.SetLogger(func(s *client.SolveStatus) {
+				displayCh <- s
+			})
+		}
 	}
 
 	if options.quiet {
@@ -424,7 +436,7 @@ func (t *tracer) write(msg jsonmessage.JSONMessage) {
 }
 
 func parseSecretSpecs(sl []string) (session.Attachable, error) {
-	fs := make([]secretsprovider.FileSource, 0, len(sl))
+	fs := make([]secretsprovider.Source, 0, len(sl))
 	for _, v := range sl {
 		s, err := parseSecret(v)
 		if err != nil {
@@ -432,22 +444,23 @@ func parseSecretSpecs(sl []string) (session.Attachable, error) {
 		}
 		fs = append(fs, *s)
 	}
-	store, err := secretsprovider.NewFileStore(fs)
+	store, err := secretsprovider.NewStore(fs)
 	if err != nil {
 		return nil, err
 	}
 	return secretsprovider.NewSecretProvider(store), nil
 }
 
-func parseSecret(value string) (*secretsprovider.FileSource, error) {
+func parseSecret(value string) (*secretsprovider.Source, error) {
 	csvReader := csv.NewReader(strings.NewReader(value))
 	fields, err := csvReader.Read()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse csv secret")
 	}
 
-	fs := secretsprovider.FileSource{}
+	fs := secretsprovider.Source{}
 
+	var typ string
 	for _, field := range fields {
 		parts := strings.SplitN(field, "=", 2)
 		key := strings.ToLower(parts[0])
@@ -459,16 +472,23 @@ func parseSecret(value string) (*secretsprovider.FileSource, error) {
 		value := parts[1]
 		switch key {
 		case "type":
-			if value != "file" {
+			if value != "file" && value != "env" {
 				return nil, errors.Errorf("unsupported secret type %q", value)
 			}
+			typ = value
 		case "id":
 			fs.ID = value
 		case "source", "src":
 			fs.FilePath = value
+		case "env":
+			fs.Env = value
 		default:
 			return nil, errors.Errorf("unexpected key '%s' in '%s'", key, field)
 		}
+	}
+	if typ == "env" && fs.Env == "" {
+		fs.Env = fs.FilePath
+		fs.FilePath = ""
 	}
 	return &fs, nil
 }
@@ -476,16 +496,13 @@ func parseSecret(value string) (*secretsprovider.FileSource, error) {
 func parseSSHSpecs(sl []string) (session.Attachable, error) {
 	configs := make([]sshprovider.AgentConfig, 0, len(sl))
 	for _, v := range sl {
-		c, err := parseSSH(v)
-		if err != nil {
-			return nil, err
-		}
+		c := parseSSH(v)
 		configs = append(configs, *c)
 	}
 	return sshprovider.NewSSHAgentProvider(configs)
 }
 
-func parseSSH(value string) (*sshprovider.AgentConfig, error) {
+func parseSSH(value string) *sshprovider.AgentConfig {
 	parts := strings.SplitN(value, "=", 2)
 	cfg := sshprovider.AgentConfig{
 		ID: parts[0],
@@ -493,5 +510,5 @@ func parseSSH(value string) (*sshprovider.AgentConfig, error) {
 	if len(parts) > 1 {
 		cfg.Paths = strings.Split(parts[1], ",")
 	}
-	return &cfg, nil
+	return &cfg
 }

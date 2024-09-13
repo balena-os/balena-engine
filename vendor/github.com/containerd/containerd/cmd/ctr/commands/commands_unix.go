@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -29,5 +30,15 @@ func init() {
 	}, cli.BoolFlag{
 		Name:  "no-pivot",
 		Usage: "disable use of pivot-root (linux only)",
+	}, cli.Int64Flag{
+		Name:  "cpu-quota",
+		Usage: "Limit CPU CFS quota",
+		Value: -1,
+	}, cli.Uint64Flag{
+		Name:  "cpu-period",
+		Usage: "Limit CPU CFS period",
+	}, cli.StringFlag{
+		Name:  "rootfs-propagation",
+		Usage: "set the propagation of the container rootfs",
 	})
 }

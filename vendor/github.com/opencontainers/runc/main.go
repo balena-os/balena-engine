@@ -1,22 +1,25 @@
 package runc
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 
-	"github.com/opencontainers/runc/libcontainer/logs"
-
+	"github.com/opencontainers/runc/libcontainer/seccomp"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
-// version will be populated by the Makefile, read from
-// VERSION file of the source code.
-var version = ""
+// version must be set from the contents of VERSION file by go build's
+// -X main.version= option in the Makefile.
+var version = "unknown"
 
 // gitCommit will be the hash that the binary was built from
 // and will be populated by the Makefile
@@ -54,46 +57,43 @@ func Main() {
 	app.Name = "runc"
 	app.Usage = usage
 
-	var v []string
-	if version != "" {
-		v = append(v, version)
-	}
+	v := []string{version}
+
 	if gitCommit != "" {
-		v = append(v, fmt.Sprintf("commit: %s", gitCommit))
+		v = append(v, "commit: "+gitCommit)
 	}
-	v = append(v, fmt.Sprintf("spec: %s", specs.Version))
+	v = append(v, "spec: "+specs.Version)
+	v = append(v, "go: "+runtime.Version())
+
+	major, minor, micro := seccomp.Version()
+	if major+minor+micro > 0 {
+		v = append(v, fmt.Sprintf("libseccomp: %d.%d.%d", major, minor, micro))
+	}
 	app.Version = strings.Join(v, "\n")
 
+	xdgRuntimeDir := ""
 	root := "/run/runc"
 	if shouldHonorXDGRuntimeDir() {
 		if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
 			root = runtimeDir + "/runc"
-			// According to the XDG specification, we need to set anything in
-			// XDG_RUNTIME_DIR to have a sticky bit if we don't want it to get
-			// auto-pruned.
-			if err := os.MkdirAll(root, 0700); err != nil {
-				fatal(err)
-			}
-			if err := os.Chmod(root, 0700|os.ModeSticky); err != nil {
-				fatal(err)
-			}
+			xdgRuntimeDir = root
 		}
 	}
 
 	app.Flags = []cli.Flag{
 		cli.BoolFlag{
 			Name:  "debug",
-			Usage: "enable debug output for logging",
+			Usage: "enable debug logging",
 		},
 		cli.StringFlag{
 			Name:  "log",
 			Value: "",
-			Usage: "set the log file path where internal debug information is written",
+			Usage: "set the log file to write runc logs to (default is '/dev/stderr')",
 		},
 		cli.StringFlag{
 			Name:  "log-format",
 			Value: "text",
-			Usage: "set the format used by logs ('text' (default), or 'json')",
+			Usage: "set the log format ('text' (default), or 'json')",
 		},
 		cli.StringFlag{
 			Name:  "root",
@@ -121,7 +121,6 @@ func Main() {
 		deleteCommand,
 		eventsCommand,
 		execCommand,
-		initCommand,
 		killCommand,
 		listCommand,
 		pauseCommand,
@@ -133,9 +132,27 @@ func Main() {
 		startCommand,
 		stateCommand,
 		updateCommand,
+		featuresCommand,
 	}
 	app.Before = func(context *cli.Context) error {
-		return logs.ConfigureLogging(createLogConfig(context))
+		if !context.IsSet("root") && xdgRuntimeDir != "" {
+			// According to the XDG specification, we need to set anything in
+			// XDG_RUNTIME_DIR to have a sticky bit if we don't want it to get
+			// auto-pruned.
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				fmt.Fprintln(os.Stderr, "the path in $XDG_RUNTIME_DIR must be writable by the user")
+				fatal(err)
+			}
+			if err := os.Chmod(root, os.FileMode(0o700)|os.ModeSticky); err != nil {
+				fmt.Fprintln(os.Stderr, "you should check permission of the path in $XDG_RUNTIME_DIR")
+				fatal(err)
+			}
+		}
+		if err := reviseRootDir(context); err != nil {
+			return err
+		}
+
+		return configLogrus(context)
 	}
 
 	// If the command returns an error, cli takes upon itself to print
@@ -153,24 +170,48 @@ type FatalWriter struct {
 
 func (f *FatalWriter) Write(p []byte) (n int, err error) {
 	logrus.Error(string(p))
-	return f.cliErrWriter.Write(p)
+	if !logrusToStderr() {
+		return f.cliErrWriter.Write(p)
+	}
+	return len(p), nil
 }
 
-func createLogConfig(context *cli.Context) logs.Config {
-	logFilePath := context.GlobalString("log")
-	logPipeFd := ""
-	if logFilePath == "" {
-		logPipeFd = "2"
-	}
-	config := logs.Config{
-		LogPipeFd:   logPipeFd,
-		LogLevel:    logrus.InfoLevel,
-		LogFilePath: logFilePath,
-		LogFormat:   context.GlobalString("log-format"),
-	}
+func configLogrus(context *cli.Context) error {
 	if context.GlobalBool("debug") {
-		config.LogLevel = logrus.DebugLevel
+		logrus.SetLevel(logrus.DebugLevel)
+		logrus.SetReportCaller(true)
+		// Shorten function and file names reported by the logger, by
+		// trimming common "github.com/opencontainers/runc" prefix.
+		// This is only done for text formatter.
+		_, file, _, _ := runtime.Caller(0)
+		prefix := filepath.Dir(file) + "/"
+		logrus.SetFormatter(&logrus.TextFormatter{
+			CallerPrettyfier: func(f *runtime.Frame) (string, string) {
+				function := strings.TrimPrefix(f.Function, prefix) + "()"
+				fileLine := strings.TrimPrefix(f.File, prefix) + ":" + strconv.Itoa(f.Line)
+				return function, fileLine
+			},
+		})
 	}
 
-	return config
+	switch f := context.GlobalString("log-format"); f {
+	case "":
+		// do nothing
+	case "text":
+		// do nothing
+	case "json":
+		logrus.SetFormatter(new(logrus.JSONFormatter))
+	default:
+		return errors.New("invalid log-format: " + f)
+	}
+
+	if file := context.GlobalString("log"); file != "" {
+		f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_APPEND|os.O_SYNC, 0o644)
+		if err != nil {
+			return err
+		}
+		logrus.SetOutput(f)
+	}
+
+	return nil
 }

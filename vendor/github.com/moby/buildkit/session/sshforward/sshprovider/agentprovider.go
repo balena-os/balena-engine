@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/moby/buildkit/session"
@@ -139,7 +141,7 @@ func toAgentSource(paths []string) (source, error) {
 			socket = p
 			continue
 		}
-		keys = true
+
 		f, err := os.Open(p)
 		if err != nil {
 			return source{}, errors.Wrapf(err, "failed to open %s", p)
@@ -151,11 +153,24 @@ func toAgentSource(paths []string) (source, error) {
 
 		k, err := ssh.ParseRawPrivateKey(dt)
 		if err != nil {
+			// On Windows, os.ModeSocket isn't appropriately set on the file mode.
+			// https://github.com/golang/go/issues/33357
+			// If parsing the file fails, check to see if it kind of looks like socket-shaped.
+			if runtime.GOOS == "windows" && strings.Contains(string(dt), "socket") {
+				if keys {
+					return source{}, errors.Errorf("invalid combination of keys and sockets")
+				}
+				socket = p
+				continue
+			}
+
 			return source{}, errors.Wrapf(err, "failed to parse %s", p) // TODO: prompt passphrase?
 		}
 		if err := a.Add(agent.AddedKey{PrivateKey: k}); err != nil {
 			return source{}, errors.Wrapf(err, "failed to add %s to agent", p)
 		}
+
+		keys = true
 	}
 
 	if socket != "" {
@@ -178,7 +193,7 @@ type sock struct {
 }
 
 type readOnlyAgent struct {
-	agent.Agent
+	agent.ExtendedAgent
 }
 
 func (a *readOnlyAgent) Add(_ agent.AddedKey) error {
@@ -195,4 +210,8 @@ func (a *readOnlyAgent) RemoveAll() error {
 
 func (a *readOnlyAgent) Lock(_ []byte) error {
 	return errors.Errorf("locking agent not allowed by buildkit")
+}
+
+func (a *readOnlyAgent) Extension(_ string, _ []byte) ([]byte, error) {
+	return nil, errors.Errorf("extensions not allowed by buildkit")
 }

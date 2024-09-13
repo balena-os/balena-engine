@@ -19,7 +19,7 @@ package command
 import (
 	gocontext "context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -27,13 +27,16 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/containerd/containerd/defaults"
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
+	_ "github.com/containerd/containerd/metrics" // import containerd build info
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/services/server"
 	srvconfig "github.com/containerd/containerd/services/server/config"
 	"github.com/containerd/containerd/sys"
+	"github.com/containerd/containerd/tracing"
 	"github.com/containerd/containerd/version"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 	"google.golang.org/grpc/grpclog"
@@ -50,30 +53,36 @@ high performance container runtime
 `
 
 func init() {
-	logrus.SetFormatter(&logrus.TextFormatter{
-		TimestampFormat: log.RFC3339NanoFixed,
-		FullTimestamp:   true,
-	})
-
 	// Discard grpc logs so that they don't mess with our stdio
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(ioutil.Discard, ioutil.Discard, ioutil.Discard))
-
-	cli.VersionPrinter = func(c *cli.Context) {
-		fmt.Println(c.App.Name, version.Package, c.App.Version, version.Revision)
-	}
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2(io.Discard, io.Discard, io.Discard))
 }
 
 // App returns a *cli.App instance.
 func App() *cli.App {
+	cli.VersionPrinter = func(c *cli.Context) {
+		fmt.Println(c.App.Name, version.Package, c.App.Version, version.Revision)
+	}
+
 	app := cli.NewApp()
 	app.Name = "containerd"
 	app.Version = version.Version
 	app.Usage = usage
+	app.Description = `
+containerd is a high performance container runtime whose daemon can be started
+by using this command. If none of the *config*, *publish*, or *help* commands
+are specified, the default action of the **containerd** command is to start the
+containerd daemon in the foreground.
+
+
+A default configuration is used if no TOML configuration is specified or located
+at the default file location. The *containerd config* command can be used to
+generate the default configuration for containerd. The output of that command
+can be used and modified as necessary as a custom configuration.`
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "config,c",
 			Usage: "path to the configuration file",
-			Value: defaultConfigPath,
+			Value: filepath.Join(defaults.DefaultConfigDir, "config.toml"),
 		},
 		cli.StringFlag{
 			Name:  "log-level,l",
@@ -100,15 +109,23 @@ func App() *cli.App {
 	}
 	app.Action = func(context *cli.Context) error {
 		var (
-			start   = time.Now()
-			signals = make(chan os.Signal, 2048)
-			serverC = make(chan *server.Server, 1)
-			ctx     = gocontext.Background()
-			config  = defaultConfig()
+			start       = time.Now()
+			signals     = make(chan os.Signal, 2048)
+			serverC     = make(chan *server.Server, 1)
+			ctx, cancel = gocontext.WithCancel(gocontext.Background())
+			config      = defaultConfig()
 		)
 
-		if err := srvconfig.LoadConfig(context.GlobalString("config"), config); err != nil && !os.IsNotExist(err) {
-			return err
+		defer cancel()
+
+		// Only try to load the config if it either exists, or the user explicitly
+		// told us to load this path.
+		configPath := context.GlobalString("config")
+		_, err := os.Stat(configPath)
+		if !os.IsNotExist(err) || context.GlobalIsSet("config") {
+			if err := srvconfig.LoadConfig(configPath, config); err != nil {
+				return err
+			}
 		}
 
 		// Apply flags to the config
@@ -130,14 +147,14 @@ func App() *cli.App {
 			return nil
 		}
 
-		done := handleSignals(ctx, signals, serverC)
+		done := handleSignals(ctx, signals, serverC, cancel)
 		// start the signal handler as soon as we can to make sure that
 		// we don't miss any signals during boot
 		signal.Notify(signals, handledSignals...)
 
 		// cleanup temp mounts
 		if err := mount.SetTempMountLocation(filepath.Join(config.Root, "tmpmounts")); err != nil {
-			return errors.Wrap(err, "creating temp mount location")
+			return fmt.Errorf("creating temp mount location: %w", err)
 		}
 		// unmount all temp mounts on boot for the server
 		warnings, err := mount.CleanupTempMounts(0)
@@ -147,39 +164,81 @@ func App() *cli.App {
 		for _, w := range warnings {
 			log.G(ctx).WithError(w).Warn("cleanup temp mount")
 		}
-		var (
-			address      = config.GRPC.Address
-			ttrpcAddress = fmt.Sprintf("%s.ttrpc", config.GRPC.Address)
-		)
-		if address == "" {
-			return errors.New("grpc address cannot be empty")
+
+		if config.GRPC.Address == "" {
+			return fmt.Errorf("grpc address cannot be empty: %w", errdefs.ErrInvalidArgument)
+		}
+		if config.TTRPC.Address == "" {
+			// If TTRPC was not explicitly configured, use defaults based on GRPC.
+			config.TTRPC.Address = fmt.Sprintf("%s.ttrpc", config.GRPC.Address)
+			config.TTRPC.UID = config.GRPC.UID
+			config.TTRPC.GID = config.GRPC.GID
 		}
 		log.G(ctx).WithFields(logrus.Fields{
 			"version":  version.Version,
 			"revision": version.Revision,
 		}).Info("starting containerd")
 
-		server, err := server.New(ctx, config)
-		if err != nil {
-			return err
+		type srvResp struct {
+			s   *server.Server
+			err error
 		}
 
-		// Launch as a Windows Service if necessary
-		if err := launchService(server, done); err != nil {
-			logrus.Fatal(err)
+		// run server initialization in a goroutine so we don't end up blocking important things like SIGTERM handling
+		// while the server is initializing.
+		// As an example opening the bolt database will block forever if another containerd is already running and containerd
+		// will have to be be `kill -9`'ed to recover.
+		chsrv := make(chan srvResp)
+		go func() {
+			defer close(chsrv)
+
+			server, err := server.New(ctx, config)
+			if err != nil {
+				select {
+				case chsrv <- srvResp{err: err}:
+				case <-ctx.Done():
+				}
+				return
+			}
+
+			// Launch as a Windows Service if necessary
+			if err := launchService(server, done); err != nil {
+				logrus.Fatal(err)
+			}
+			select {
+			case <-ctx.Done():
+				server.Stop()
+			case chsrv <- srvResp{s: server}:
+			}
+		}()
+
+		var server *server.Server
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case r := <-chsrv:
+			if r.err != nil {
+				return r.err
+			}
+			server = r.s
 		}
 
-		serverC <- server
+		// We don't send the server down serverC directly in the goroutine above because we need it lower down.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case serverC <- server:
+		}
 
 		if config.Debug.Address != "" {
 			var l net.Listener
-			if filepath.IsAbs(config.Debug.Address) {
+			if isLocalAddress(config.Debug.Address) {
 				if l, err = sys.GetLocalListener(config.Debug.Address, config.Debug.UID, config.Debug.GID); err != nil {
-					return errors.Wrapf(err, "failed to get listener for debug endpoint")
+					return fmt.Errorf("failed to get listener for debug endpoint: %w", err)
 				}
 			} else {
 				if l, err = net.Listen("tcp", config.Debug.Address); err != nil {
-					return errors.Wrapf(err, "failed to get listener for debug endpoint")
+					return fmt.Errorf("failed to get listener for debug endpoint: %w", err)
 				}
 			}
 			serve(ctx, l, server.ServeDebug)
@@ -187,30 +246,34 @@ func App() *cli.App {
 		if config.Metrics.Address != "" {
 			l, err := net.Listen("tcp", config.Metrics.Address)
 			if err != nil {
-				return errors.Wrapf(err, "failed to get listener for metrics endpoint")
+				return fmt.Errorf("failed to get listener for metrics endpoint: %w", err)
 			}
 			serve(ctx, l, server.ServeMetrics)
 		}
 		// setup the ttrpc endpoint
-		tl, err := sys.GetLocalListener(ttrpcAddress, config.GRPC.UID, config.GRPC.GID)
+		tl, err := sys.GetLocalListener(config.TTRPC.Address, config.TTRPC.UID, config.TTRPC.GID)
 		if err != nil {
-			return errors.Wrapf(err, "failed to get listener for main ttrpc endpoint")
+			return fmt.Errorf("failed to get listener for main ttrpc endpoint: %w", err)
 		}
 		serve(ctx, tl, server.ServeTTRPC)
 
 		if config.GRPC.TCPAddress != "" {
 			l, err := net.Listen("tcp", config.GRPC.TCPAddress)
 			if err != nil {
-				return errors.Wrapf(err, "failed to get listener for TCP grpc endpoint")
+				return fmt.Errorf("failed to get listener for TCP grpc endpoint: %w", err)
 			}
 			serve(ctx, l, server.ServeTCP)
 		}
 		// setup the main grpc endpoint
-		l, err := sys.GetLocalListener(address, config.GRPC.UID, config.GRPC.GID)
+		l, err := sys.GetLocalListener(config.GRPC.Address, config.GRPC.UID, config.GRPC.GID)
 		if err != nil {
-			return errors.Wrapf(err, "failed to get listener for main endpoint")
+			return fmt.Errorf("failed to get listener for main endpoint: %w", err)
 		}
 		serve(ctx, l, server.ServeGRPC)
+
+		if err := notifyReady(ctx); err != nil {
+			log.G(ctx).WithError(err).Warn("notify ready failed")
+		}
 
 		log.G(ctx).Infof("containerd successfully booted in %fs", time.Since(start).Seconds())
 		<-done
@@ -233,9 +296,14 @@ func serve(ctx gocontext.Context, l net.Listener, serveFunc func(net.Listener) e
 func applyFlags(context *cli.Context, config *srvconfig.Config) error {
 	// the order for config vs flag values is that flags will always override
 	// the config values if they are set
-	if err := setLevel(context, config); err != nil {
+	if err := setLogLevel(context, config); err != nil {
 		return err
 	}
+	if err := setLogFormat(config); err != nil {
+		return err
+	}
+	setLogHooks()
+
 	for _, v := range []struct {
 		name string
 		d    *string
@@ -263,19 +331,46 @@ func applyFlags(context *cli.Context, config *srvconfig.Config) error {
 	return nil
 }
 
-func setLevel(context *cli.Context, config *srvconfig.Config) error {
+func setLogLevel(context *cli.Context, config *srvconfig.Config) error {
 	l := context.GlobalString("log-level")
 	if l == "" {
 		l = config.Debug.Level
 	}
 	if l != "" {
-		lvl, err := log.ParseLevel(l)
+		lvl, err := logrus.ParseLevel(l)
 		if err != nil {
 			return err
 		}
 		logrus.SetLevel(lvl)
 	}
 	return nil
+}
+
+func setLogFormat(config *srvconfig.Config) error {
+	f := config.Debug.Format
+	if f == "" {
+		f = log.TextFormat
+	}
+
+	switch f {
+	case log.TextFormat:
+		logrus.SetFormatter(&logrus.TextFormatter{
+			TimestampFormat: log.RFC3339NanoFixed,
+			FullTimestamp:   true,
+		})
+	case log.JSONFormat:
+		logrus.SetFormatter(&logrus.JSONFormatter{
+			TimestampFormat: log.RFC3339NanoFixed,
+		})
+	default:
+		return fmt.Errorf("unknown log format: %s", f)
+	}
+
+	return nil
+}
+
+func setLogHooks() {
+	logrus.StandardLogger().AddHook(tracing.NewLogrusHook())
 }
 
 func dumpStacks(writeToFile bool) {

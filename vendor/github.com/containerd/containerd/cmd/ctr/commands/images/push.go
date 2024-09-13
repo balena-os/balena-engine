@@ -18,6 +18,9 @@ package images
 
 import (
 	gocontext "context"
+	"errors"
+	"fmt"
+	"net/http/httptrace"
 	"os"
 	"sync"
 	"text/tabwriter"
@@ -29,11 +32,11 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/pkg/progress"
+	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 	"golang.org/x/sync/errgroup"
 )
@@ -58,6 +61,16 @@ var pushCommand = cli.Command{
 		Name:  "manifest-type",
 		Usage: "media type of manifest digest",
 		Value: ocispec.MediaTypeImageManifest,
+	}, cli.StringSliceFlag{
+		Name:  "platform",
+		Usage: "push content from a specific platform",
+		Value: &cli.StringSlice{},
+	}, cli.IntFlag{
+		Name:  "max-concurrent-uploaded-layers",
+		Usage: "Set the max concurrent uploaded layers for each push",
+	}, cli.BoolFlag{
+		Name:  "allow-non-distributable-blobs",
+		Usage: "Allow pushing blobs that are marked as non-distributable",
 	}),
 	Action: func(context *cli.Context) error {
 		var (
@@ -79,7 +92,7 @@ var pushCommand = cli.Command{
 		if manifest := context.String("manifest"); manifest != "" {
 			desc.Digest, err = digest.Parse(manifest)
 			if err != nil {
-				return errors.Wrap(err, "invalid manifest digest")
+				return fmt.Errorf("invalid manifest digest: %w", err)
 			}
 			desc.MediaType = context.String("manifest-type")
 		} else {
@@ -88,11 +101,35 @@ var pushCommand = cli.Command{
 			}
 			img, err := client.ImageService().Get(ctx, local)
 			if err != nil {
-				return errors.Wrap(err, "unable to resolve image to manifest")
+				return fmt.Errorf("unable to resolve image to manifest: %w", err)
 			}
 			desc = img.Target
+
+			if pss := context.StringSlice("platform"); len(pss) == 1 {
+				p, err := platforms.Parse(pss[0])
+				if err != nil {
+					return fmt.Errorf("invalid platform %q: %w", pss[0], err)
+				}
+
+				cs := client.ContentStore()
+				if manifests, err := images.Children(ctx, cs, desc); err == nil && len(manifests) > 0 {
+					matcher := platforms.NewMatcher(p)
+					for _, manifest := range manifests {
+						if manifest.Platform != nil && matcher.Match(*manifest.Platform) {
+							if _, err := images.Children(ctx, cs, manifest); err != nil {
+								return fmt.Errorf("no matching manifest: %w", err)
+							}
+							desc = manifest
+							break
+						}
+					}
+				}
+			}
 		}
 
+		if context.Bool("http-trace") {
+			ctx = httptrace.WithClientTrace(ctx, commands.NewDebugClientTrace(ctx))
+		}
 		resolver, err := commands.GetResolver(ctx, context)
 		if err != nil {
 			return err
@@ -110,14 +147,29 @@ var pushCommand = cli.Command{
 			log.G(ctx).WithField("image", ref).WithField("digest", desc.Digest).Debug("pushing")
 
 			jobHandler := images.HandlerFunc(func(ctx gocontext.Context, desc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+				if !context.Bool("allow-non-distributable-blobs") && images.IsNonDistributable(desc.MediaType) {
+					return nil, nil
+				}
 				ongoing.add(remotes.MakeRefKey(ctx, desc))
 				return nil, nil
 			})
 
-			return client.Push(ctx, ref, desc,
+			handler := jobHandler
+			if !context.Bool("allow-non-distributable-blobs") {
+				handler = remotes.SkipNonDistributableBlobs(handler)
+			}
+
+			ropts := []containerd.RemoteOpt{
 				containerd.WithResolver(resolver),
-				containerd.WithImageHandler(jobHandler),
-			)
+				containerd.WithImageHandler(handler),
+			}
+
+			if context.IsSet("max-concurrent-uploaded-layers") {
+				mcu := context.Int("max-concurrent-uploaded-layers")
+				ropts = append(ropts, containerd.WithMaxConcurrentUploadedLayers(mcu))
+			}
+
+			return client.Push(ctx, ref, desc, ropts...)
 		})
 
 		// don't show progress if debug mode is set

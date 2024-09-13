@@ -18,15 +18,19 @@ package tasks
 
 import (
 	"errors"
+	"io"
+	"net/url"
+	"os"
 
 	"github.com/containerd/console"
+	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/cmd/ctr/commands"
+	"github.com/containerd/containerd/oci"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
 
-//TODO:(jessvalarezo) exec-id is optional here, update to required arg
 var execCommand = cli.Command{
 	Name:           "exec",
 	Usage:          "execute additional processes in an existing container",
@@ -46,12 +50,21 @@ var execCommand = cli.Command{
 			Usage: "detach from the task after it has started execution",
 		},
 		cli.StringFlag{
-			Name:  "exec-id",
-			Usage: "exec specific id for the process",
+			Name:     "exec-id",
+			Required: true,
+			Usage:    "exec specific id for the process",
 		},
 		cli.StringFlag{
 			Name:  "fifo-dir",
 			Usage: "directory used for storing IO FIFOs",
+		},
+		cli.StringFlag{
+			Name:  "log-uri",
+			Usage: "log uri for custom shim logging",
+		},
+		cli.StringFlag{
+			Name:  "user",
+			Usage: "user id or name",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -77,23 +90,71 @@ var execCommand = cli.Command{
 		if err != nil {
 			return err
 		}
-		task, err := container.Task(ctx, nil)
-		if err != nil {
-			return err
+		if user := context.String("user"); user != "" {
+			c, err := container.Info(ctx)
+			if err != nil {
+				return err
+			}
+			if err := oci.WithUser(user)(ctx, client, &c, spec); err != nil {
+				return err
+			}
 		}
 
 		pspec := spec.Process
 		pspec.Terminal = tty
 		pspec.Args = args
 
-		cioOpts := []cio.Opt{cio.WithStdio, cio.WithFIFODir(context.String("fifo-dir"))}
-		if tty {
-			cioOpts = append(cioOpts, cio.WithTerminal)
+		if cwd := context.String("cwd"); cwd != "" {
+			pspec.Cwd = cwd
 		}
-		ioCreator := cio.NewCreator(cioOpts...)
+
+		task, err := container.Task(ctx, nil)
+		if err != nil {
+			return err
+		}
+
+		var (
+			ioCreator cio.Creator
+			stdinC    = &stdinCloser{
+				stdin: os.Stdin,
+			}
+			con console.Console
+		)
+
+		fifoDir := context.String("fifo-dir")
+		logURI := context.String("log-uri")
+		ioOpts := []cio.Opt{cio.WithFIFODir(fifoDir)}
+		switch {
+		case tty && logURI != "":
+			return errors.New("can't use log-uri with tty")
+		case logURI != "" && fifoDir != "":
+			return errors.New("can't use log-uri with fifo-dir")
+
+		case tty:
+			con = console.Current()
+			defer con.Reset()
+			if err := con.SetRaw(); err != nil {
+				return err
+			}
+			ioCreator = cio.NewCreator(append([]cio.Opt{cio.WithStreams(con, con, nil), cio.WithTerminal}, ioOpts...)...)
+
+		case logURI != "":
+			uri, err := url.Parse(logURI)
+			if err != nil {
+				return err
+			}
+			ioCreator = cio.LogURI(uri)
+
+		default:
+			ioCreator = cio.NewCreator(append([]cio.Opt{cio.WithStreams(stdinC, os.Stdout, os.Stderr)}, ioOpts...)...)
+		}
+
 		process, err := task.Exec(ctx, context.String("exec-id"), pspec, ioCreator)
 		if err != nil {
 			return err
+		}
+		stdinC.closer = func() {
+			process.CloseIO(ctx, containerd.WithStdinCloser)
 		}
 		// if detach, we should not call this defer
 		if !detach {
@@ -105,30 +166,19 @@ var execCommand = cli.Command{
 			return err
 		}
 
-		var con console.Console
-		if tty {
-			con = console.Current()
-			defer con.Reset()
-			if err := con.SetRaw(); err != nil {
-				return err
-			}
-		}
-		if !detach {
-			if tty {
-				if err := HandleConsoleResize(ctx, process, con); err != nil {
-					logrus.WithError(err).Error("console resize")
-				}
-			} else {
-				sigc := commands.ForwardAllSignals(ctx, process)
-				defer commands.StopCatch(sigc)
-			}
-		}
-
 		if err := process.Start(ctx); err != nil {
 			return err
 		}
 		if detach {
 			return nil
+		}
+		if tty {
+			if err := HandleConsoleResize(ctx, process, con); err != nil {
+				logrus.WithError(err).Error("console resize")
+			}
+		} else {
+			sigc := commands.ForwardAllSignals(ctx, process)
+			defer commands.StopCatch(sigc)
 		}
 		status := <-statusC
 		code, _, err := status.Result()
@@ -140,4 +190,19 @@ var execCommand = cli.Command{
 		}
 		return nil
 	},
+}
+
+type stdinCloser struct {
+	stdin  *os.File
+	closer func()
+}
+
+func (s *stdinCloser) Read(p []byte) (int, error) {
+	n, err := s.stdin.Read(p)
+	if err == io.EOF {
+		if s.closer != nil {
+			s.closer()
+		}
+	}
+	return n, err
 }

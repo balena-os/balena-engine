@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 /*
@@ -20,57 +21,31 @@ package devmapper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/devmapper/dmsetup"
 	"github.com/containerd/containerd/snapshots/storage"
 	"github.com/hashicorp/go-multierror"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	exec "golang.org/x/sys/execabs"
 )
 
-func init() {
-	plugin.Register(&plugin.Registration{
-		Type:   plugin.SnapshotPlugin,
-		ID:     "devmapper",
-		Config: &Config{},
-		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			ic.Meta.Platforms = append(ic.Meta.Platforms, ocispec.Platform{
-				OS:           "linux",
-				Architecture: "amd64",
-			})
-
-			config, ok := ic.Config.(*Config)
-			if !ok {
-				return nil, errors.New("invalid devmapper configuration")
-			}
-
-			if config.PoolName == "" {
-				return nil, errors.New("devmapper not configured")
-			}
-
-			if config.RootPath == "" {
-				config.RootPath = ic.Root
-			}
-
-			return NewSnapshotter(ic.Context, config)
-		},
-	})
-}
+type fsType string
 
 const (
-	metadataFileName = "metadata.db"
-	fsTypeExt4       = "ext4"
+	metadataFileName               = "metadata.db"
+	fsTypeExt4              fsType = "ext4"
+	fsTypeXFS               fsType = "xfs"
+	devmapperSnapshotFsType        = "containerd.io/snapshot/devmapper/fstype"
 )
 
 type closeFunc func() error
@@ -101,12 +76,12 @@ func NewSnapshotter(ctx context.Context, config *Config) (*Snapshotter, error) {
 	var cleanupFn []closeFunc
 
 	if err := os.MkdirAll(config.RootPath, 0750); err != nil && !os.IsExist(err) {
-		return nil, errors.Wrapf(err, "failed to create root directory: %s", config.RootPath)
+		return nil, fmt.Errorf("failed to create root directory: %s: %w", config.RootPath, err)
 	}
 
 	store, err := storage.NewMetaStore(filepath.Join(config.RootPath, metadataFileName))
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create metastore")
+		return nil, fmt.Errorf("failed to create metastore: %w", err)
 	}
 
 	cleanupFn = append(cleanupFn, store.Close)
@@ -212,7 +187,13 @@ func (s *Snapshotter) Mounts(ctx context.Context, key string) ([]mount.Mount, er
 		return err
 	})
 
-	return s.buildMounts(snap), nil
+	snapInfo, err := s.Stat(ctx, key)
+	if err != nil {
+		log.G(ctx).WithError(err).Errorf("cannot retrieve snapshot info for key %s", key)
+		return nil, err
+	}
+
+	return s.buildMounts(ctx, snap, fsType(snapInfo.Labels[devmapperSnapshotFsType])), nil
 }
 
 // Prepare creates thin device for an active snapshot identified by key
@@ -234,7 +215,7 @@ func (s *Snapshotter) Prepare(ctx context.Context, key, parent string, opts ...s
 
 // View creates readonly thin device for the given snapshot key
 func (s *Snapshotter) View(ctx context.Context, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
-	log.G(ctx).WithFields(logrus.Fields{"key": key, "parent": parent}).Debug("prepare")
+	log.G(ctx).WithFields(logrus.Fields{"key": key, "parent": parent}).Debug("view")
 
 	var (
 		mounts []mount.Mount
@@ -256,7 +237,7 @@ func (s *Snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 	log.G(ctx).WithFields(logrus.Fields{"name": name, "key": key}).Debug("commit")
 
 	return s.withTransaction(ctx, true, func(ctx context.Context) error {
-		id, _, _, err := storage.GetInfo(ctx, key)
+		id, snapInfo, _, err := storage.GetInfo(ctx, key)
 		if err != nil {
 			return err
 		}
@@ -271,8 +252,40 @@ func (s *Snapshotter) Commit(ctx context.Context, name, key string, opts ...snap
 			Size: size,
 		}
 
+		// Add file system type label if present. In case more than one file system
+		// type is supported file system type from parent will be used for creating
+		// snapshot.
+		fsTypeActive := snapInfo.Labels[devmapperSnapshotFsType]
+		if fsTypeActive != "" {
+			fsLabel := make(map[string]string)
+			fsLabel[devmapperSnapshotFsType] = fsTypeActive
+			opts = append(opts, snapshots.WithLabels(fsLabel))
+		}
 		_, err = storage.CommitActive(ctx, key, name, usage, opts...)
-		return err
+		if err != nil {
+			return err
+		}
+
+		// After committed, the snapshot device will not be directly
+		// used anymore. We'd better deactivate it to make it *invisible*
+		// in userspace, so that tools like LVM2 and fdisk cannot touch it,
+		// and avoid useless IOs on it.
+		//
+		// Before deactivation, we need to flush the outstanding IO by suspend.
+		// Afterward, we resume it again to prevent a race window which may cause
+		// a process IO hang. See the issue below for details:
+		//   (https://github.com/containerd/containerd/issues/4234)
+		err = s.pool.SuspendDevice(ctx, deviceName)
+		if err != nil {
+			return err
+		}
+
+		err = s.pool.ResumeDevice(ctx, deviceName)
+		if err != nil {
+			return err
+		}
+
+		return s.pool.DeactivateDevice(ctx, deviceName, true, false)
 	})
 }
 
@@ -292,19 +305,32 @@ func (s *Snapshotter) removeDevice(ctx context.Context, key string) error {
 	}
 
 	deviceName := s.getDeviceName(snapID)
-	if err := s.pool.RemoveDevice(ctx, deviceName); err != nil {
-		log.G(ctx).WithError(err).Errorf("failed to remove device")
-		return err
+	if !s.config.AsyncRemove {
+		if err := s.pool.RemoveDevice(ctx, deviceName); err != nil {
+			log.G(ctx).WithError(err).Error("failed to remove device")
+			// Tell snapshot GC continue to collect other snapshots.
+			// Otherwise, one snapshot collection failure will stop
+			// the GC, and all snapshots won't be collected even though
+			// having no relationship with the failed one.
+			return errdefs.ErrFailedPrecondition
+		}
+	} else {
+		// The asynchronous cleanup will do the real device remove work.
+		log.G(ctx).WithField("device", deviceName).Debug("async remove")
+		if err := s.pool.MarkDeviceState(ctx, deviceName, Removed); err != nil {
+			log.G(ctx).WithError(err).Error("failed to mark device as removed")
+			return err
+		}
 	}
 
 	return nil
 }
 
 // Walk iterates through all metadata Info for the stored snapshots and calls the provided function for each.
-func (s *Snapshotter) Walk(ctx context.Context, fn func(context.Context, snapshots.Info) error) error {
+func (s *Snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, fs ...string) error {
 	log.G(ctx).Debug("walk")
 	return s.withTransaction(ctx, false, func(ctx context.Context) error {
-		return storage.WalkInfo(ctx, fn)
+		return storage.WalkInfo(ctx, fn, fs...)
 	})
 }
 
@@ -344,12 +370,40 @@ func (s *Snapshotter) Close() error {
 }
 
 func (s *Snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts ...snapshots.Opt) ([]mount.Mount, error) {
+	var fileSystemType fsType
+
+	// For snapshots with no parents, we use file system type as configured in config.
+	// For snapshots with parents, we inherit the file system type. We use the same
+	// file system type derived here for building mount points later.
+	fsLabel := make(map[string]string)
+	if len(parent) == 0 {
+		fileSystemType = s.config.FileSystemType
+	} else {
+		_, snapInfo, _, err := storage.GetInfo(ctx, parent)
+		if err != nil {
+			log.G(ctx).Errorf("failed to read snapshotInfo for %s", parent)
+			return nil, err
+		}
+		fileSystemType = fsType(snapInfo.Labels[devmapperSnapshotFsType])
+		if fileSystemType == "" {
+			// For parent snapshots created without label support, we can assume that
+			// they are ext4 type. Children of parents with no label for fsType will
+			// now have correct label and committed snapshots from them will carry fs type
+			// label. TODO: find out if it is better to update the parent's label with
+			// fsType as ext4.
+			fileSystemType = fsTypeExt4
+		}
+	}
+	fsLabel[devmapperSnapshotFsType] = string(fileSystemType)
+	opts = append(opts, snapshots.WithLabels(fsLabel))
+
 	snap, err := storage.CreateSnapshot(ctx, kind, key, parent, opts...)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(snap.ParentIDs) == 0 {
+		fsOptions := ""
 		deviceName := s.getDeviceName(snap.ID)
 		log.G(ctx).Debugf("creating new thin device '%s'", deviceName)
 
@@ -359,24 +413,38 @@ func (s *Snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 			return nil, err
 		}
 
-		if err := s.mkfs(ctx, deviceName); err != nil {
+		if s.config.FileSystemType == fsTypeExt4 && s.config.FsOptions == "" {
+			// Explicitly disable lazy_itable_init and lazy_journal_init in order to enable lazy initialization.
+			fsOptions = "nodiscard,lazy_itable_init=0,lazy_journal_init=0"
+		} else {
+			fsOptions = s.config.FsOptions
+		}
+		log.G(ctx).Debugf("Creating file system of type: %s with options: %s for thin device %q", s.config.FileSystemType, fsOptions, deviceName)
+		if err := mkfs(ctx, s.config.FileSystemType, fsOptions, dmsetup.GetFullDevicePath(deviceName)); err != nil {
+			status, sErr := dmsetup.Status(s.pool.poolName)
+			if sErr != nil {
+				multierror.Append(err, sErr)
+			}
+
 			// Rollback thin device creation if mkfs failed
+			log.G(ctx).WithError(err).Errorf("failed to initialize thin device %q for snapshot %s pool status %s", deviceName, snap.ID, status.RawOutput)
 			return nil, multierror.Append(err,
 				s.pool.RemoveDevice(ctx, deviceName))
 		}
 	} else {
 		parentDeviceName := s.getDeviceName(snap.ParentIDs[0])
 		snapDeviceName := s.getDeviceName(snap.ID)
-		log.G(ctx).Debugf("creating snapshot device '%s' from '%s'", snapDeviceName, parentDeviceName)
 
-		err := s.pool.CreateSnapshotDevice(ctx, parentDeviceName, snapDeviceName, s.config.BaseImageSizeBytes)
+		log.G(ctx).Debugf("creating snapshot device '%s' from '%s' with fsType: '%s'", snapDeviceName, parentDeviceName, fileSystemType)
+
+		err = s.pool.CreateSnapshotDevice(ctx, parentDeviceName, snapDeviceName, s.config.BaseImageSizeBytes)
 		if err != nil {
 			log.G(ctx).WithError(err).Errorf("failed to create snapshot device from parent %s", parentDeviceName)
 			return nil, err
 		}
 	}
 
-	mounts := s.buildMounts(snap)
+	mounts := s.buildMounts(ctx, snap, fileSystemType)
 
 	// Remove default directories not expected by the container image
 	_ = mount.WithTempMount(ctx, mounts, func(root string) error {
@@ -386,23 +454,37 @@ func (s *Snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, k
 	return mounts, nil
 }
 
-// mkfs creates ext4 filesystem on the given devmapper device
-func (s *Snapshotter) mkfs(ctx context.Context, deviceName string) error {
-	args := []string{
-		"-E",
-		// We don't want any zeroing in advance when running mkfs on thin devices (see "man mkfs.ext4")
-		"nodiscard,lazy_itable_init=0,lazy_journal_init=0",
-		dmsetup.GetFullDevicePath(deviceName),
+// mkfs creates filesystem on the given devmapper device based on type
+// specified in config.
+func mkfs(ctx context.Context, fs fsType, fsOptions string, path string) error {
+	mkfsCommand := ""
+	var args []string
+
+	switch fs {
+	case fsTypeExt4:
+		mkfsCommand = "mkfs.ext4"
+		args = []string{
+			"-E",
+			fsOptions,
+			path,
+		}
+	case fsTypeXFS:
+		mkfsCommand = "mkfs.xfs"
+		args = []string{
+			path,
+		}
+	default:
+		return errors.New("file system not supported")
 	}
 
-	log.G(ctx).Debugf("mkfs.ext4 %s", strings.Join(args, " "))
-	output, err := exec.Command("mkfs.ext4", args...).CombinedOutput()
+	log.G(ctx).Debugf("%s %s", mkfsCommand, strings.Join(args, " "))
+	b, err := exec.Command(mkfsCommand, args...).CombinedOutput()
+	out := string(b)
 	if err != nil {
-		log.G(ctx).WithError(err).Errorf("failed to write fs:\n%s", string(output))
-		return err
+		return fmt.Errorf("%s couldn't initialize %q: %s: %w", mkfsCommand, path, out, err)
 	}
 
-	log.G(ctx).Debugf("mkfs:\n%s", string(output))
+	log.G(ctx).Debugf("mkfs:\n%s", out)
 	return nil
 }
 
@@ -416,9 +498,15 @@ func (s *Snapshotter) getDevicePath(snap storage.Snapshot) string {
 	return dmsetup.GetFullDevicePath(name)
 }
 
-func (s *Snapshotter) buildMounts(snap storage.Snapshot) []mount.Mount {
+func (s *Snapshotter) buildMounts(ctx context.Context, snap storage.Snapshot, fileSystemType fsType) []mount.Mount {
 	var options []string
 
+	if fileSystemType == "" {
+		log.G(ctx).Error("File system type cannot be empty")
+		return nil
+	} else if fileSystemType == fsTypeXFS {
+		options = append(options, "nouuid")
+	}
 	if snap.Kind != snapshots.KindActive {
 		options = append(options, "ro")
 	}
@@ -426,7 +514,7 @@ func (s *Snapshotter) buildMounts(snap storage.Snapshot) []mount.Mount {
 	mounts := []mount.Mount{
 		{
 			Source:  s.getDevicePath(snap),
-			Type:    fsTypeExt4,
+			Type:    string(fileSystemType),
 			Options: options,
 		},
 	}
@@ -453,12 +541,12 @@ func (s *Snapshotter) withTransaction(ctx context.Context, writable bool, fn fun
 	if err != nil || !writable {
 		if terr := trans.Rollback(); terr != nil {
 			log.G(ctx).WithError(terr).Error("failed to rollback transaction")
-			result = multierror.Append(result, errors.Wrap(terr, "rollback failed"))
+			result = multierror.Append(result, fmt.Errorf("rollback failed: %w", terr))
 		}
 	} else {
 		if terr := trans.Commit(); terr != nil {
 			log.G(ctx).WithError(terr).Error("failed to commit transaction")
-			result = multierror.Append(result, errors.Wrap(terr, "commit failed"))
+			result = multierror.Append(result, fmt.Errorf("commit failed: %w", terr))
 		}
 	}
 
@@ -474,4 +562,38 @@ func (s *Snapshotter) withTransaction(ctx context.Context, writable bool, fn fun
 	}
 
 	return nil
+}
+
+// Cleanup cleans up all removed and unused resources
+func (s *Snapshotter) Cleanup(ctx context.Context) error {
+	log.G(ctx).Debug("cleanup")
+
+	var removedDevices []*DeviceInfo
+
+	if !s.config.AsyncRemove {
+		return nil
+	}
+
+	if err := s.pool.WalkDevices(ctx, func(info *DeviceInfo) error {
+		if info.State == Removed {
+			removedDevices = append(removedDevices, info)
+		}
+		return nil
+	}); err != nil {
+		log.G(ctx).WithError(err).Error("failed to query devices from metastore")
+		return err
+	}
+
+	var result *multierror.Error
+	for _, dev := range removedDevices {
+		log.G(ctx).WithField("device", dev.Name).Debug("cleanup device")
+		if err := s.pool.RemoveDevice(ctx, dev.Name); err != nil {
+			log.G(ctx).WithField("device", dev.Name).Error("failed to cleanup device")
+			result = multierror.Append(result, err)
+		} else {
+			log.G(ctx).WithField("device", dev.Name).Debug("cleanuped device")
+		}
+	}
+
+	return result.ErrorOrNil()
 }

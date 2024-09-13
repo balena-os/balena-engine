@@ -50,7 +50,7 @@ func (tw *Writer) Flush() error {
 	if tw.err != nil {
 		return tw.err
 	}
-	if nb := tw.curr.logicalRemaining(); nb > 0 {
+	if nb := tw.curr.LogicalRemaining(); nb > 0 {
 		return fmt.Errorf("archive/tar: missed writing %d bytes", nb)
 	}
 	if _, tw.err = tw.w.Write(zeroBlock[:tw.pad]); tw.err != nil {
@@ -117,8 +117,8 @@ func (tw *Writer) writeUSTARHeader(hdr *Header) error {
 	// Pack the main header.
 	var f formatter
 	blk := tw.templateV7Plus(hdr, f.formatString, f.formatOctal)
-	f.formatString(blk.toUSTAR().prefix(), namePrefix)
-	blk.setFormat(FormatUSTAR)
+	f.formatString(blk.USTAR().Prefix(), namePrefix)
+	blk.SetFormat(FormatUSTAR)
 	if f.err != nil {
 		return f.err // Should never happen since header is validated
 	}
@@ -208,7 +208,7 @@ func (tw *Writer) writePAXHeader(hdr *Header, paxHdrs map[string]string) error {
 	var f formatter // Ignore errors since they are expected
 	fmtStr := func(b []byte, s string) { f.formatString(b, toASCII(s)) }
 	blk := tw.templateV7Plus(hdr, fmtStr, f.formatOctal)
-	blk.setFormat(FormatPAX)
+	blk.SetFormat(FormatPAX)
 	if err := tw.writeRawHeader(blk, hdr.Size, hdr.Typeflag); err != nil {
 		return err
 	}
@@ -250,10 +250,10 @@ func (tw *Writer) writeGNUHeader(hdr *Header) error {
 	var spb []byte
 	blk := tw.templateV7Plus(hdr, f.formatString, f.formatNumeric)
 	if !hdr.AccessTime.IsZero() {
-		f.formatNumeric(blk.toGNU().accessTime(), hdr.AccessTime.Unix())
+		f.formatNumeric(blk.GNU().AccessTime(), hdr.AccessTime.Unix())
 	}
 	if !hdr.ChangeTime.IsZero() {
-		f.formatNumeric(blk.toGNU().changeTime(), hdr.ChangeTime.Unix())
+		f.formatNumeric(blk.GNU().ChangeTime(), hdr.ChangeTime.Unix())
 	}
 	// TODO(dsnet): Re-enable this when adding sparse support.
 	// See https://golang.org/issue/22735
@@ -293,7 +293,7 @@ func (tw *Writer) writeGNUHeader(hdr *Header) error {
 			f.formatNumeric(blk.GNU().RealSize(), realSize)
 		}
 	*/
-	blk.setFormat(FormatGNU)
+	blk.SetFormat(FormatGNU)
 	if err := tw.writeRawHeader(blk, hdr.Size, hdr.Typeflag); err != nil {
 		return err
 	}
@@ -321,28 +321,28 @@ type (
 // The block returned is only valid until the next call to
 // templateV7Plus or writeRawFile.
 func (tw *Writer) templateV7Plus(hdr *Header, fmtStr stringFormatter, fmtNum numberFormatter) *block {
-	tw.blk.reset()
+	tw.blk.Reset()
 
 	modTime := hdr.ModTime
 	if modTime.IsZero() {
 		modTime = time.Unix(0, 0)
 	}
 
-	v7 := tw.blk.toV7()
-	v7.typeFlag()[0] = hdr.Typeflag
-	fmtStr(v7.name(), hdr.Name)
-	fmtStr(v7.linkName(), hdr.Linkname)
-	fmtNum(v7.mode(), hdr.Mode)
-	fmtNum(v7.uid(), int64(hdr.Uid))
-	fmtNum(v7.gid(), int64(hdr.Gid))
-	fmtNum(v7.size(), hdr.Size)
-	fmtNum(v7.modTime(), modTime.Unix())
+	v7 := tw.blk.V7()
+	v7.TypeFlag()[0] = hdr.Typeflag
+	fmtStr(v7.Name(), hdr.Name)
+	fmtStr(v7.LinkName(), hdr.Linkname)
+	fmtNum(v7.Mode(), hdr.Mode)
+	fmtNum(v7.UID(), int64(hdr.Uid))
+	fmtNum(v7.GID(), int64(hdr.Gid))
+	fmtNum(v7.Size(), hdr.Size)
+	fmtNum(v7.ModTime(), modTime.Unix())
 
-	ustar := tw.blk.toUSTAR()
-	fmtStr(ustar.userName(), hdr.Uname)
-	fmtStr(ustar.groupName(), hdr.Gname)
-	fmtNum(ustar.devMajor(), hdr.Devmajor)
-	fmtNum(ustar.devMinor(), hdr.Devminor)
+	ustar := tw.blk.USTAR()
+	fmtStr(ustar.UserName(), hdr.Uname)
+	fmtStr(ustar.GroupName(), hdr.Gname)
+	fmtNum(ustar.DevMajor(), hdr.Devmajor)
+	fmtNum(ustar.DevMinor(), hdr.Devminor)
 
 	return &tw.blk
 }
@@ -351,7 +351,7 @@ func (tw *Writer) templateV7Plus(hdr *Header, fmtStr stringFormatter, fmtNum num
 // It uses format to encode the header format and will write data as the body.
 // It uses default values for all of the other fields (as BSD and GNU tar does).
 func (tw *Writer) writeRawFile(name, data string, flag byte, format Format) error {
-	tw.blk.reset()
+	tw.blk.Reset()
 
 	// Best effort for the filename.
 	name = toASCII(name)
@@ -361,15 +361,15 @@ func (tw *Writer) writeRawFile(name, data string, flag byte, format Format) erro
 	name = strings.TrimRight(name, "/")
 
 	var f formatter
-	v7 := tw.blk.toV7()
-	v7.typeFlag()[0] = flag
-	f.formatString(v7.name(), name)
-	f.formatOctal(v7.mode(), 0)
-	f.formatOctal(v7.uid(), 0)
-	f.formatOctal(v7.gid(), 0)
-	f.formatOctal(v7.size(), int64(len(data))) // Must be < 8GiB
-	f.formatOctal(v7.modTime(), 0)
-	tw.blk.setFormat(format)
+	v7 := tw.blk.V7()
+	v7.TypeFlag()[0] = flag
+	f.formatString(v7.Name(), name)
+	f.formatOctal(v7.Mode(), 0)
+	f.formatOctal(v7.UID(), 0)
+	f.formatOctal(v7.GID(), 0)
+	f.formatOctal(v7.Size(), int64(len(data))) // Must be < 8GiB
+	f.formatOctal(v7.ModTime(), 0)
+	tw.blk.SetFormat(format)
 	if f.err != nil {
 		return f.err // Only occurs if size condition is violated
 	}
@@ -511,13 +511,10 @@ func (fw *regFileWriter) ReadFrom(r io.Reader) (int64, error) {
 	return io.Copy(struct{ io.Writer }{fw}, r)
 }
 
-// logicalRemaining implements fileState.logicalRemaining.
-func (fw regFileWriter) logicalRemaining() int64 {
+func (fw regFileWriter) LogicalRemaining() int64 {
 	return fw.nb
 }
-
-// logicalRemaining implements fileState.physicalRemaining.
-func (fw regFileWriter) physicalRemaining() int64 {
+func (fw regFileWriter) PhysicalRemaining() int64 {
 	return fw.nb
 }
 
@@ -529,9 +526,9 @@ type sparseFileWriter struct {
 }
 
 func (sw *sparseFileWriter) Write(b []byte) (n int, err error) {
-	overwrite := int64(len(b)) > sw.logicalRemaining()
+	overwrite := int64(len(b)) > sw.LogicalRemaining()
 	if overwrite {
-		b = b[:sw.logicalRemaining()]
+		b = b[:sw.LogicalRemaining()]
 	}
 
 	b0 := b
@@ -559,7 +556,7 @@ func (sw *sparseFileWriter) Write(b []byte) (n int, err error) {
 		return n, errMissData // Not possible; implies bug in validation logic
 	case err != nil:
 		return n, err
-	case sw.logicalRemaining() == 0 && sw.physicalRemaining() > 0:
+	case sw.LogicalRemaining() == 0 && sw.PhysicalRemaining() > 0:
 		return n, errUnrefData // Not possible; implies bug in validation logic
 	case overwrite:
 		return n, ErrWriteTooLong
@@ -581,12 +578,12 @@ func (sw *sparseFileWriter) ReadFrom(r io.Reader) (n int64, err error) {
 
 	var readLastByte bool
 	pos0 := sw.pos
-	for sw.logicalRemaining() > 0 && !readLastByte && err == nil {
+	for sw.LogicalRemaining() > 0 && !readLastByte && err == nil {
 		var nf int64 // Size of fragment
 		dataStart, dataEnd := sw.sp[0].Offset, sw.sp[0].endOffset()
 		if sw.pos < dataStart { // In a hole fragment
 			nf = dataStart - sw.pos
-			if sw.physicalRemaining() == 0 {
+			if sw.PhysicalRemaining() == 0 {
 				readLastByte = true
 				nf--
 			}
@@ -616,18 +613,18 @@ func (sw *sparseFileWriter) ReadFrom(r io.Reader) (n int64, err error) {
 		return n, errMissData // Not possible; implies bug in validation logic
 	case err != nil:
 		return n, err
-	case sw.logicalRemaining() == 0 && sw.physicalRemaining() > 0:
+	case sw.LogicalRemaining() == 0 && sw.PhysicalRemaining() > 0:
 		return n, errUnrefData // Not possible; implies bug in validation logic
 	default:
 		return n, ensureEOF(rs)
 	}
 }
 
-func (sw sparseFileWriter) logicalRemaining() int64 {
+func (sw sparseFileWriter) LogicalRemaining() int64 {
 	return sw.sp[len(sw.sp)-1].endOffset() - sw.pos
 }
-func (sw sparseFileWriter) physicalRemaining() int64 {
-	return sw.fw.physicalRemaining()
+func (sw sparseFileWriter) PhysicalRemaining() int64 {
+	return sw.fw.PhysicalRemaining()
 }
 
 // zeroWriter may only be written with NULs, otherwise it returns errWriteHole.

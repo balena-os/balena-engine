@@ -31,19 +31,68 @@ package restart
 
 import (
 	"context"
+	"net/url"
 
 	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/containers"
 )
 
 const (
 	// StatusLabel sets the restart status label for a container
 	StatusLabel = "containerd.io/restart.status"
+	// LogURILabel sets the restart log uri label for a container
+	LogURILabel = "containerd.io/restart.loguri"
+
 	// LogPathLabel sets the restart log path label for a container
+	//
+	// Deprecated(in release 1.5): use LogURILabel
 	LogPathLabel = "containerd.io/restart.logpath"
 )
 
+// WithLogURI sets the specified log uri for a container.
+func WithLogURI(uri *url.URL) func(context.Context, *containerd.Client, *containers.Container) error {
+	return WithLogURIString(uri.String())
+}
+
+// WithLogURIString sets the specified log uri string for a container.
+func WithLogURIString(uriString string) func(context.Context, *containerd.Client, *containers.Container) error {
+	return func(_ context.Context, _ *containerd.Client, c *containers.Container) error {
+		ensureLabels(c)
+		c.Labels[LogURILabel] = uriString
+		return nil
+	}
+}
+
+// WithBinaryLogURI sets the binary-type log uri for a container.
+//
+// Deprecated(in release 1.5): use WithLogURI
+func WithBinaryLogURI(binary string, args map[string]string) func(context.Context, *containerd.Client, *containers.Container) error {
+	uri, err := cio.LogURIGenerator("binary", binary, args)
+	if err != nil {
+		return func(context.Context, *containerd.Client, *containers.Container) error {
+			return err
+		}
+	}
+	return WithLogURI(uri)
+}
+
+// WithFileLogURI sets the file-type log uri for a container.
+//
+// Deprecated(in release 1.5): use WithLogURI
+func WithFileLogURI(path string) func(context.Context, *containerd.Client, *containers.Container) error {
+	uri, err := cio.LogURIGenerator("file", path, nil)
+	if err != nil {
+		return func(context.Context, *containerd.Client, *containers.Container) error {
+			return err
+		}
+	}
+	return WithLogURI(uri)
+}
+
 // WithLogPath sets the log path for a container
+//
+// Deprecated(in release 1.5): use WithLogURI with "file://<path>" URI.
 func WithLogPath(path string) func(context.Context, *containerd.Client, *containers.Container) error {
 	return func(_ context.Context, _ *containerd.Client, c *containers.Container) error {
 		ensureLabels(c)
@@ -68,6 +117,7 @@ func WithNoRestarts(_ context.Context, _ *containerd.Client, c *containers.Conta
 	}
 	delete(c.Labels, StatusLabel)
 	delete(c.Labels, LogPathLabel)
+	delete(c.Labels, LogURILabel)
 	return nil
 }
 

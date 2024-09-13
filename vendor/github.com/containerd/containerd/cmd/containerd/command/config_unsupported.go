@@ -1,3 +1,4 @@
+//go:build !linux && !windows && !solaris
 // +build !linux,!windows,!solaris
 
 /*
@@ -24,17 +25,10 @@ import (
 )
 
 func defaultConfig() *srvconfig.Config {
-	return &srvconfig.Config{
-		Root:  defaults.DefaultRootDir,
-		State: defaults.DefaultStateDir,
-		GRPC: srvconfig.GRPCConfig{
-			Address: defaults.DefaultAddress,
-		},
-		Debug: srvconfig.Debug{
-			Level:   "info",
-			Address: defaults.DefaultDebugAddress,
-		},
-		DisabledPlugins: []string{},
-		RequiredPlugins: []string{},
+	cfg := platformAgnosticDefaultConfig()
+	cfg.Debug = srvconfig.Debug{
+		Level:   "info",
+		Address: defaults.DefaultDebugAddress,
 	}
+	return cfg
 }

@@ -1,9 +1,8 @@
-// +build linux
-
 package runc
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -84,14 +83,17 @@ following will output a list of processes running in the container:
 			Value: &cli.StringSlice{},
 			Usage: "add a capability to the bounding set for the process",
 		},
-		cli.BoolFlag{
-			Name:   "no-subreaper",
-			Usage:  "disable the use of the subreaper used to reap reparented processes",
-			Hidden: true,
-		},
 		cli.IntFlag{
 			Name:  "preserve-fds",
 			Usage: "Pass N additional file descriptors to the container (stdio + $LISTEN_FDS + N in total)",
+		},
+		cli.StringSliceFlag{
+			Name:  "cgroup",
+			Usage: "run the process in an (existing) sub-cgroup(s). Format is [<controller>:]<cgroup>.",
+		},
+		cli.BoolFlag{
+			Name:  "ignore-paused",
+			Usage: "allow exec in a paused container",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -105,9 +107,36 @@ following will output a list of processes running in the container:
 		if err == nil {
 			os.Exit(status)
 		}
-		return fmt.Errorf("exec failed: %v", err)
+		fatalWithCode(fmt.Errorf("exec failed: %w", err), 255)
+		return nil // to satisfy the linter
 	},
 	SkipArgReorder: true,
+}
+
+func getSubCgroupPaths(args []string) (map[string]string, error) {
+	if len(args) == 0 {
+		return nil, nil
+	}
+	paths := make(map[string]string, len(args))
+	for _, c := range args {
+		// Split into controller:path.
+		cs := strings.SplitN(c, ":", 3)
+		if len(cs) > 2 {
+			return nil, fmt.Errorf("invalid --cgroup argument: %s", c)
+		}
+		if len(cs) == 1 { // no controller: prefix
+			if len(args) != 1 {
+				return nil, fmt.Errorf("invalid --cgroup argument: %s (missing <controller>: prefix)", c)
+			}
+			paths[""] = c
+		} else {
+			// There may be a few comma-separated controllers.
+			for _, ctrl := range strings.Split(cs[0], ",") {
+				paths[ctrl] = cs[1]
+			}
+		}
+	}
+	return paths, nil
 }
 
 func execProcess(context *cli.Context) (int, error) {
@@ -120,13 +149,15 @@ func execProcess(context *cli.Context) (int, error) {
 		return -1, err
 	}
 	if status == libcontainer.Stopped {
-		return -1, fmt.Errorf("cannot exec a container that has stopped")
+		return -1, errors.New("cannot exec in a stopped container")
+	}
+	if status == libcontainer.Paused && !context.Bool("ignore-paused") {
+		return -1, errors.New("cannot exec in a paused container (use --ignore-paused to override)")
 	}
 	path := context.String("process")
 	if path == "" && len(context.Args()) == 1 {
-		return -1, fmt.Errorf("process args cannot be empty")
+		return -1, errors.New("process args cannot be empty")
 	}
-	detach := context.Bool("detach")
 	state, err := container.State()
 	if err != nil {
 		return -1, err
@@ -137,9 +168,9 @@ func execProcess(context *cli.Context) (int, error) {
 		return -1, err
 	}
 
-	logLevel := "info"
-	if context.GlobalBool("debug") {
-		logLevel = "debug"
+	cgPaths, err := getSubCgroupPaths(context.StringSlice("cgroup"))
+	if err != nil {
+		return -1, err
 	}
 
 	r := &runner{
@@ -147,12 +178,12 @@ func execProcess(context *cli.Context) (int, error) {
 		shouldDestroy:   false,
 		container:       container,
 		consoleSocket:   context.String("console-socket"),
-		detach:          detach,
+		detach:          context.Bool("detach"),
 		pidFile:         context.String("pid-file"),
 		action:          CT_ACT_RUN,
 		init:            false,
 		preserveFDs:     context.Int("preserve-fds"),
-		logLevel:        logLevel,
+		subCgroupPaths:  cgPaths,
 	}
 	return r.run(p)
 }
@@ -193,7 +224,6 @@ func getProcess(context *cli.Context, bundle string) (*specs.Process, error) {
 	if caps := context.StringSlice("cap"); len(caps) > 0 {
 		for _, c := range caps {
 			p.Capabilities.Bounding = append(p.Capabilities.Bounding, c)
-			p.Capabilities.Inheritable = append(p.Capabilities.Inheritable, c)
 			p.Capabilities.Effective = append(p.Capabilities.Effective, c)
 			p.Capabilities.Permitted = append(p.Capabilities.Permitted, c)
 			p.Capabilities.Ambient = append(p.Capabilities.Ambient, c)
@@ -203,6 +233,7 @@ func getProcess(context *cli.Context, bundle string) (*specs.Process, error) {
 	p.Env = append(p.Env, context.StringSlice("env")...)
 
 	// set the tty
+	p.Terminal = false
 	if context.IsSet("tty") {
 		p.Terminal = context.Bool("tty")
 	}
@@ -215,13 +246,13 @@ func getProcess(context *cli.Context, bundle string) (*specs.Process, error) {
 		if len(u) > 1 {
 			gid, err := strconv.Atoi(u[1])
 			if err != nil {
-				return nil, fmt.Errorf("parsing %s as int for gid failed: %v", u[1], err)
+				return nil, fmt.Errorf("parsing %s as int for gid failed: %w", u[1], err)
 			}
 			p.User.GID = uint32(gid)
 		}
 		uid, err := strconv.Atoi(u[0])
 		if err != nil {
-			return nil, fmt.Errorf("parsing %s as int for uid failed: %v", u[0], err)
+			return nil, fmt.Errorf("parsing %s as int for uid failed: %w", u[0], err)
 		}
 		p.User.UID = uint32(uid)
 	}

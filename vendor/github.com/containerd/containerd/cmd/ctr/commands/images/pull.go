@@ -18,6 +18,7 @@ package images
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cmd/ctr/commands"
@@ -25,8 +26,8 @@ import (
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/platforms"
+	"github.com/opencontainers/image-spec/identity"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
@@ -51,7 +52,19 @@ command. As part of this process, we do the following:
 		},
 		cli.BoolFlag{
 			Name:  "all-platforms",
-			Usage: "pull content from all platforms",
+			Usage: "pull content and metadata from all platforms",
+		},
+		cli.BoolFlag{
+			Name:  "all-metadata",
+			Usage: "Pull metadata for all platforms",
+		},
+		cli.BoolFlag{
+			Name:  "print-chainid",
+			Usage: "Print the resulting image's chain ID",
+		},
+		cli.IntFlag{
+			Name:  "max-concurrent-downloads",
+			Usage: "Set the max concurrent downloads for each pull",
 		},
 	),
 	Action: func(context *cli.Context) error {
@@ -78,6 +91,7 @@ command. As part of this process, we do the following:
 		if err != nil {
 			return err
 		}
+
 		img, err := content.Fetch(ctx, client, ref, config)
 		if err != nil {
 			return err
@@ -91,13 +105,13 @@ command. As part of this process, we do the following:
 		if context.Bool("all-platforms") {
 			p, err = images.Platforms(ctx, client.ContentStore(), img.Target)
 			if err != nil {
-				return errors.Wrap(err, "unable to resolve image platforms")
+				return fmt.Errorf("unable to resolve image platforms: %w", err)
 			}
 		} else {
 			for _, s := range context.StringSlice("platform") {
 				ps, err := platforms.Parse(s)
 				if err != nil {
-					return errors.Wrapf(err, "unable to parse platform %s", s)
+					return fmt.Errorf("unable to parse platform %s: %w", s, err)
 				}
 				p = append(p, ps)
 			}
@@ -106,6 +120,7 @@ command. As part of this process, we do the following:
 			p = append(p, platforms.DefaultSpec())
 		}
 
+		start := time.Now()
 		for _, platform := range p {
 			fmt.Printf("unpacking %s %s...\n", platforms.Format(platform), img.Target.Digest)
 			i := containerd.NewImageWithPlatform(client, img, platforms.Only(platform))
@@ -113,9 +128,16 @@ command. As part of this process, we do the following:
 			if err != nil {
 				return err
 			}
+			if context.Bool("print-chainid") {
+				diffIDs, err := i.RootFS(ctx)
+				if err != nil {
+					return err
+				}
+				chainID := identity.ChainID(diffIDs).String()
+				fmt.Printf("image chain ID: %s\n", chainID)
+			}
 		}
-
-		fmt.Println("done")
+		fmt.Printf("done: %s\t\n", time.Since(start))
 		return nil
 	},
 }

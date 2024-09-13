@@ -1021,12 +1021,12 @@ func TestParsePAX(t *testing.T) {
 
 func TestReadOldGNUSparseMap(t *testing.T) {
 	populateSparseMap := func(sa sparseArray, sps []string) []string {
-		for i := 0; len(sps) > 0 && i < sa.maxEntries(); i++ {
-			copy(sa.entry(i), sps[0])
+		for i := 0; len(sps) > 0 && i < sa.MaxEntries(); i++ {
+			copy(sa.Entry(i), sps[0])
 			sps = sps[1:]
 		}
 		if len(sps) > 0 {
-			copy(sa.isExtended(), "\x80")
+			copy(sa.IsExtended(), "\x80")
 		}
 		return sps
 	}
@@ -1034,19 +1034,19 @@ func TestReadOldGNUSparseMap(t *testing.T) {
 	makeInput := func(format Format, size string, sps ...string) (out []byte) {
 		// Write the initial GNU header.
 		var blk block
-		gnu := blk.toGNU()
-		sparse := gnu.sparse()
-		copy(gnu.realSize(), size)
+		gnu := blk.GNU()
+		sparse := gnu.Sparse()
+		copy(gnu.RealSize(), size)
 		sps = populateSparseMap(sparse, sps)
 		if format != FormatUnknown {
-			blk.setFormat(format)
+			blk.SetFormat(format)
 		}
 		out = append(out, blk[:]...)
 
 		// Write extended sparse blocks.
 		for len(sps) > 0 {
 			var blk block
-			sps = populateSparseMap(blk.toSparse(), sps)
+			sps = populateSparseMap(blk.Sparse(), sps)
 			out = append(out, blk[:]...)
 		}
 		return out
@@ -1359,11 +1359,11 @@ func TestFileReader(t *testing.T) {
 			wantCnt int64
 			wantErr error
 		}
-		testRemaining struct { // logicalRemaining() == wantLCnt, physicalRemaining() == wantPCnt
+		testRemaining struct { // LogicalRemaining() == wantLCnt, PhysicalRemaining() == wantPCnt
 			wantLCnt int64
 			wantPCnt int64
 		}
-		testFnc any // testRead | testWriteTo | testRemaining
+		testFnc interface{} // testRead | testWriteTo | testRemaining
 	)
 
 	type (
@@ -1376,7 +1376,7 @@ func TestFileReader(t *testing.T) {
 			spd     sparseDatas
 			size    int64
 		}
-		fileMaker any // makeReg | makeSparse
+		fileMaker interface{} // makeReg | makeSparse
 	)
 
 	vectors := []struct {
@@ -1596,11 +1596,11 @@ func TestFileReader(t *testing.T) {
 					t.Errorf("test %d.%d, expected %d more operations", i, j, len(f.ops))
 				}
 			case testRemaining:
-				if got := fr.logicalRemaining(); got != tf.wantLCnt {
-					t.Errorf("test %d.%d, logicalRemaining() = %d, want %d", i, j, got, tf.wantLCnt)
+				if got := fr.LogicalRemaining(); got != tf.wantLCnt {
+					t.Errorf("test %d.%d, LogicalRemaining() = %d, want %d", i, j, got, tf.wantLCnt)
 				}
-				if got := fr.physicalRemaining(); got != tf.wantPCnt {
-					t.Errorf("test %d.%d, physicalRemaining() = %d, want %d", i, j, got, tf.wantPCnt)
+				if got := fr.PhysicalRemaining(); got != tf.wantPCnt {
+					t.Errorf("test %d.%d, PhysicalRemaining() = %d, want %d", i, j, got, tf.wantPCnt)
 				}
 			default:
 				t.Fatalf("test %d.%d, unknown test operation: %T", i, j, tf)

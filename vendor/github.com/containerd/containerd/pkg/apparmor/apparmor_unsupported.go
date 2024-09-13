@@ -1,4 +1,5 @@
-// +build !apparmor !linux
+//go:build !linux
+// +build !linux
 
 /*
    Copyright The containerd Authors.
@@ -18,7 +19,6 @@
 
 package apparmor
 
-//nolint: deadcode, unused
-func HostSupports() bool {
+func hostSupports() bool {
 	return false
 }

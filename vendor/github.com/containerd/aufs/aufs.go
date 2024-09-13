@@ -32,26 +32,11 @@ import (
 
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
-	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/containerd/snapshots/storage"
 	"github.com/containerd/continuity/fs"
 	"github.com/pkg/errors"
 )
-
-func init() {
-	plugin.Register(&plugin.Registration{
-		Type: plugin.SnapshotPlugin,
-		ID:   "aufs",
-		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			ic.Meta.Platforms = append(ic.Meta.Platforms, platforms.DefaultSpec())
-			ic.Meta.Exports["root"] = ic.Root
-			return New(ic.Root)
-		},
-	})
-
-}
 
 var (
 	dirperm        sync.Once
@@ -66,7 +51,7 @@ type snapshotter struct {
 // New creates a new snapshotter using aufs
 func New(root string) (snapshots.Snapshotter, error) {
 	if err := supported(); err != nil {
-		return nil, errors.Wrap(plugin.ErrSkipPlugin, err.Error())
+		return nil, err
 	}
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
@@ -244,13 +229,13 @@ func (o *snapshotter) Remove(ctx context.Context, key string) (err error) {
 }
 
 // Walk the committed snapshots.
-func (o *snapshotter) Walk(ctx context.Context, fn func(context.Context, snapshots.Info) error) error {
+func (o *snapshotter) Walk(ctx context.Context, fn snapshots.WalkFunc, filters ...string) error {
 	ctx, t, err := o.ms.TransactionContext(ctx, false)
 	if err != nil {
 		return err
 	}
 	defer t.Rollback()
-	return storage.WalkInfo(ctx, fn)
+	return storage.WalkInfo(ctx, fn, filters...)
 }
 
 func (o *snapshotter) createSnapshot(ctx context.Context, kind snapshots.Kind, key, parent string, opts []snapshots.Opt) ([]mount.Mount, error) {
@@ -400,10 +385,11 @@ func (o *snapshotter) upperPath(id string) string {
 
 func supported() error {
 	// modprobe the aufs module before checking
+	var probeError string
 	cmd := exec.Command("modprobe", "aufs")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return errors.Wrapf(err, "modprobe aufs failed: %q", out)
+		probeError = fmt.Sprintf(" (modprobe aufs failed: %v %q)", err, out)
 	}
 
 	f, err := os.Open("/proc/filesystems")
@@ -418,7 +404,7 @@ func supported() error {
 			return nil
 		}
 	}
-	return errors.Errorf("aufs is not supported")
+	return errors.Errorf("aufs is not supported" + probeError)
 }
 
 // useDirperm checks dirperm1 mount option can be used with the current
