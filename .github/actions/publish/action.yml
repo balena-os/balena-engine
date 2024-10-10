@@ -19,11 +19,11 @@ runs:
   using: "composite"
   steps:
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+      uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
 
     # https://github.com/moby/moby/blob/master/.github/workflows
     - name: Build release
-      uses: docker/bake-action@v2
+      uses: docker/bake-action@6c87dcca988e4e074e3ab1f976a70f63ec9673fb # v2
       with:
         targets: cross
       env:
@@ -54,7 +54,7 @@ runs:
           -C bundles/cross/${{ env.matrix_value }} .
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
       with:
         name: gh-release-${{ github.event.pull_request.head.sha || github.event.head_commit.id }}-${{ strategy.job-index }}
         path: dist
