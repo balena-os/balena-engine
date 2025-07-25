@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 /*
@@ -20,6 +21,8 @@ package linux
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/containerd/cgroups"
@@ -35,7 +38,6 @@ import (
 	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl"
 	"github.com/gogo/protobuf/types"
-	"github.com/pkg/errors"
 )
 
 // Task on a linux based system
@@ -85,8 +87,8 @@ func (t *Task) Namespace() string {
 }
 
 // PID of the task
-func (t *Task) PID() uint32 {
-	return uint32(t.pid)
+func (t *Task) PID(_ context.Context) (uint32, error) {
+	return uint32(t.pid), nil
 }
 
 // Delete the task and return the exit status
@@ -226,9 +228,9 @@ func (t *Task) Kill(ctx context.Context, signal uint32, all bool) error {
 }
 
 // Exec creates a new process inside the task
-func (t *Task) Exec(ctx context.Context, id string, opts runtime.ExecOpts) (runtime.Process, error) {
+func (t *Task) Exec(ctx context.Context, id string, opts runtime.ExecOpts) (runtime.ExecProcess, error) {
 	if err := identifiers.Validate(id); err != nil {
-		return nil, errors.Wrapf(err, "invalid exec id")
+		return nil, fmt.Errorf("invalid exec id: %w", err)
 	}
 	request := &shim.ExecProcessRequest{
 		ID:       id,
@@ -306,7 +308,7 @@ func (t *Task) Checkpoint(ctx context.Context, path string, options *types.Any) 
 }
 
 // Update changes runtime information of a running task
-func (t *Task) Update(ctx context.Context, resources *types.Any) error {
+func (t *Task) Update(ctx context.Context, resources *types.Any, _ map[string]string) error {
 	if _, err := t.shim.Update(ctx, &shim.UpdateTaskRequest{
 		Resources: resources,
 	}); err != nil {
@@ -316,7 +318,7 @@ func (t *Task) Update(ctx context.Context, resources *types.Any) error {
 }
 
 // Process returns a specific process inside the task by the process id
-func (t *Task) Process(ctx context.Context, id string) (runtime.Process, error) {
+func (t *Task) Process(ctx context.Context, id string) (runtime.ExecProcess, error) {
 	p := &Process{
 		id: id,
 		t:  t,
@@ -332,7 +334,7 @@ func (t *Task) Stats(ctx context.Context) (*types.Any, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.cg == nil {
-		return nil, errors.Wrap(errdefs.ErrNotFound, "cgroup does not exist")
+		return nil, fmt.Errorf("cgroup does not exist: %w", errdefs.ErrNotFound)
 	}
 	stats, err := t.cg.Stat(cgroups.IgnoreNotExist)
 	if err != nil {
@@ -346,7 +348,7 @@ func (t *Task) Cgroup() (cgroups.Cgroup, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.cg == nil {
-		return nil, errors.Wrap(errdefs.ErrNotFound, "cgroup does not exist")
+		return nil, fmt.Errorf("cgroup does not exist: %w", errdefs.ErrNotFound)
 	}
 	return t.cg, nil
 }

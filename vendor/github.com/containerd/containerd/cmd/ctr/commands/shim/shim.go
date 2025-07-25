@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -20,18 +21,22 @@ package shim
 
 import (
 	gocontext "context"
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/containerd/console"
 	"github.com/containerd/containerd/cmd/ctr/commands"
+	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/runtime/v2/shim"
 	"github.com/containerd/containerd/runtime/v2/task"
 	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl"
 	ptypes "github.com/gogo/protobuf/types"
 	"github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -61,8 +66,8 @@ var Command = cli.Command{
 	Usage: "interact with a shim directly",
 	Flags: []cli.Flag{
 		cli.StringFlag{
-			Name:  "socket",
-			Usage: "socket on which to connect to the shim",
+			Name:  "id",
+			Usage: "container id",
 		},
 	},
 	Subcommands: []cli.Command{
@@ -116,7 +121,7 @@ var stateCommand = cli.Command{
 			return err
 		}
 		r, err := service.State(gocontext.Background(), &task.StateRequest{
-			ID: context.Args().First(),
+			ID: context.GlobalString("id"),
 		})
 		if err != nil {
 			return err
@@ -169,7 +174,7 @@ var execCommand = cli.Command{
 		}
 
 		// read spec file and extract Any object
-		spec, err := ioutil.ReadFile(context.String("spec"))
+		spec, err := os.ReadFile(context.String("spec"))
 		if err != nil {
 			return err
 		}
@@ -226,20 +231,31 @@ var execCommand = cli.Command{
 }
 
 func getTaskService(context *cli.Context) (task.TaskService, error) {
-	bindSocket := context.GlobalString("socket")
-	if bindSocket == "" {
-		return nil, errors.New("socket path must be specified")
+	id := context.GlobalString("id")
+	if id == "" {
+		return nil, fmt.Errorf("container id must be specified")
+	}
+	ns := context.GlobalString("namespace")
+
+	// /containerd-shim/ns/id/shim.sock is the old way to generate shim socket,
+	// compatible it
+	s1 := filepath.Join(string(filepath.Separator), "containerd-shim", ns, id, "shim.sock")
+	// this should not error, ctr always get a default ns
+	ctx := namespaces.WithNamespace(gocontext.Background(), ns)
+	s2, _ := shim.SocketAddress(ctx, context.GlobalString("address"), id)
+	s2 = strings.TrimPrefix(s2, "unix://")
+
+	for _, socket := range []string{s2, "\x00" + s1} {
+		conn, err := net.Dial("unix", socket)
+		if err == nil {
+			client := ttrpc.NewClient(conn)
+
+			// TODO(stevvooe): This actually leaks the connection. We were leaking it
+			// before, so may not be a huge deal.
+
+			return task.NewTaskClient(client), nil
+		}
 	}
 
-	conn, err := net.Dial("unix", "\x00"+bindSocket)
-	if err != nil {
-		return nil, err
-	}
-
-	client := ttrpc.NewClient(conn)
-
-	// TODO(stevvooe): This actually leaks the connection. We were leaking it
-	// before, so may not be a huge deal.
-
-	return task.NewTaskClient(client), nil
+	return nil, fmt.Errorf("fail to connect to container %s's shim", id)
 }

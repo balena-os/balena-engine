@@ -18,13 +18,14 @@ package shim
 
 import (
 	"context"
-	"net"
 	"sync"
 	"time"
 
 	v1 "github.com/containerd/containerd/api/services/ttrpc/events/v1"
 	"github.com/containerd/containerd/events"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/pkg/ttrpcutil"
+	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl"
 	"github.com/sirupsen/logrus"
 )
@@ -40,38 +41,46 @@ type item struct {
 	count int
 }
 
-func newPublisher(address string) *remoteEventsPublisher {
-	l := &remoteEventsPublisher{
-		dialer: newDialier(func() (net.Conn, error) {
-			return connect(address, dial)
-		}),
+// NewPublisher creates a new remote events publisher
+func NewPublisher(address string) (*RemoteEventsPublisher, error) {
+	client, err := ttrpcutil.NewClient(address)
+	if err != nil {
+		return nil, err
+	}
+
+	l := &RemoteEventsPublisher{
+		client:  client,
 		closed:  make(chan struct{}),
 		requeue: make(chan *item, queueSize),
 	}
+
 	go l.processQueue()
-	return l
+	return l, nil
 }
 
-type remoteEventsPublisher struct {
-	dialer  *dialer
+// RemoteEventsPublisher forwards events to a ttrpc server
+type RemoteEventsPublisher struct {
+	client  *ttrpcutil.Client
 	closed  chan struct{}
 	closer  sync.Once
 	requeue chan *item
 }
 
-func (l *remoteEventsPublisher) Done() <-chan struct{} {
+// Done returns a channel which closes when done
+func (l *RemoteEventsPublisher) Done() <-chan struct{} {
 	return l.closed
 }
 
-func (l *remoteEventsPublisher) Close() (err error) {
-	err = l.dialer.Close()
+// Close closes the remote connection and closes the done channel
+func (l *RemoteEventsPublisher) Close() (err error) {
+	err = l.client.Close()
 	l.closer.Do(func() {
 		close(l.closed)
 	})
 	return err
 }
 
-func (l *remoteEventsPublisher) processQueue() {
+func (l *RemoteEventsPublisher) processQueue() {
 	for i := range l.requeue {
 		if i.count > maxRequeue {
 			logrus.Errorf("evicting %s from queue because of retry count", i.ev.Topic)
@@ -79,25 +88,14 @@ func (l *remoteEventsPublisher) processQueue() {
 			continue
 		}
 
-		client, err := l.dialer.Get()
-		if err != nil {
-			l.dialer.Put(err)
-
-			l.queue(i)
-			logrus.WithError(err).Error("get events client")
-			continue
-		}
-		if _, err := client.Forward(i.ctx, &v1.ForwardRequest{
-			Envelope: i.ev,
-		}); err != nil {
-			l.dialer.Put(err)
+		if err := l.forwardRequest(i.ctx, &v1.ForwardRequest{Envelope: i.ev}); err != nil {
 			logrus.WithError(err).Error("forward event")
 			l.queue(i)
 		}
 	}
 }
 
-func (l *remoteEventsPublisher) queue(i *item) {
+func (l *RemoteEventsPublisher) queue(i *item) {
 	go func() {
 		i.count++
 		// re-queue after a short delay
@@ -106,7 +104,8 @@ func (l *remoteEventsPublisher) queue(i *item) {
 	}()
 }
 
-func (l *remoteEventsPublisher) Publish(ctx context.Context, topic string, event events.Event) error {
+// Publish publishes the event by forwarding it to the configured ttrpc server
+func (l *RemoteEventsPublisher) Publish(ctx context.Context, topic string, event events.Event) error {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return err
@@ -124,22 +123,47 @@ func (l *remoteEventsPublisher) Publish(ctx context.Context, topic string, event
 		},
 		ctx: ctx,
 	}
-	client, err := l.dialer.Get()
-	if err != nil {
-		l.dialer.Put(err)
+
+	if err := l.forwardRequest(i.ctx, &v1.ForwardRequest{Envelope: i.ev}); err != nil {
 		l.queue(i)
 		return err
 	}
-	if _, err := client.Forward(i.ctx, &v1.ForwardRequest{
-		Envelope: i.ev,
-	}); err != nil {
-		l.dialer.Put(err)
-		l.queue(i)
-		return err
-	}
+
 	return nil
 }
 
-func connect(address string, d func(string, time.Duration) (net.Conn, error)) (net.Conn, error) {
-	return d(address, 5*time.Second)
+func (l *RemoteEventsPublisher) forwardRequest(ctx context.Context, req *v1.ForwardRequest) error {
+	service, err := l.client.EventsService()
+	if err == nil {
+		fCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err = service.Forward(fCtx, req)
+		cancel()
+		if err == nil {
+			return nil
+		}
+	}
+
+	if err != ttrpc.ErrClosed {
+		return err
+	}
+
+	// Reconnect and retry request
+	if err = l.client.Reconnect(); err != nil {
+		return err
+	}
+
+	service, err = l.client.EventsService()
+	if err != nil {
+		return err
+	}
+
+	// try again with a fresh context, otherwise we may get a context timeout unexpectedly.
+	fCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	_, err = service.Forward(fCtx, req)
+	cancel()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -13,6 +13,11 @@ const (
 	MATCH_KIND_COPY
 )
 
+// Size of the output buffer in bytes. We'll flush the match once it gets this
+// large. As consequence, this is the maximum size of a LITERAL command we'll
+// generate on our deltas.
+const OUTPUT_BUFFER_SIZE = 16 * 1024 * 1024
+
 type match struct {
 	kind   matchKind
 	pos    uint64
@@ -31,6 +36,13 @@ func intSize(d uint64) uint8 {
 		return 4
 	default:
 		return 8
+	}
+}
+
+func newMatch(output io.Writer, buff []byte) match {
+	return match{
+		output: output,
+		lit:    buff,
 	}
 }
 
@@ -112,8 +124,11 @@ func (m *match) flush() error {
 		if err != nil {
 			return err
 		}
-		m.output.Write(m.lit)
-		m.lit = []byte{}
+		_, err = m.output.Write(m.lit)
+		if err != nil {
+			return err
+		}
+		m.lit = m.lit[:0] // reuse the same buffer
 	}
 	m.pos = 0
 	m.len = 0
@@ -134,8 +149,13 @@ func (m *match) add(kind matchKind, pos, len uint64) error {
 	case MATCH_KIND_LITERAL:
 		m.lit = append(m.lit, byte(pos))
 		m.len += 1
+		if m.len >= OUTPUT_BUFFER_SIZE {
+			err := m.flush()
+			if err != nil {
+				return err
+			}
+		}
 	case MATCH_KIND_COPY:
-		m.lit = []byte{}
 		if m.pos+m.len != pos {
 			err := m.flush()
 			if err != nil {

@@ -334,11 +334,8 @@ func (c *controller) processEndpointCreate(nmap map[string]*netWatch, ep *endpoi
 		return
 	}
 
-	networkID := n.ID()
-	endpointID := ep.ID()
-
 	c.Lock()
-	nw, ok := nmap[networkID]
+	nw, ok := nmap[n.ID()]
 	c.Unlock()
 
 	if ok {
@@ -346,12 +343,12 @@ func (c *controller) processEndpointCreate(nmap map[string]*netWatch, ep *endpoi
 		n.updateSvcRecord(ep, c.getLocalEps(nw), true)
 
 		c.Lock()
-		nw.localEps[endpointID] = ep
+		nw.localEps[ep.ID()] = ep
 
 		// If we had learned that from the kv store remove it
 		// from remote ep list now that we know that this is
 		// indeed a local endpoint
-		delete(nw.remoteEps, endpointID)
+		delete(nw.remoteEps, ep.ID())
 		c.Unlock()
 		return
 	}
@@ -367,8 +364,8 @@ func (c *controller) processEndpointCreate(nmap map[string]*netWatch, ep *endpoi
 	n.updateSvcRecord(ep, c.getLocalEps(nw), true)
 
 	c.Lock()
-	nw.localEps[endpointID] = ep
-	nmap[networkID] = nw
+	nw.localEps[ep.ID()] = ep
+	nmap[n.ID()] = nw
 	nw.stopCh = make(chan struct{})
 	c.Unlock()
 
@@ -396,14 +393,11 @@ func (c *controller) processEndpointDelete(nmap map[string]*netWatch, ep *endpoi
 		return
 	}
 
-	networkID := n.ID()
-	endpointID := ep.ID()
-
 	c.Lock()
-	nw, ok := nmap[networkID]
+	nw, ok := nmap[n.ID()]
 
 	if ok {
-		delete(nw.localEps, endpointID)
+		delete(nw.localEps, ep.ID())
 		c.Unlock()
 
 		// Update the svc db about local endpoint leave right away
@@ -417,9 +411,9 @@ func (c *controller) processEndpointDelete(nmap map[string]*netWatch, ep *endpoi
 
 			// This is the last container going away for the network. Destroy
 			// this network's svc db entry
-			delete(c.svcRecords, networkID)
+			delete(c.svcRecords, n.ID())
 
-			delete(nmap, networkID)
+			delete(nmap, n.ID())
 		}
 	}
 	c.Unlock()

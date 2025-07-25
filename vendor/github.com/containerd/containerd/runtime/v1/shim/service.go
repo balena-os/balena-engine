@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 /*
@@ -22,7 +23,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -45,7 +45,6 @@ import (
 	"github.com/containerd/typeurl"
 	ptypes "github.com/gogo/protobuf/types"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -91,7 +90,7 @@ func NewService(config Config, publisher events.Publisher) (*Service, error) {
 	}
 	go s.processExits()
 	if err := s.initPlatform(); err != nil {
-		return nil, errors.Wrap(err, "failed to initialized platform behavior")
+		return nil, fmt.Errorf("failed to initialized platform behavior: %w", err)
 	}
 	go s.forward(publisher)
 	return s, nil
@@ -160,7 +159,7 @@ func (s *Service) Create(ctx context.Context, r *shimapi.CreateTaskRequest) (_ *
 			Options: rm.Options,
 		}
 		if err := m.Mount(rootfs); err != nil {
-			return nil, errors.Wrapf(err, "failed to mount rootfs component %v", m)
+			return nil, fmt.Errorf("failed to mount rootfs component %v: %w", m, err)
 		}
 	}
 
@@ -297,7 +296,7 @@ func (s *Service) ResizePty(ctx context.Context, r *shimapi.ResizePtyRequest) (*
 	p := s.processes[r.ID]
 	s.mu.Unlock()
 	if p == nil {
-		return nil, errors.Errorf("process does not exist %s", r.ID)
+		return nil, fmt.Errorf("process does not exist %s", r.ID)
 	}
 	if err := p.Resize(ws); err != nil {
 		return nil, errdefs.ToGRPC(err)
@@ -397,6 +396,9 @@ func (s *Service) ListPids(ctx context.Context, r *shimapi.ListPidsRequest) (*sh
 		return nil, errdefs.ToGRPC(err)
 	}
 	var processes []*task.ProcessInfo
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, pid := range pids {
 		pInfo := task.ProcessInfo{
 			Pid: pid,
@@ -408,7 +410,7 @@ func (s *Service) ListPids(ctx context.Context, r *shimapi.ListPidsRequest) (*sh
 				}
 				a, err := typeurl.MarshalAny(d)
 				if err != nil {
-					return nil, errors.Wrapf(err, "failed to marshal process %d info", pid)
+					return nil, fmt.Errorf("failed to marshal process %d info: %w", pid, err)
 				}
 				pInfo.Info = a
 				break
@@ -429,7 +431,7 @@ func (s *Service) CloseIO(ctx context.Context, r *shimapi.CloseIORequest) (*ptyp
 	}
 	if stdin := p.Stdin(); stdin != nil {
 		if err := stdin.Close(); err != nil {
-			return nil, errors.Wrap(err, "close stdin")
+			return nil, fmt.Errorf("close stdin: %w", err)
 		}
 	}
 	return empty, nil
@@ -539,7 +541,7 @@ func (s *Service) checkProcesses(e runc.Exit) {
 
 func shouldKillAllOnExit(ctx context.Context, bundlePath string) bool {
 	var bundleSpec specs.Spec
-	bundleConfigContents, err := ioutil.ReadFile(filepath.Join(bundlePath, "config.json"))
+	bundleConfigContents, err := os.ReadFile(filepath.Join(bundlePath, "config.json"))
 	if err != nil {
 		log.G(ctx).WithError(err).Error("shouldKillAllOnExit: failed to read config.json")
 		return true

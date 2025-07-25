@@ -473,9 +473,7 @@ func init() {
 	proto.RegisterType((*LogEntrySourceLocation)(nil), "google.logging.v2.LogEntrySourceLocation")
 }
 
-func init() {
-	proto.RegisterFile("google/logging/v2/log_entry.proto", fileDescriptor_8ba2017251165146)
-}
+func init() { proto.RegisterFile("google/logging/v2/log_entry.proto", fileDescriptor_8ba2017251165146) }
 
 var fileDescriptor_8ba2017251165146 = []byte{
 	// 885 bytes of a gzipped FileDescriptorProto

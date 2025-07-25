@@ -33,6 +33,7 @@ var Command = cli.Command{
 		fmt.Println("Client:")
 		fmt.Println("  Version: ", version.Version)
 		fmt.Println("  Revision:", version.Revision)
+		fmt.Println("  Go version:", version.GoVersion)
 		fmt.Println("")
 		client, ctx, cancel, err := commands.NewClient(context)
 		if err != nil {
@@ -46,6 +47,11 @@ var Command = cli.Command{
 		fmt.Println("Server:")
 		fmt.Println("  Version: ", v.Version)
 		fmt.Println("  Revision:", v.Revision)
+		di, err := client.Server(ctx)
+		if err != nil {
+			return err
+		}
+		fmt.Println("  UUID:", di.UUID)
 		if v.Version != version.Version {
 			fmt.Fprintln(os.Stderr, "WARNING: version mismatch")
 		}

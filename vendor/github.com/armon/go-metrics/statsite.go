@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -16,12 +15,6 @@ const (
 	// forever.
 	flushInterval = 100 * time.Millisecond
 )
-
-// NewStatsiteSinkFromURL creates an StatsiteSink from a URL. It is used
-// (and tested) from NewMetricSinkFromURL.
-func NewStatsiteSinkFromURL(u *url.URL) (MetricSink, error) {
-	return NewStatsiteSink(u.Host)
-}
 
 // StatsiteSink provides a MetricSink that can be used with a
 // statsite metrics server
@@ -50,11 +43,6 @@ func (s *StatsiteSink) SetGauge(key []string, val float32) {
 	s.pushMetric(fmt.Sprintf("%s:%f|g\n", flatKey, val))
 }
 
-func (s *StatsiteSink) SetGaugeWithLabels(key []string, val float32, labels []Label) {
-	flatKey := s.flattenKeyLabels(key, labels)
-	s.pushMetric(fmt.Sprintf("%s:%f|g\n", flatKey, val))
-}
-
 func (s *StatsiteSink) EmitKey(key []string, val float32) {
 	flatKey := s.flattenKey(key)
 	s.pushMetric(fmt.Sprintf("%s:%f|kv\n", flatKey, val))
@@ -65,18 +53,8 @@ func (s *StatsiteSink) IncrCounter(key []string, val float32) {
 	s.pushMetric(fmt.Sprintf("%s:%f|c\n", flatKey, val))
 }
 
-func (s *StatsiteSink) IncrCounterWithLabels(key []string, val float32, labels []Label) {
-	flatKey := s.flattenKeyLabels(key, labels)
-	s.pushMetric(fmt.Sprintf("%s:%f|c\n", flatKey, val))
-}
-
 func (s *StatsiteSink) AddSample(key []string, val float32) {
 	flatKey := s.flattenKey(key)
-	s.pushMetric(fmt.Sprintf("%s:%f|ms\n", flatKey, val))
-}
-
-func (s *StatsiteSink) AddSampleWithLabels(key []string, val float32, labels []Label) {
-	flatKey := s.flattenKeyLabels(key, labels)
 	s.pushMetric(fmt.Sprintf("%s:%f|ms\n", flatKey, val))
 }
 
@@ -93,14 +71,6 @@ func (s *StatsiteSink) flattenKey(parts []string) string {
 			return r
 		}
 	}, joined)
-}
-
-// Flattens the key along with labels for formatting, removes spaces
-func (s *StatsiteSink) flattenKeyLabels(parts []string, labels []Label) string {
-	for _, label := range labels {
-		parts = append(parts, label.Value)
-	}
-	return s.flattenKey(parts)
 }
 
 // Does a non-blocking push to the metrics queue

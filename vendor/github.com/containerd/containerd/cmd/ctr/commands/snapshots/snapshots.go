@@ -18,6 +18,7 @@ package snapshots
 
 import (
 	gocontext "context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,7 +36,6 @@ import (
 	"github.com/containerd/containerd/snapshots"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/urfave/cli"
 )
 
@@ -133,8 +133,6 @@ var diffCommand = cli.Command{
 		labels := commands.LabelArgs(context.StringSlice("label"))
 		snapshotter := client.SnapshotService(context.GlobalString("snapshotter"))
 
-		fmt.Println(context.String("media-type"))
-
 		if context.Bool("keep") {
 			labels["containerd.io/gc.root"] = time.Now().UTC().Format(time.RFC3339)
 		}
@@ -150,18 +148,11 @@ var diffCommand = cli.Command{
 				return err
 			}
 		} else {
-			var a, b []mount.Mount
-			ds := client.DiffService()
-
-			a, err = getMounts(ctx, idA, snapshotter)
-			if err != nil {
-				return err
-			}
-			b, err = getMounts(ctx, idB, snapshotter)
-			if err != nil {
-				return err
-			}
-			desc, err = ds.Compare(ctx, a, b, opts...)
+			desc, err = withMounts(ctx, idA, snapshotter, func(a []mount.Mount) (ocispec.Descriptor, error) {
+				return withMounts(ctx, idB, snapshotter, func(b []mount.Mount) (ocispec.Descriptor, error) {
+					return client.DiffService().Compare(ctx, a, b, opts...)
+				})
+			})
 			if err != nil {
 				return err
 			}
@@ -171,32 +162,33 @@ var diffCommand = cli.Command{
 		if err != nil {
 			return err
 		}
+		defer ra.Close()
 		_, err = io.Copy(os.Stdout, content.NewReader(ra))
 
 		return err
 	},
 }
 
-func getMounts(ctx gocontext.Context, id string, sn snapshots.Snapshotter) ([]mount.Mount, error) {
+func withMounts(ctx gocontext.Context, id string, sn snapshots.Snapshotter, f func(mounts []mount.Mount) (ocispec.Descriptor, error)) (ocispec.Descriptor, error) {
 	var mounts []mount.Mount
 	info, err := sn.Stat(ctx, id)
 	if err != nil {
-		return nil, err
+		return ocispec.Descriptor{}, err
 	}
 	if info.Kind == snapshots.KindActive {
 		mounts, err = sn.Mounts(ctx, id)
 		if err != nil {
-			return nil, err
+			return ocispec.Descriptor{}, err
 		}
 	} else {
 		key := fmt.Sprintf("%s-view-key", id)
 		mounts, err = sn.View(ctx, key, id)
 		if err != nil {
-			return nil, err
+			return ocispec.Descriptor{}, err
 		}
 		defer sn.Remove(ctx, key)
 	}
-	return mounts, nil
+	return f(mounts)
 }
 
 var usageCommand = cli.Command{
@@ -256,8 +248,8 @@ var usageCommand = cli.Command{
 }
 
 var removeCommand = cli.Command{
-	Name:      "remove",
-	Aliases:   []string{"rm"},
+	Name:      "delete",
+	Aliases:   []string{"del", "remove", "rm"},
 	ArgsUsage: "<key> [<key>, ...]",
 	Usage:     "remove snapshots",
 	Action: func(context *cli.Context) error {
@@ -270,7 +262,7 @@ var removeCommand = cli.Command{
 		for _, key := range context.Args() {
 			err = snapshotter.Remove(ctx, key)
 			if err != nil {
-				return errors.Wrapf(err, "failed to remove %q", key)
+				return fmt.Errorf("failed to remove %q: %w", key, err)
 			}
 		}
 
@@ -286,6 +278,10 @@ var prepareCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "target, t",
 			Usage: "mount target path, will print mount, if provided",
+		},
+		cli.BoolFlag{
+			Name:  "mounts",
+			Usage: "Print out snapshot mounts as JSON",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -317,6 +313,10 @@ var prepareCommand = cli.Command{
 			printMounts(target, mounts)
 		}
 
+		if context.Bool("mounts") {
+			commands.PrintAsJSON(mounts)
+		}
+
 		return nil
 	},
 }
@@ -329,6 +329,10 @@ var viewCommand = cli.Command{
 		cli.StringFlag{
 			Name:  "target, t",
 			Usage: "mount target path, will print mount, if provided",
+		},
+		cli.BoolFlag{
+			Name:  "mounts",
+			Usage: "Print out snapshot mounts as JSON",
 		},
 	},
 	Action: func(context *cli.Context) error {
@@ -354,6 +358,10 @@ var viewCommand = cli.Command{
 
 		if target != "" {
 			printMounts(target, mounts)
+		}
+
+		if context.Bool("mounts") {
+			commands.PrintAsJSON(mounts)
 		}
 
 		return nil

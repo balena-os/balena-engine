@@ -1,4 +1,3 @@
-//go:build windows
 // +build windows
 
 // Shim for the Host Network Service (HNS) to manage networking for
@@ -685,8 +684,8 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	}
 
 	if n.driver.name == "nat" && !epOption.DisableDNS {
-		endpointStruct.EnableInternalDNS = true
 		logrus.Debugf("endpointStruct.EnableInternalDNS =[%v]", endpointStruct.EnableInternalDNS)
+		endpointStruct.EnableInternalDNS = true
 	}
 
 	endpointStruct.DisableICC = epOption.DisableICC

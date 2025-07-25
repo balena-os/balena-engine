@@ -1,8 +1,7 @@
-// +build linux
-
 package runc
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/urfave/cli"
@@ -40,6 +39,10 @@ command(s) that get executed on start, edit the args parameter of the spec. See
 			Name:  "detach, d",
 			Usage: "detach from the container's process",
 		},
+		cli.BoolFlag{
+			Name:  "keep",
+			Usage: "do not delete the container after it exits",
+		},
 		cli.StringFlag{
 			Name:  "pid-file",
 			Value: "",
@@ -66,19 +69,12 @@ command(s) that get executed on start, edit the args parameter of the spec. See
 		if err := checkArgs(context, 1, exactArgs); err != nil {
 			return err
 		}
-		if err := revisePidFile(context); err != nil {
-			return err
-		}
-		spec, err := setupSpec(context)
-		if err != nil {
-			return err
-		}
-		status, err := startContainer(context, spec, CT_ACT_RUN, nil)
+		status, err := startContainer(context, CT_ACT_RUN, nil)
 		if err == nil {
 			// exit with the container's exit status so any external supervisor is
 			// notified of the exit with the correct exit status.
 			os.Exit(status)
 		}
-		return err
+		return fmt.Errorf("runc run failed: %w", err)
 	},
 }

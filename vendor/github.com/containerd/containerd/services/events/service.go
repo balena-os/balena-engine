@@ -18,6 +18,7 @@ package events
 
 import (
 	"context"
+	"fmt"
 
 	api "github.com/containerd/containerd/api/services/events/v1"
 	apittrpc "github.com/containerd/containerd/api/services/ttrpc/events/v1"
@@ -27,7 +28,6 @@ import (
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/ttrpc"
 	ptypes "github.com/gogo/protobuf/types"
-	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 )
 
@@ -35,8 +35,15 @@ func init() {
 	plugin.Register(&plugin.Registration{
 		Type: plugin.GRPCPlugin,
 		ID:   "events",
+		Requires: []plugin.Type{
+			plugin.EventPlugin,
+		},
 		InitFn: func(ic *plugin.InitContext) (interface{}, error) {
-			return NewService(ic.Events), nil
+			ep, err := ic.GetByID(plugin.EventPlugin, "exchange")
+			if err != nil {
+				return nil, err
+			}
+			return NewService(ep.(*exchange.Exchange)), nil
 		},
 	})
 }
@@ -91,11 +98,11 @@ func (s *service) Subscribe(req *api.SubscribeRequest, srv api.Events_SubscribeS
 		select {
 		case ev := <-eventq:
 			if err := srv.Send(toProto(ev)); err != nil {
-				return errors.Wrapf(err, "failed sending event to subscriber")
+				return fmt.Errorf("failed sending event to subscriber: %w", err)
 			}
 		case err := <-errq:
 			if err != nil {
-				return errors.Wrapf(err, "subscription error")
+				return fmt.Errorf("subscription error: %w", err)
 			}
 
 			return nil

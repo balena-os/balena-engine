@@ -1,12 +1,10 @@
-// +build !solaris
-
 package runc
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/opencontainers/runc/libcontainer"
@@ -19,12 +17,12 @@ func killContainer(container libcontainer.Container) error {
 	_ = container.Signal(unix.SIGKILL, false)
 	for i := 0; i < 100; i++ {
 		time.Sleep(100 * time.Millisecond)
-		if err := container.Signal(syscall.Signal(0), false); err != nil {
+		if err := container.Signal(unix.Signal(0), false); err != nil {
 			destroy(container)
 			return nil
 		}
 	}
-	return fmt.Errorf("container init still running")
+	return errors.New("container init still running")
 }
 
 var deleteCommand = cli.Command{
@@ -55,7 +53,7 @@ status of "ubuntu01" as "stopped" the following will delete resources held for
 		force := context.Bool("force")
 		container, err := getContainer(context)
 		if err != nil {
-			if lerr, ok := err.(libcontainer.Error); ok && lerr.Code() == libcontainer.ContainerNotExists {
+			if errors.Is(err, libcontainer.ErrNotExist) {
 				// if there was an aborted start or something of the sort then the container's directory could exist but
 				// libcontainer does not see it because the state.json file inside that directory was never created.
 				path := filepath.Join(context.GlobalString("root"), id)
@@ -81,7 +79,7 @@ status of "ubuntu01" as "stopped" the following will delete resources held for
 			if force {
 				return killContainer(container)
 			}
-			return fmt.Errorf("cannot delete container %s that is not stopped: %s\n", id, s)
+			return fmt.Errorf("cannot delete container %s that is not stopped: %s", id, s)
 		}
 
 		return nil
