@@ -135,7 +135,7 @@ func NewDaemon(workingDir string, ops ...Option) (*Daemon, error) {
 		swarmListenAddr:  defaultSwarmListenAddr,
 		SwarmPort:        DefaultSwarmPort,
 		log:              nopLog{},
-		containerdSocket: defaultContainerdSocket,
+		containerdSocket: "",
 	}
 
 	for _, op := range ops {
