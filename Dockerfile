@@ -39,27 +39,6 @@ RUN mkdir -p /usr/src/criu \
     && cd /usr/src/criu \
     && make \
     && make PREFIX=/build/ install-criu
-        echo 'deb [trusted=yes] https://mirrorcache.opensuse.org/repositories/devel:/tools:/criu/Debian_11/ /' > /etc/apt/sources.list.d/criu.list \
-        && apt-get update \
-        && apt-get install -y --no-install-recommends criu \
-        && install -D /usr/sbin/criu /build/criu
-        apt-get update && apt-get install -y --no-install-recommends \
-            libcap-dev \
-            libnet-dev \
-            libnl-3-dev \
-            libprotobuf-c-dev \
-            libprotobuf-dev \
-            protobuf-c-compiler \
-            protobuf-compiler \
-            python3-protobuf
-
-# Install CRIU for checkpoint/restore support
-ARG CRIU_VERSION=3.14
-RUN mkdir -p /usr/src/criu \
-    && curl -sSL https://github.com/checkpoint-restore/criu/archive/v${CRIU_VERSION}.tar.gz | tar -C /usr/src/criu/ -xz --strip-components=1 \
-    && cd /usr/src/criu \
-    && make \
-    && make PREFIX=/build/ install-criu
 
 FROM base AS registry
 WORKDIR /go/src/github.com/docker/distribution
@@ -115,7 +94,7 @@ ARG TARGETARCH
 RUN /download-frozen-image-v2.sh /build \
         busybox:latest@sha256:95cf004f559831017cdf4628aaf1bb30133677be8702a8c5f2994629f637a209 \
         busybox:glibc@sha256:1f81263701cddf6402afe9f33fca0266d9fff379e59b1748f33d3072da71ee85 \
-        debian:bullseye@sha256:7190e972ab16aefea4d758ebe42a293f4e5c5be63595f4d03a5b9bf6839a4344 \
+        debian:bullseye-slim@sha256:dacf278785a4daa9de07596ec739dbc07131e189942772210709c5c0777e8437 \
         hello-world:latest@sha256:d58e752213a51785838f9eed2b7a498ffa1cb3aa7f946dda11af39286c3db9a9 \
         arm32v7/hello-world:latest@sha256:50b8560ad574c779908da71f7ce370c0a2471c098d44d1c8f6b513c5a55eeeb1
 # See also frozenImages in "testutil/environment/protect.go" (which needs to be updated when adding images to this list)
@@ -171,9 +150,6 @@ RUN --mount=type=cache,sharing=locked,id=moby-cross-true-aptlib,target=/var/lib/
             libseccomp-dev:armhf \
             libseccomp-dev:ppc64el \
             libseccomp-dev:s390x
-            libseccomp-dev:arm64 \
-            libseccomp-dev:armel \
-            libseccomp-dev:armhf
 
 FROM runtime-dev-cross-${CROSS} AS runtime-dev
 
