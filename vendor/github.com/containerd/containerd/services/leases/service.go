@@ -18,8 +18,7 @@ package leases
 
 import (
 	"context"
-
-	"google.golang.org/grpc"
+	"errors"
 
 	api "github.com/containerd/containerd/api/services/leases/v1"
 	"github.com/containerd/containerd/errdefs"
@@ -27,7 +26,7 @@ import (
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/services"
 	ptypes "github.com/gogo/protobuf/types"
-	"github.com/pkg/errors"
+	"google.golang.org/grpc"
 )
 
 func init() {
@@ -110,6 +109,56 @@ func (s *service) List(ctx context.Context, r *api.ListRequest) (*api.ListRespon
 
 	return &api.ListResponse{
 		Leases: apileases,
+	}, nil
+}
+
+func (s *service) AddResource(ctx context.Context, r *api.AddResourceRequest) (*ptypes.Empty, error) {
+	lease := leases.Lease{
+		ID: r.ID,
+	}
+
+	if err := s.lm.AddResource(ctx, lease, leases.Resource{
+		ID:   r.Resource.ID,
+		Type: r.Resource.Type,
+	}); err != nil {
+		return nil, errdefs.ToGRPC(err)
+	}
+	return &ptypes.Empty{}, nil
+}
+
+func (s *service) DeleteResource(ctx context.Context, r *api.DeleteResourceRequest) (*ptypes.Empty, error) {
+	lease := leases.Lease{
+		ID: r.ID,
+	}
+
+	if err := s.lm.DeleteResource(ctx, lease, leases.Resource{
+		ID:   r.Resource.ID,
+		Type: r.Resource.Type,
+	}); err != nil {
+		return nil, errdefs.ToGRPC(err)
+	}
+	return &ptypes.Empty{}, nil
+}
+
+func (s *service) ListResources(ctx context.Context, r *api.ListResourcesRequest) (*api.ListResourcesResponse, error) {
+	lease := leases.Lease{
+		ID: r.ID,
+	}
+
+	rs, err := s.lm.ListResources(ctx, lease)
+	if err != nil {
+		return nil, errdefs.ToGRPC(err)
+	}
+
+	apiResources := make([]api.Resource, 0, len(rs))
+	for _, i := range rs {
+		apiResources = append(apiResources, api.Resource{
+			ID:   i.ID,
+			Type: i.Type,
+		})
+	}
+	return &api.ListResourcesResponse{
+		Resources: apiResources,
 	}, nil
 }
 

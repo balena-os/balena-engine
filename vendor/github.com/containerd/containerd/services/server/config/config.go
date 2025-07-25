@@ -17,12 +17,13 @@
 package config
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/imdario/mergo"
-	"github.com/pkg/errors"
+	"github.com/pelletier/go-toml"
+	"github.com/sirupsen/logrus"
 
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/plugin"
@@ -38,6 +39,8 @@ type Config struct {
 	Root string `toml:"root"`
 	// State is the path to a directory where containerd will store transient data
 	State string `toml:"state"`
+	// TempDir is the path to a directory where to place containerd temporary files
+	TempDir string `toml:"temp"`
 	// PluginDir is the directory for dynamic plugins to be stored
 	PluginDir string `toml:"plugin_dir"`
 	// GRPC configuration settings
@@ -55,7 +58,7 @@ type Config struct {
 	// required plugin doesn't exist or fails to be initialized or started.
 	RequiredPlugins []string `toml:"required_plugins"`
 	// Plugins provides plugin specific configuration for the initialization of a plugin
-	Plugins map[string]toml.Primitive `toml:"plugins"`
+	Plugins map[string]toml.Tree `toml:"plugins"`
 	// OOMScore adjust the containerd's oom score
 	OOMScore int `toml:"oom_score"`
 	// Cgroup specifies cgroup information for the containerd daemon process
@@ -66,7 +69,7 @@ type Config struct {
 	Timeouts map[string]string `toml:"timeouts"`
 	// Imports are additional file path list to config files that can overwrite main config file fields
 	Imports []string `toml:"imports"`
-
+	// StreamProcessors configuration
 	StreamProcessors map[string]StreamProcessor `toml:"stream_processors"`
 }
 
@@ -80,6 +83,8 @@ type StreamProcessor struct {
 	Path string `toml:"path"`
 	// Args to the binary
 	Args []string `toml:"args"`
+	// Environment variables for the binary
+	Env []string `toml:"env"`
 }
 
 // GetVersion returns the config file's version
@@ -92,22 +97,25 @@ func (c *Config) GetVersion() int {
 
 // ValidateV2 validates the config for a v2 file
 func (c *Config) ValidateV2() error {
-	if c.GetVersion() != 2 {
+	version := c.GetVersion()
+	if version < 2 {
+		logrus.Warnf("containerd config version `%d` has been deprecated and will be removed in containerd v2.0, please switch to version `2`, "+
+			"see https://github.com/containerd/containerd/blob/main/docs/PLUGINS.md#version-header", version)
 		return nil
 	}
 	for _, p := range c.DisabledPlugins {
 		if len(strings.Split(p, ".")) < 4 {
-			return errors.Errorf("invalid disabled plugin URI %q expect io.containerd.x.vx", p)
+			return fmt.Errorf("invalid disabled plugin URI %q expect io.containerd.x.vx", p)
 		}
 	}
 	for _, p := range c.RequiredPlugins {
 		if len(strings.Split(p, ".")) < 4 {
-			return errors.Errorf("invalid required plugin URI %q expect io.containerd.x.vx", p)
+			return fmt.Errorf("invalid required plugin URI %q expect io.containerd.x.vx", p)
 		}
 	}
 	for p := range c.Plugins {
 		if len(strings.Split(p, ".")) < 4 {
-			return errors.Errorf("invalid plugin key URI %q expect io.containerd.x.vx", p)
+			return fmt.Errorf("invalid plugin key URI %q expect io.containerd.x.vx", p)
 		}
 	}
 	return nil
@@ -117,6 +125,7 @@ func (c *Config) ValidateV2() error {
 type GRPCConfig struct {
 	Address        string `toml:"address"`
 	TCPAddress     string `toml:"tcp_address"`
+	TCPTLSCA       string `toml:"tcp_tls_ca"`
 	TCPTLSCert     string `toml:"tcp_tls_cert"`
 	TCPTLSKey      string `toml:"tcp_tls_key"`
 	UID            int    `toml:"uid"`
@@ -138,6 +147,8 @@ type Debug struct {
 	UID     int    `toml:"uid"`
 	GID     int    `toml:"gid"`
 	Level   string `toml:"level"`
+	// Format represents the logging format
+	Format string `toml:"format"`
 }
 
 // MetricsConfig provides metrics configuration
@@ -191,7 +202,7 @@ func (bc *BoltConfig) Validate() error {
 	case SharingPolicyShared, SharingPolicyIsolated:
 		return nil
 	default:
-		return errors.Wrapf(errdefs.ErrInvalidArgument, "unknown policy: %s", bc.ContentSharingPolicy)
+		return fmt.Errorf("unknown policy: %s: %w", bc.ContentSharingPolicy, errdefs.ErrInvalidArgument)
 	}
 }
 
@@ -205,7 +216,7 @@ func (c *Config) Decode(p *plugin.Registration) (interface{}, error) {
 	if !ok {
 		return p.Config, nil
 	}
-	if err := toml.PrimitiveDecode(data, p.Config); err != nil {
+	if err := data.Unmarshal(p.Config); err != nil {
 		return nil, err
 	}
 	return p.Config, nil
@@ -214,7 +225,7 @@ func (c *Config) Decode(p *plugin.Registration) (interface{}, error) {
 // LoadConfig loads the containerd server config from the provided path
 func LoadConfig(path string, out *Config) error {
 	if out == nil {
-		return errors.Wrapf(errdefs.ErrInvalidArgument, "argument out must not be nil")
+		return fmt.Errorf("argument out must not be nil: %w", errdefs.ErrInvalidArgument)
 	}
 
 	var (
@@ -254,16 +265,26 @@ func LoadConfig(path string, out *Config) error {
 		out.Imports = append(out.Imports, path)
 	}
 
-	return out.ValidateV2()
+	err := out.ValidateV2()
+	if err != nil {
+		return fmt.Errorf("failed to load TOML from %s: %w", path, err)
+	}
+	return nil
 }
 
 // loadConfigFile decodes a TOML file at the given path
 func loadConfigFile(path string) (*Config, error) {
 	config := &Config{}
-	_, err := toml.DecodeFile(path, &config)
+
+	file, err := toml.LoadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load TOML: %s: %w", path, err)
 	}
+
+	if err := file.Unmarshal(config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal TOML: %w", err)
+	}
+
 	return config, nil
 }
 

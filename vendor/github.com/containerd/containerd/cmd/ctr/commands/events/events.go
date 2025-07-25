@@ -22,6 +22,7 @@ import (
 
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/containerd/containerd/events"
+	"github.com/containerd/containerd/log"
 	"github.com/containerd/typeurl"
 	"github.com/urfave/cli"
 
@@ -42,12 +43,11 @@ var Command = cli.Command{
 		defer cancel()
 		eventsClient := client.EventService()
 		eventsCh, errCh := eventsClient.Subscribe(ctx, context.Args()...)
-		open := true
-		for open {
+		for {
 			var e *events.Envelope
 			select {
 			case e = <-eventsCh:
-			case err, open = <-errCh:
+			case err = <-errCh:
 				return err
 			}
 			if e != nil {
@@ -55,11 +55,13 @@ var Command = cli.Command{
 				if e.Event != nil {
 					v, err := typeurl.UnmarshalAny(e.Event)
 					if err != nil {
-						return err
+						log.G(ctx).WithError(err).Warn("cannot unmarshal an event from Any")
+						continue
 					}
 					out, err = json.Marshal(v)
 					if err != nil {
-						return err
+						log.G(ctx).WithError(err).Warn("cannot marshal Any into JSON")
+						continue
 					}
 				}
 				if _, err := fmt.Println(
@@ -72,6 +74,5 @@ var Command = cli.Command{
 				}
 			}
 		}
-		return nil
 	},
 }

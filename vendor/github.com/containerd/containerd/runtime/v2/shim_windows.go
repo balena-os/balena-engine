@@ -18,15 +18,15 @@ package v2
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/containerd/containerd/namespaces"
-	client "github.com/containerd/containerd/runtime/v2/shim"
-	"github.com/pkg/errors"
 )
 
 type deferredPipeConnection struct {
@@ -63,7 +63,7 @@ func (dpc *deferredPipeConnection) Close() error {
 
 // openShimLog on Windows acts as the client of the log pipe. In this way the
 // containerd daemon can reconnect to the shim log stream if it is restarted.
-func openShimLog(ctx context.Context, bundle *Bundle) (io.ReadCloser, error) {
+func openShimLog(ctx context.Context, bundle *Bundle, dialer func(string, time.Duration) (net.Conn, error)) (io.ReadCloser, error) {
 	ns, err := namespaces.NamespaceRequired(ctx)
 	if err != nil {
 		return nil, err
@@ -73,15 +73,25 @@ func openShimLog(ctx context.Context, bundle *Bundle) (io.ReadCloser, error) {
 	}
 	dpc.wg.Add(1)
 	go func() {
-		c, conerr := client.AnonDialer(
+		c, conerr := dialer(
 			fmt.Sprintf("\\\\.\\pipe\\containerd-shim-%s-%s-log", ns, bundle.ID),
 			time.Second*10,
 		)
 		if conerr != nil {
-			dpc.conerr = errors.Wrap(conerr, "failed to connect to shim log")
+			dpc.conerr = fmt.Errorf("failed to connect to shim log: %w", conerr)
 		}
 		dpc.c = c
 		dpc.wg.Done()
 	}()
 	return dpc, nil
+}
+
+func checkCopyShimLogError(ctx context.Context, err error) error {
+	// When using a multi-container shim the 2nd to Nth container in the
+	// shim will not have a separate log pipe. Ignore the failure log
+	// message here when the shim connect times out.
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }

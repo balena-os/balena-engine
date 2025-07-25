@@ -1,4 +1,3 @@
-//go:build linux || windows
 // +build linux windows
 
 package libnetwork
@@ -369,15 +368,12 @@ func (c *controller) rmServiceBinding(svcName, svcID, nID, eID, containerName st
 	// Remove loadbalancer service(if needed) and backend in all
 	// sandboxes in the network only if the vip is valid.
 	if entries == 0 {
-		// The network may well have been deleted from the store (and
-		// dataplane) before the last of the service bindings.  On Linux that's
-		// ok because removing the network sandbox from the dataplane
-		// implicitly cleans up all related dataplane state.
-		// On the Windows dataplane, VFP policylists must be removed
-		// independently of the network, and they must be removed before the HNS
-		// network. Otherwise, policylist removal fails with "network not
-		// found." On Windows cleanupServiceBindings must be called prior to
-		// removing the network from the store or dataplane.
+		// The network may well have been deleted before the last
+		// of the service bindings.  That's ok on Linux because
+		// removing the network sandbox implicitly removes the
+		// backend service bindings.  Windows VFP cleanup requires
+		// calling cleanupServiceBindings on the network prior to
+		// deleting the network, performed by network.delete.
 		n, err := c.NetworkByID(nID)
 		if err == nil {
 			n.(*network).rmLBBackend(ip, lb, rmService, fullRemove)

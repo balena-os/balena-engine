@@ -139,16 +139,12 @@ func (n *network) rmLBBackend(ip net.IP, lb *loadBalancer, rmService bool, fullR
 
 			if policyLists, ok := lbPolicylistMap[lb]; ok {
 				if policyLists.ilb != nil {
-					if _, err := policyLists.ilb.Delete(); err != nil {
-						logrus.Errorf("Failed to remove HNS ILB policylist %s: %s", policyLists.ilb.ID, err)
-					}
+					policyLists.ilb.Delete()
 					policyLists.ilb = nil
 				}
 
 				if policyLists.elb != nil {
-					if _, err := policyLists.elb.Delete(); err != nil {
-						logrus.Errorf("Failed to remove HNS ELB policylist %s: %s", policyLists.elb.ID, err)
-					}
+					policyLists.elb.Delete()
 					policyLists.elb = nil
 				}
 				delete(lbPolicylistMap, lb)

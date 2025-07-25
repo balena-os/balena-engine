@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 /*
@@ -20,9 +21,9 @@ package linux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -43,12 +44,11 @@ import (
 	"github.com/containerd/containerd/runtime"
 	"github.com/containerd/containerd/runtime/linux/runctypes"
 	v1 "github.com/containerd/containerd/runtime/v1"
-	shim "github.com/containerd/containerd/runtime/v1/shim/v1"
-	runc "github.com/containerd/go-runc"
+	"github.com/containerd/containerd/runtime/v1/shim/v1"
+	"github.com/containerd/go-runc"
 	"github.com/containerd/typeurl"
 	ptypes "github.com/gogo/protobuf/types"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 )
@@ -60,8 +60,8 @@ var (
 
 const (
 	configFilename = "config.json"
-	defaultRuntime = "runc"
-	defaultShim    = "containerd-shim"
+	defaultRuntime = "balena-engine-runc"
+	defaultShim    = "balena-engine-containerd-shim"
 
 	// cleanupTimeout is default timeout for cleanup operations
 	cleanupTimeout = 1 * time.Minute
@@ -73,6 +73,7 @@ func init() {
 		ID:     "linux",
 		InitFn: New,
 		Requires: []plugin.Type{
+			plugin.EventPlugin,
 			plugin.MetadataPlugin,
 		},
 		Config: &Config{
@@ -112,6 +113,12 @@ func New(ic *plugin.InitContext) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	ep, err := ic.GetByID(plugin.EventPlugin, "exchange")
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := ic.Config.(*Config)
 	r := &Runtime{
 		root:       ic.Root,
@@ -119,7 +126,7 @@ func New(ic *plugin.InitContext) (interface{}, error) {
 		tasks:      runtime.NewTaskList(),
 		containers: metadata.NewContainerStore(m.(*metadata.DB)),
 		address:    ic.Address,
-		events:     ic.Events,
+		events:     ep.(*exchange.Exchange),
 		config:     cfg,
 	}
 	tasks, err := r.restoreTasks(ic.Context)
@@ -160,7 +167,7 @@ func (r *Runtime) Create(ctx context.Context, id string, opts runtime.CreateOpts
 	}
 
 	if err := identifiers.Validate(id); err != nil {
-		return nil, errors.Wrapf(err, "invalid task id")
+		return nil, fmt.Errorf("invalid task id: %w", err)
 	}
 
 	ropts, err := r.getRuncOptions(ctx, id)
@@ -219,7 +226,7 @@ func (r *Runtime) Create(ctx context.Context, id string, opts runtime.CreateOpts
 				namespaces.WithNamespace(context.TODO(), namespace), cleanupTimeout)
 			defer deferCancel()
 			if kerr := s.KillShim(deferCtx); kerr != nil {
-				log.G(ctx).WithError(err).Error("failed to kill shim")
+				log.G(ctx).WithError(kerr).Error("failed to kill shim")
 			}
 		}
 	}()
@@ -280,7 +287,7 @@ func (r *Runtime) Tasks(ctx context.Context, all bool) ([]runtime.Task, error) {
 }
 
 func (r *Runtime) restoreTasks(ctx context.Context) ([]*Task, error) {
-	dir, err := ioutil.ReadDir(r.state)
+	dir, err := os.ReadDir(r.state)
 	if err != nil {
 		return nil, err
 	}
@@ -315,12 +322,24 @@ func (r *Runtime) Add(ctx context.Context, task runtime.Task) error {
 }
 
 // Delete a runtime task
-func (r *Runtime) Delete(ctx context.Context, id string) {
+func (r *Runtime) Delete(ctx context.Context, id string) (*runtime.Exit, error) {
+	task, err := r.tasks.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	s := task.(*Task)
+	exit, err := s.Delete(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	r.tasks.Delete(ctx, id)
+	return exit, nil
 }
 
 func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
-	dir, err := ioutil.ReadDir(filepath.Join(r.state, ns))
+	dir, err := os.ReadDir(filepath.Join(r.state, ns))
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +412,7 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
 		if r.config.ShimDebug {
 			go copyAndClose(os.Stdout, shimStdoutLog)
 		} else {
-			go copyAndClose(ioutil.Discard, shimStdoutLog)
+			go copyAndClose(io.Discard, shimStdoutLog)
 		}
 
 		shimStderrLog, err := v1.OpenShimStderrLog(ctx, logDirPath)
@@ -408,7 +427,7 @@ func (r *Runtime) loadTasks(ctx context.Context, ns string) ([]*Task, error) {
 		if r.config.ShimDebug {
 			go copyAndClose(os.Stderr, shimStderrLog)
 		} else {
-			go copyAndClose(ioutil.Discard, shimStderrLog)
+			go copyAndClose(io.Discard, shimStderrLog)
 		}
 
 		t, err := newTask(id, ns, pid, s, r.events, r.tasks, bundle)
@@ -431,7 +450,7 @@ func (r *Runtime) cleanupAfterDeadShim(ctx context.Context, bundle *bundle, ns, 
 	ctx = namespaces.WithNamespace(ctx, ns)
 	if err := r.terminate(ctx, bundle, ns, id); err != nil {
 		if r.config.ShimDebug {
-			return errors.Wrap(err, "failed to terminate task, leaving bundle for debugging")
+			return fmt.Errorf("failed to terminate task, leaving bundle for debugging: %w", err)
 		}
 		log.G(ctx).WithError(err).Warn("failed to terminate task")
 	}

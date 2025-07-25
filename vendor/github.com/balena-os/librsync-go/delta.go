@@ -4,12 +4,36 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/balena-os/circbuf"
 )
 
 func Delta(sig *SignatureType, i io.Reader, output io.Writer) error {
+	buff := make([]byte, 0, OUTPUT_BUFFER_SIZE)
+	return DeltaBuff(sig, i, output, buff)
+}
+
+// DeltaBuff like Delta but allows to pass literal buffer slice.
+// This is useful for efficient computation of multiple deltas.
+//
+// The slice shall have zero size, and capacity of OUTPUT_BUFFER_SIZE.
+//
+// Example of usage:
+//	 var files []string
+//	 var litBuff = make([]byte, 0, OUTPUT_BUFFER_SIZE)
+//	 for _, file := range files {
+//	   f, _ := os.Open(file)
+//	   sig, _ := ReadSignatureFile(file + ".sig")
+//	   delta, _ := os.OpenFile(file+".delta", os.O_CREATE|os.O_WRONLY, 0644)
+//	   _ = DeltaBuff(sig, f, delta, litBuff)
+//	 }
+func DeltaBuff(sig *SignatureType, i io.Reader, output io.Writer, litBuff []byte) error {
+	if len(litBuff) != 0 || cap(litBuff) != OUTPUT_BUFFER_SIZE {
+		return fmt.Errorf("bad literal buffer")
+	}
+
 	input := bufio.NewReader(i)
 
 	err := binary.Write(output, binary.BigEndian, DELTA_MAGIC)
@@ -18,15 +42,12 @@ func Delta(sig *SignatureType, i io.Reader, output io.Writer) error {
 	}
 
 	prevByte := byte(0)
-	m := match{output: output}
+	m := newMatch(output, litBuff)
 
 	weakSum := NewRollsum()
 	block, _ := circbuf.NewBuffer(int64(sig.blockLen))
-	block.WriteByte(0)
-	pos := 0
 
 	for {
-		pos += 1
 		in, err := input.ReadByte()
 		if err == io.EOF {
 			break

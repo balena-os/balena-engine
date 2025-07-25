@@ -1,4 +1,3 @@
-//go:build !linux && !windows && !freebsd
 // +build !linux,!windows,!freebsd
 
 package osl

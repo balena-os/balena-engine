@@ -18,18 +18,18 @@ package v2
 
 import (
 	"context"
+	"errors"
 
 	tasktypes "github.com/containerd/containerd/api/types/task"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/runtime"
 	"github.com/containerd/containerd/runtime/v2/task"
 	"github.com/containerd/ttrpc"
-	"github.com/pkg/errors"
 )
 
 type process struct {
 	id   string
-	shim *shim
+	shim *shimTask
 }
 
 func (p *process) ID() string {
@@ -54,7 +54,7 @@ func (p *process) State(ctx context.Context) (runtime.State, error) {
 		ExecID: p.id,
 	})
 	if err != nil {
-		if errors.Cause(err) != ttrpc.ErrClosed {
+		if !errors.Is(err, ttrpc.ErrClosed) {
 			return runtime.State{}, errdefs.FromGRPC(err)
 		}
 		return runtime.State{}, errdefs.ErrNotFound

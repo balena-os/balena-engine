@@ -2,15 +2,17 @@ package specconv
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/opencontainers/runc/libcontainer/cgroups"
 	"github.com/opencontainers/runtime-spec/specs-go"
 )
 
 // Example returns an example spec file, with many options set so a user can
 // see what a standard spec file looks like.
 func Example() *specs.Spec {
-	return &specs.Spec{
+	spec := &specs.Spec{
 		Version: specs.Version,
 		Root: &specs.Root{
 			Path:     "rootfs",
@@ -35,11 +37,6 @@ func Example() *specs.Spec {
 					"CAP_NET_BIND_SERVICE",
 				},
 				Permitted: []string{
-					"CAP_AUDIT_WRITE",
-					"CAP_KILL",
-					"CAP_NET_BIND_SERVICE",
-				},
-				Inheritable: []string{
 					"CAP_AUDIT_WRITE",
 					"CAP_KILL",
 					"CAP_NET_BIND_SERVICE",
@@ -138,23 +135,29 @@ func Example() *specs.Spec {
 			},
 			Namespaces: []specs.LinuxNamespace{
 				{
-					Type: "pid",
+					Type: specs.PIDNamespace,
 				},
 				{
-					Type: "network",
+					Type: specs.NetworkNamespace,
 				},
 				{
-					Type: "ipc",
+					Type: specs.IPCNamespace,
 				},
 				{
-					Type: "uts",
+					Type: specs.UTSNamespace,
 				},
 				{
-					Type: "mount",
+					Type: specs.MountNamespace,
 				},
 			},
 		},
 	}
+	if cgroups.IsCgroup2UnifiedMode() {
+		spec.Linux.Namespaces = append(spec.Linux.Namespaces, specs.LinuxNamespace{
+			Type: specs.CgroupNamespace,
+		})
+	}
+	return spec
 }
 
 // ToRootless converts the given spec file into one that should work with
@@ -193,8 +196,14 @@ func ToRootless(spec *specs.Spec) {
 	// Fix up mounts.
 	var mounts []specs.Mount
 	for _, mount := range spec.Mounts {
-		// Ignore all mounts that are under /sys.
-		if strings.HasPrefix(mount.Destination, "/sys") {
+		// Replace the /sys mount with an rbind.
+		if filepath.Clean(mount.Destination) == "/sys" {
+			mounts = append(mounts, specs.Mount{
+				Source:      "/sys",
+				Destination: "/sys",
+				Type:        "none",
+				Options:     []string{"rbind", "nosuid", "noexec", "nodev", "ro"},
+			})
 			continue
 		}
 
@@ -209,13 +218,6 @@ func ToRootless(spec *specs.Spec) {
 		mount.Options = options
 		mounts = append(mounts, mount)
 	}
-	// Add the sysfs mount as an rbind.
-	mounts = append(mounts, specs.Mount{
-		Source:      "/sys",
-		Destination: "/sys",
-		Type:        "none",
-		Options:     []string{"rbind", "nosuid", "noexec", "nodev", "ro"},
-	})
 	spec.Mounts = mounts
 
 	// Remove cgroup settings.

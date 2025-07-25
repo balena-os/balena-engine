@@ -1,4 +1,4 @@
-//go:build !linux && !windows
+// +build !linux,!windows
 
 /*
    Copyright The containerd Authors.
@@ -19,8 +19,9 @@
 package fifo
 
 import (
-	"fmt"
 	"syscall"
+
+	"github.com/pkg/errors"
 )
 
 type handle struct {
@@ -32,13 +33,13 @@ type handle struct {
 func getHandle(fn string) (*handle, error) {
 	var stat syscall.Stat_t
 	if err := syscall.Stat(fn, &stat); err != nil {
-		return nil, fmt.Errorf("failed to stat %v: %w", fn, err)
+		return nil, errors.Wrapf(err, "failed to stat %v", fn)
 	}
 
 	h := &handle{
 		fn:  fn,
-		dev: uint64(stat.Dev), //nolint:unconvert,nolintlint
-		ino: uint64(stat.Ino), //nolint:unconvert,nolintlint
+		dev: uint64(stat.Dev), //nolint: unconvert
+		ino: uint64(stat.Ino), //nolint: unconvert
 	}
 
 	return h, nil
@@ -47,10 +48,10 @@ func getHandle(fn string) (*handle, error) {
 func (h *handle) Path() (string, error) {
 	var stat syscall.Stat_t
 	if err := syscall.Stat(h.fn, &stat); err != nil {
-		return "", fmt.Errorf("path %v could not be statted: %w", h.fn, err)
+		return "", errors.Wrapf(err, "path %v could not be statted", h.fn)
 	}
-	if uint64(stat.Dev) != h.dev || uint64(stat.Ino) != h.ino { //nolint:unconvert,nolintlint
-		return "", fmt.Errorf("failed to verify handle %v/%v %v/%v for %v", stat.Dev, h.dev, stat.Ino, h.ino, h.fn)
+	if uint64(stat.Dev) != h.dev || uint64(stat.Ino) != h.ino { //nolint: unconvert
+		return "", errors.Errorf("failed to verify handle %v/%v %v/%v for %v", stat.Dev, h.dev, stat.Ino, h.ino, h.fn)
 	}
 	return h.fn, nil
 }

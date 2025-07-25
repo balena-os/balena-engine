@@ -49,16 +49,13 @@ type NodeEvent struct {
 }
 
 func (c *ChannelEventDelegate) NotifyJoin(n *Node) {
-	node := *n
-	c.Ch <- NodeEvent{NodeJoin, &node}
+	c.Ch <- NodeEvent{NodeJoin, n}
 }
 
 func (c *ChannelEventDelegate) NotifyLeave(n *Node) {
-	node := *n
-	c.Ch <- NodeEvent{NodeLeave, &node}
+	c.Ch <- NodeEvent{NodeLeave, n}
 }
 
 func (c *ChannelEventDelegate) NotifyUpdate(n *Node) {
-	node := *n
-	c.Ch <- NodeEvent{NodeUpdate, &node}
+	c.Ch <- NodeEvent{NodeUpdate, n}
 }

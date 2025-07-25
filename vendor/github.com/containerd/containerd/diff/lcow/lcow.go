@@ -1,3 +1,4 @@
+//go:build windows
 // +build windows
 
 /*
@@ -20,25 +21,24 @@ package lcow
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path"
+	"runtime"
 	"time"
 
 	"github.com/Microsoft/go-winio/pkg/security"
 	"github.com/Microsoft/hcsshim/ext4/tar2ext4"
-	"github.com/containerd/containerd/archive/compression"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/diff"
 	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/metadata"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/plugin"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -62,7 +62,7 @@ func init() {
 
 			ic.Meta.Platforms = append(ic.Meta.Platforms, ocispec.Platform{
 				OS:           "linux",
-				Architecture: "amd64",
+				Architecture: runtime.GOARCH,
 			})
 			return NewWindowsLcowDiff(md.(*metadata.DB).ContentStore())
 		},
@@ -95,47 +95,52 @@ func NewWindowsLcowDiff(store content.Store) (CompareApplier, error) {
 // Apply applies the content associated with the provided digests onto the
 // provided mounts. Archive content will be extracted and decompressed if
 // necessary.
-func (s windowsLcowDiff) Apply(ctx context.Context, desc ocispec.Descriptor, mounts []mount.Mount) (d ocispec.Descriptor, err error) {
+func (s windowsLcowDiff) Apply(ctx context.Context, desc ocispec.Descriptor, mounts []mount.Mount, opts ...diff.ApplyOpt) (d ocispec.Descriptor, err error) {
 	t1 := time.Now()
 	defer func() {
 		if err == nil {
 			log.G(ctx).WithFields(logrus.Fields{
-				"d":     time.Since(t1),
-				"dgst":  desc.Digest,
-				"size":  desc.Size,
-				"media": desc.MediaType,
+				"d":      time.Since(t1),
+				"digest": desc.Digest,
+				"size":   desc.Size,
+				"media":  desc.MediaType,
 			}).Debugf("diff applied")
 		}
 	}()
+
+	var config diff.ApplyConfig
+	for _, o := range opts {
+		if err := o(ctx, desc, &config); err != nil {
+			return emptyDesc, fmt.Errorf("failed to apply config opt: %w", err)
+		}
+	}
 
 	layer, _, err := mountsToLayerAndParents(mounts)
 	if err != nil {
 		return emptyDesc, err
 	}
 
-	isCompressed, err := images.IsCompressedDiff(ctx, desc.MediaType)
-	if err != nil {
-		return emptyDesc, errors.Wrapf(errdefs.ErrNotImplemented, "unsupported diff media type: %v", desc.MediaType)
-	}
-
 	ra, err := s.store.ReaderAt(ctx, desc)
 	if err != nil {
-		return emptyDesc, errors.Wrap(err, "failed to get reader from content store")
+		return emptyDesc, fmt.Errorf("failed to get reader from content store: %w", err)
 	}
 	defer ra.Close()
-	rdr := content.NewReader(ra)
-	if isCompressed {
-		ds, err := compression.DecompressStream(rdr)
-		if err != nil {
-			return emptyDesc, err
+
+	processor := diff.NewProcessorChain(desc.MediaType, content.NewReader(ra))
+	for {
+		if processor, err = diff.GetProcessor(ctx, processor, config.ProcessorPayloads); err != nil {
+			return emptyDesc, fmt.Errorf("failed to get stream processor for %s: %w", desc.MediaType, err)
 		}
-		defer ds.Close()
-		rdr = ds
+		if processor.MediaType() == ocispec.MediaTypeImageLayer {
+			break
+		}
 	}
+	defer processor.Close()
+
 	// Calculate the Digest as we go
 	digester := digest.Canonical.Digester()
 	rc := &readCounter{
-		r: io.TeeReader(rdr, digester.Hash()),
+		r: io.TeeReader(processor, digester.Hash()),
 	}
 
 	layerPath := path.Join(layer, "layer.vhd")
@@ -152,13 +157,22 @@ func (s windowsLcowDiff) Apply(ctx context.Context, desc ocispec.Descriptor, mou
 
 	err = tar2ext4.Convert(rc, outFile, tar2ext4.ConvertWhiteout, tar2ext4.AppendVhdFooter, tar2ext4.MaximumDiskSize(maxLcowVhdSizeGB))
 	if err != nil {
-		return emptyDesc, errors.Wrapf(err, "failed to convert tar to ext4 vhd")
+		return emptyDesc, fmt.Errorf("failed to convert tar2ext4 vhd: %w", err)
+	}
+	err = outFile.Sync()
+	if err != nil {
+		return emptyDesc, fmt.Errorf("failed to sync tar2ext4 vhd to disk: %w", err)
 	}
 	outFile.Close()
 
+	// Read any trailing data
+	if _, err := io.Copy(io.Discard, rc); err != nil {
+		return emptyDesc, err
+	}
+
 	err = security.GrantVmGroupAccess(layerPath)
 	if err != nil {
-		return emptyDesc, errors.Wrapf(err, "failed GrantVmGroupAccess on layer vhd: %v", layerPath)
+		return emptyDesc, fmt.Errorf("failed GrantVmGroupAccess on layer vhd: %v: %w", layerPath, err)
 	}
 
 	return ocispec.Descriptor{
@@ -171,7 +185,7 @@ func (s windowsLcowDiff) Apply(ctx context.Context, desc ocispec.Descriptor, mou
 // Compare creates a diff between the given mounts and uploads the result
 // to the content store.
 func (s windowsLcowDiff) Compare(ctx context.Context, lower, upper []mount.Mount, opts ...diff.Opt) (d ocispec.Descriptor, err error) {
-	return emptyDesc, errdefs.ErrNotImplemented
+	return emptyDesc, fmt.Errorf("windowsLcowDiff does not implement Compare method: %w", errdefs.ErrNotImplemented)
 }
 
 type readCounter struct {
@@ -187,11 +201,11 @@ func (rc *readCounter) Read(p []byte) (n int, err error) {
 
 func mountsToLayerAndParents(mounts []mount.Mount) (string, []string, error) {
 	if len(mounts) != 1 {
-		return "", nil, errors.Wrap(errdefs.ErrInvalidArgument, "number of mounts should always be 1 for Windows lcow-layers")
+		return "", nil, fmt.Errorf("number of mounts should always be 1 for Windows lcow-layers: %w", errdefs.ErrInvalidArgument)
 	}
 	mnt := mounts[0]
 	if mnt.Type != "lcow-layer" {
-		return "", nil, errors.Wrap(errdefs.ErrInvalidArgument, "mount layer type must be lcow-layer")
+		return "", nil, fmt.Errorf("mount layer type must be lcow-layer: %w", errdefs.ErrInvalidArgument)
 	}
 
 	parentLayerPaths, err := mnt.GetParentPaths()

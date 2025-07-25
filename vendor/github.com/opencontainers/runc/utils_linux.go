@@ -1,8 +1,7 @@
-// +build linux
-
 package runc
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -10,20 +9,17 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/opencontainers/runc/libcontainer"
-	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
-	"github.com/opencontainers/runc/libcontainer/configs"
-	"github.com/opencontainers/runc/libcontainer/intelrdt"
-	"github.com/opencontainers/runc/libcontainer/specconv"
-	"github.com/opencontainers/runc/libcontainer/utils"
+	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	selinux "github.com/opencontainers/selinux/go-selinux"
-
-	"github.com/coreos/go-systemd/activation"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 	"golang.org/x/sys/unix"
+
+	"github.com/opencontainers/runc/libcontainer"
+	"github.com/opencontainers/runc/libcontainer/configs"
+	"github.com/opencontainers/runc/libcontainer/specconv"
+	"github.com/opencontainers/runc/libcontainer/utils"
 )
 
 var errEmptyID = errors.New("container id cannot be empty")
@@ -34,29 +30,6 @@ func loadFactory(context *cli.Context) (libcontainer.Factory, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
-	}
-
-	// We default to cgroupfs, and can only use systemd if the system is a
-	// systemd box.
-	cgroupManager := libcontainer.Cgroupfs
-	rootlessCg, err := shouldUseRootlessCgroupManager(context)
-	if err != nil {
-		return nil, err
-	}
-	if rootlessCg {
-		cgroupManager = libcontainer.RootlessCgroupfs
-	}
-	if context.GlobalBool("systemd-cgroup") {
-		if systemd.UseSystemd() {
-			cgroupManager = libcontainer.SystemdCgroups
-		} else {
-			return nil, fmt.Errorf("systemd cgroup flag passed, but systemd support for managing cgroups is not available")
-		}
-	}
-
-	intelRdtManager := libcontainer.IntelRdtFs
-	if !intelrdt.IsCatEnabled() && !intelrdt.IsMbaEnabled() {
-		intelRdtManager = nil
 	}
 
 	// We resolve the paths for {newuidmap,newgidmap} from the context of runc,
@@ -71,7 +44,7 @@ func loadFactory(context *cli.Context) (libcontainer.Factory, error) {
 		newgidmap = ""
 	}
 
-	return libcontainer.New(abs, cgroupManager, intelRdtManager,
+	return libcontainer.New(abs,
 		libcontainer.CriuPath(context.GlobalString("criu")),
 		libcontainer.NewuidmapPath(newuidmap),
 		libcontainer.NewgidmapPath(newgidmap))
@@ -91,11 +64,7 @@ func getContainer(context *cli.Context) (libcontainer.Container, error) {
 	return factory.Load(id)
 }
 
-func fatalf(t string, v ...interface{}) {
-	fatal(fmt.Errorf(t, v...))
-}
-
-func getDefaultImagePath(context *cli.Context) string {
+func getDefaultImagePath() string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		panic(err)
@@ -105,7 +74,7 @@ func getDefaultImagePath(context *cli.Context) string {
 
 // newProcess returns a new libcontainer Process with the arguments from the
 // spec and stdio from the current process.
-func newProcess(p specs.Process, init bool, logLevel string) (*libcontainer.Process, error) {
+func newProcess(p specs.Process) (*libcontainer.Process, error) {
 	lp := &libcontainer.Process{
 		Args: p.Args,
 		Env:  p.Env,
@@ -115,8 +84,6 @@ func newProcess(p specs.Process, init bool, logLevel string) (*libcontainer.Proc
 		Label:           p.SelinuxLabel,
 		NoNewPrivileges: &p.NoNewPrivileges,
 		AppArmorProfile: p.ApparmorProfile,
-		Init:            init,
-		LogLevel:        logLevel,
 	}
 
 	if p.ConsoleSize != nil {
@@ -159,6 +126,9 @@ func setupIO(process *libcontainer.Process, rootuid, rootgid int, createTTY, det
 		process.Stderr = nil
 		t := &tty{}
 		if !detach {
+			if err := t.initHostConsole(); err != nil {
+				return nil, err
+			}
 			parent, child, err := utils.NewSockPair("console")
 			if err != nil {
 				return nil, err
@@ -167,10 +137,7 @@ func setupIO(process *libcontainer.Process, rootuid, rootgid int, createTTY, det
 			t.postStart = append(t.postStart, parent, child)
 			t.consoleC = make(chan error, 1)
 			go func() {
-				if err := t.recvtty(process, parent); err != nil {
-					t.consoleC <- err
-				}
-				t.consoleC <- nil
+				t.consoleC <- t.recvtty(parent)
 			}()
 		} else {
 			// the caller of runc will handle receiving the console master
@@ -180,7 +147,7 @@ func setupIO(process *libcontainer.Process, rootuid, rootgid int, createTTY, det
 			}
 			uc, ok := conn.(*net.UnixConn)
 			if !ok {
-				return nil, fmt.Errorf("casting to UnixConn failed")
+				return nil, errors.New("casting to UnixConn failed")
 			}
 			t.postStart = append(t.postStart, uc)
 			socket, err := uc.File()
@@ -195,9 +162,7 @@ func setupIO(process *libcontainer.Process, rootuid, rootgid int, createTTY, det
 	// when runc will detach the caller provides the stdio to runc via runc's 0,1,2
 	// and the container's process inherits runc's stdio.
 	if detach {
-		if err := inheritStdio(process); err != nil {
-			return nil, err
-		}
+		inheritStdio(process)
 		return &tty{}, nil
 	}
 	return setupProcessPipes(process, rootuid, rootgid)
@@ -213,13 +178,13 @@ func createPidFile(path string, process *libcontainer.Process) error {
 	}
 	var (
 		tmpDir  = filepath.Dir(path)
-		tmpName = filepath.Join(tmpDir, fmt.Sprintf(".%s", filepath.Base(path)))
+		tmpName = filepath.Join(tmpDir, "."+filepath.Base(path))
 	)
-	f, err := os.OpenFile(tmpName, os.O_RDWR|os.O_CREATE|os.O_EXCL|os.O_SYNC, 0666)
+	f, err := os.OpenFile(tmpName, os.O_RDWR|os.O_CREATE|os.O_EXCL|os.O_SYNC, 0o666)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(f, "%d", pid)
+	_, err = f.WriteString(strconv.Itoa(pid))
 	f.Close()
 	if err != nil {
 		return err
@@ -265,7 +230,7 @@ type runner struct {
 	action          CtAct
 	notifySocket    *notifySocket
 	criuOpts        *libcontainer.CriuOpts
-	logLevel        string
+	subCgroupPaths  map[string]string
 }
 
 func (r *runner) run(config *specs.Process) (int, error) {
@@ -278,19 +243,23 @@ func (r *runner) run(config *specs.Process) (int, error) {
 	if err = r.checkTerminal(config); err != nil {
 		return -1, err
 	}
-	process, err := newProcess(*config, r.init, r.logLevel)
+	process, err := newProcess(*config)
 	if err != nil {
 		return -1, err
 	}
+	process.LogLevel = strconv.Itoa(int(logrus.GetLevel()))
+	// Populate the fields that come from runner.
+	process.Init = r.init
+	process.SubCgroupPaths = r.subCgroupPaths
 	if len(r.listenFDs) > 0 {
-		process.Env = append(process.Env, fmt.Sprintf("LISTEN_FDS=%d", len(r.listenFDs)), "LISTEN_PID=1")
+		process.Env = append(process.Env, "LISTEN_FDS="+strconv.Itoa(len(r.listenFDs)), "LISTEN_PID=1")
 		process.ExtraFiles = append(process.ExtraFiles, r.listenFDs...)
 	}
 	baseFd := 3 + len(process.ExtraFiles)
 	for i := baseFd; i < baseFd+r.preserveFDs; i++ {
-		_, err = os.Stat(fmt.Sprintf("/proc/self/fd/%d", i))
+		_, err = os.Stat("/proc/self/fd/" + strconv.Itoa(i))
 		if err != nil {
-			return -1, errors.Wrapf(err, "please check that preserved-fd %d (of %d) is present", i-baseFd, r.preserveFDs)
+			return -1, fmt.Errorf("unable to stat preserved-fd %d (of %d): %w", i-baseFd, r.preserveFDs, err)
 		}
 		process.ExtraFiles = append(process.ExtraFiles, os.NewFile(uintptr(i), "PreserveFD:"+strconv.Itoa(i)))
 	}
@@ -302,9 +271,7 @@ func (r *runner) run(config *specs.Process) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	var (
-		detach = r.detach || (r.action == CT_ACT_CREATE)
-	)
+	detach := r.detach || (r.action == CT_ACT_CREATE)
 	// Setting up IO is a two stage process. We need to modify process to deal
 	// with detaching containers, and then we get a tty after the container has
 	// started.
@@ -332,10 +299,7 @@ func (r *runner) run(config *specs.Process) (int, error) {
 		r.terminate(process)
 		return -1, err
 	}
-	if err = tty.ClosePostStart(); err != nil {
-		r.terminate(process)
-		return -1, err
-	}
+	tty.ClosePostStart()
 	if r.pidFile != "" {
 		if err = createPidFile(r.pidFile, process); err != nil {
 			r.terminate(process)
@@ -349,7 +313,9 @@ func (r *runner) run(config *specs.Process) (int, error) {
 	if detach {
 		return 0, nil
 	}
-	r.destroy()
+	if err == nil {
+		r.destroy()
+	}
 	return status, err
 }
 
@@ -368,26 +334,29 @@ func (r *runner) checkTerminal(config *specs.Process) error {
 	detach := r.detach || (r.action == CT_ACT_CREATE)
 	// Check command-line for sanity.
 	if detach && config.Terminal && r.consoleSocket == "" {
-		return fmt.Errorf("cannot allocate tty if runc will detach without setting console socket")
+		return errors.New("cannot allocate tty if runc will detach without setting console socket")
 	}
 	if (!detach || !config.Terminal) && r.consoleSocket != "" {
-		return fmt.Errorf("cannot use console socket if runc will not detach or allocate tty")
+		return errors.New("cannot use console socket if runc will not detach or allocate tty")
 	}
 	return nil
 }
 
 func validateProcessSpec(spec *specs.Process) error {
+	if spec == nil {
+		return errors.New("process property must not be empty")
+	}
 	if spec.Cwd == "" {
-		return fmt.Errorf("Cwd property must not be empty")
+		return errors.New("Cwd property must not be empty")
 	}
 	if !filepath.IsAbs(spec.Cwd) {
-		return fmt.Errorf("Cwd must be an absolute path")
+		return errors.New("Cwd must be an absolute path")
 	}
 	if len(spec.Args) == 0 {
-		return fmt.Errorf("args must not be empty")
+		return errors.New("args must not be empty")
 	}
 	if spec.SelinuxLabel != "" && !selinux.GetEnabled() {
-		return fmt.Errorf("selinux label is specified in config, but selinux is disabled or not supported")
+		return errors.New("selinux label is specified in config, but selinux is disabled or not supported")
 	}
 	return nil
 }
@@ -400,7 +369,15 @@ const (
 	CT_ACT_RESTORE
 )
 
-func startContainer(context *cli.Context, spec *specs.Spec, action CtAct, criuOpts *libcontainer.CriuOpts) (int, error) {
+func startContainer(context *cli.Context, action CtAct, criuOpts *libcontainer.CriuOpts) (int, error) {
+	if err := revisePidFile(context); err != nil {
+		return -1, err
+	}
+	spec, err := setupSpec(context)
+	if err != nil {
+		return -1, err
+	}
+
 	id := context.Args().First()
 	if id == "" {
 		return -1, errEmptyID
@@ -408,7 +385,7 @@ func startContainer(context *cli.Context, spec *specs.Spec, action CtAct, criuOp
 
 	notifySocket := newNotifySocket(context, os.Getenv("NOTIFY_SOCKET"), id)
 	if notifySocket != nil {
-		notifySocket.setupSpec(context, spec)
+		notifySocket.setupSpec(spec)
 	}
 
 	container, err := createContainer(context, id, spec)
@@ -417,9 +394,13 @@ func startContainer(context *cli.Context, spec *specs.Spec, action CtAct, criuOp
 	}
 
 	if notifySocket != nil {
-		err := notifySocket.setupSocket()
-		if err != nil {
+		if err := notifySocket.setupSocketDirectory(); err != nil {
 			return -1, err
+		}
+		if action == CT_ACT_RUN {
+			if err := notifySocket.bindSocket(); err != nil {
+				return -1, err
+			}
 		}
 	}
 
@@ -429,14 +410,9 @@ func startContainer(context *cli.Context, spec *specs.Spec, action CtAct, criuOp
 		listenFDs = activation.Files(false)
 	}
 
-	logLevel := "info"
-	if context.GlobalBool("debug") {
-		logLevel = "debug"
-	}
-
 	r := &runner{
 		enableSubreaper: !context.Bool("no-subreaper"),
-		shouldDestroy:   true,
+		shouldDestroy:   !context.Bool("keep"),
 		container:       container,
 		listenFDs:       listenFDs,
 		notifySocket:    notifySocket,
@@ -447,7 +423,6 @@ func startContainer(context *cli.Context, spec *specs.Spec, action CtAct, criuOp
 		action:          action,
 		criuOpts:        criuOpts,
 		init:            true,
-		logLevel:        logLevel,
 	}
 	return r.run(spec.Process)
 }

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 )
@@ -76,42 +75,26 @@ func (i *InmemSignal) dumpStats() {
 
 	data := i.inm.Data()
 	// Skip the last period which is still being aggregated
-	for j := 0; j < len(data)-1; j++ {
-		intv := data[j]
+	for i := 0; i < len(data)-1; i++ {
+		intv := data[i]
 		intv.RLock()
-		for _, val := range intv.Gauges {
-			name := i.flattenLabels(val.Name, val.Labels)
-			fmt.Fprintf(buf, "[%v][G] '%s': %0.3f\n", intv.Interval, name, val.Value)
+		for name, val := range intv.Gauges {
+			fmt.Fprintf(buf, "[%v][G] '%s': %0.3f\n", intv.Interval, name, val)
 		}
 		for name, vals := range intv.Points {
 			for _, val := range vals {
 				fmt.Fprintf(buf, "[%v][P] '%s': %0.3f\n", intv.Interval, name, val)
 			}
 		}
-		for _, agg := range intv.Counters {
-			name := i.flattenLabels(agg.Name, agg.Labels)
-			fmt.Fprintf(buf, "[%v][C] '%s': %s\n", intv.Interval, name, agg.AggregateSample)
+		for name, agg := range intv.Counters {
+			fmt.Fprintf(buf, "[%v][C] '%s': %s\n", intv.Interval, name, agg)
 		}
-		for _, agg := range intv.Samples {
-			name := i.flattenLabels(agg.Name, agg.Labels)
-			fmt.Fprintf(buf, "[%v][S] '%s': %s\n", intv.Interval, name, agg.AggregateSample)
+		for name, agg := range intv.Samples {
+			fmt.Fprintf(buf, "[%v][S] '%s': %s\n", intv.Interval, name, agg)
 		}
 		intv.RUnlock()
 	}
 
 	// Write out the bytes
 	i.w.Write(buf.Bytes())
-}
-
-// Flattens the key for formatting along with its labels, removes spaces
-func (i *InmemSignal) flattenLabels(name string, labels []Label) string {
-	buf := bytes.NewBufferString(name)
-	replacer := strings.NewReplacer(" ", "_", ":", "_")
-
-	for _, label := range labels {
-		replacer.WriteString(buf, ".")
-		replacer.WriteString(buf, label.Value)
-	}
-
-	return buf.String()
 }

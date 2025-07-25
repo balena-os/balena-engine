@@ -1,3 +1,4 @@
+//go:build linux
 // +build linux
 
 /*
@@ -21,10 +22,10 @@ package devmapper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
-	"github.com/pkg/errors"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -38,6 +39,7 @@ type deviceIDState byte
 const (
 	deviceFree deviceIDState = iota
 	deviceTaken
+	deviceFaulty
 )
 
 // Bucket names
@@ -68,7 +70,7 @@ func NewPoolMetadata(dbfile string) (*PoolMetadata, error) {
 
 	metadata := &PoolMetadata{db: db}
 	if err := metadata.ensureDatabaseInitialized(); err != nil {
-		return nil, errors.Wrap(err, "failed to initialize database")
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
 	return metadata, nil
@@ -92,12 +94,15 @@ func (m *PoolMetadata) ensureDatabaseInitialized() error {
 
 // AddDevice saves device info to database.
 func (m *PoolMetadata) AddDevice(ctx context.Context, info *DeviceInfo) error {
-	return m.db.Update(func(tx *bolt.Tx) error {
+	err := m.db.Update(func(tx *bolt.Tx) error {
 		devicesBucket := tx.Bucket(devicesBucketName)
 
-		// Make sure device name is unique
-		if err := getObject(devicesBucket, info.Name, nil); err == nil {
-			return ErrAlreadyExists
+		// Make sure device name is unique. If there is already a device with the same name,
+		// but in Faulty state, give it a try with another devmapper device ID.
+		// See https://github.com/containerd/containerd/pull/3436 for more context.
+		var existing DeviceInfo
+		if err := getObject(devicesBucket, info.Name, &existing); err == nil && existing.State != Faulty {
+			return fmt.Errorf("device %q is already there %+v: %w", info.Name, existing, ErrAlreadyExists)
 		}
 
 		// Find next available device ID
@@ -108,7 +113,46 @@ func (m *PoolMetadata) AddDevice(ctx context.Context, info *DeviceInfo) error {
 
 		info.DeviceID = deviceID
 
-		return putObject(devicesBucket, info.Name, info, false)
+		return putObject(devicesBucket, info.Name, info, true)
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to save metadata for device %q (parent: %q): %w", info.Name, info.ParentName, err)
+	}
+
+	return nil
+}
+
+// ChangeDeviceState changes the device state given the device name in devices bucket.
+func (m *PoolMetadata) ChangeDeviceState(ctx context.Context, name string, state DeviceState) error {
+	return m.UpdateDevice(ctx, name, func(deviceInfo *DeviceInfo) error {
+		deviceInfo.State = state
+		return nil
+	})
+}
+
+// MarkFaulty marks the given device and corresponding devmapper device ID as faulty.
+// The snapshotter might attempt to recreate a device in 'Faulty' state with another devmapper ID in
+// subsequent calls, and in case of success it's status will be changed to 'Created' or 'Activated'.
+// The devmapper dev ID will remain in 'deviceFaulty' state until manually handled by a user.
+func (m *PoolMetadata) MarkFaulty(ctx context.Context, name string) error {
+	return m.db.Update(func(tx *bolt.Tx) error {
+		var (
+			device    = DeviceInfo{}
+			devBucket = tx.Bucket(devicesBucketName)
+		)
+
+		if err := getObject(devBucket, name, &device); err != nil {
+			return err
+		}
+
+		device.State = Faulty
+
+		if err := putObject(devBucket, name, &device, true); err != nil {
+			return err
+		}
+
+		return markDeviceID(tx, device.DeviceID, deviceFaulty)
 	})
 }
 
@@ -149,7 +193,7 @@ func getNextDeviceID(tx *bolt.Tx) (uint32, error) {
 	}
 
 	if seq >= maxDeviceID {
-		return 0, errors.Errorf("dm-meta: couldn't find free device key")
+		return 0, errors.New("dm-meta: couldn't find free device key")
 	}
 
 	id := uint32(seq)
@@ -169,7 +213,7 @@ func markDeviceID(tx *bolt.Tx, deviceID uint32, state deviceIDState) error {
 	)
 
 	if err := bucket.Put([]byte(key), value); err != nil {
-		return errors.Wrapf(err, "failed to free device id %q", key)
+		return fmt.Errorf("failed to free device id %q: %w", key, err)
 	}
 
 	return nil
@@ -238,10 +282,26 @@ func (m *PoolMetadata) RemoveDevice(ctx context.Context, name string) error {
 		}
 
 		if err := bucket.Delete([]byte(name)); err != nil {
-			return errors.Wrapf(err, "failed to delete device info for %q", name)
+			return fmt.Errorf("failed to delete device info for %q: %w", name, err)
 		}
 
 		return markDeviceID(tx, device.DeviceID, deviceFree)
+	})
+}
+
+// WalkDevices walks all devmapper devices in metadata store and invokes the callback with device info.
+// The provided callback function must not modify the bucket.
+func (m *PoolMetadata) WalkDevices(ctx context.Context, cb func(info *DeviceInfo) error) error {
+	return m.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(devicesBucketName)
+		return bucket.ForEach(func(key, value []byte) error {
+			device := &DeviceInfo{}
+			if err := json.Unmarshal(value, device); err != nil {
+				return fmt.Errorf("failed to unmarshal %s: %w", key, err)
+			}
+
+			return cb(device)
+		})
 	})
 }
 
@@ -280,16 +340,16 @@ func putObject(bucket *bolt.Bucket, key string, obj interface{}, overwrite bool)
 	keyBytes := []byte(key)
 
 	if !overwrite && bucket.Get(keyBytes) != nil {
-		return errors.Errorf("object with key %q already exists", key)
+		return fmt.Errorf("object with key %q already exists", key)
 	}
 
 	data, err := json.Marshal(obj)
 	if err != nil {
-		return errors.Wrapf(err, "failed to marshal object with key %q", key)
+		return fmt.Errorf("failed to marshal object with key %q: %w", key, err)
 	}
 
 	if err := bucket.Put(keyBytes, data); err != nil {
-		return errors.Wrapf(err, "failed to insert object with key %q", key)
+		return fmt.Errorf("failed to insert object with key %q: %w", key, err)
 	}
 
 	return nil
@@ -303,7 +363,7 @@ func getObject(bucket *bolt.Bucket, key string, obj interface{}) error {
 
 	if obj != nil {
 		if err := json.Unmarshal(data, obj); err != nil {
-			return errors.Wrapf(err, "failed to unmarshal object with key %q", key)
+			return fmt.Errorf("failed to unmarshal object with key %q: %w", key, err)
 		}
 	}
 

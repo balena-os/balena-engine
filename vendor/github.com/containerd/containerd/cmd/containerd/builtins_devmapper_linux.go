@@ -1,3 +1,4 @@
+//go:build !no_devmapper
 // +build !no_devmapper
 
 /*
@@ -18,4 +19,4 @@
 
 package containerd
 
-import _ "github.com/containerd/containerd/snapshots/devmapper"
+import _ "github.com/containerd/containerd/snapshots/devmapper/plugin"
