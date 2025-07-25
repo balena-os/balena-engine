@@ -768,7 +768,7 @@ func (d *Driver) Changes(id, parent string) ([]archive.Change, error) {
 }
 
 func (d *Driver) List() ([]string, error) {
-	entries, err := ioutil.ReadDir(d.home)
+	entries, err := os.ReadDir(d.home)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
