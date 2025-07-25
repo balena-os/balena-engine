@@ -595,7 +595,7 @@ func (a *Driver) Cleanup() error {
 }
 
 func (a *Driver) List() ([]string, error) {
-	entries, err := ioutil.ReadDir(a.diffPath())
+	entries, err := os.ReadDir(a.diffPath())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
