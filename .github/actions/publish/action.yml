@@ -54,7 +54,7 @@ runs:
           -C bundles/cross/${{ env.matrix_value }} .
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
       with:
         name: gh-release-${{ github.event.pull_request.head.sha || github.event.head_commit.id }}-${{ strategy.job-index }}
         path: dist
