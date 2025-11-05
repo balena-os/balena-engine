@@ -3197,10 +3197,10 @@ func (s *DockerCLIRunSuite) TestRunWithUlimits(c *testing.T) {
 	// Not applicable on Windows as uses Unix specific functionality
 	testRequires(c, DaemonIsLinux)
 
-	out := cli.DockerCmd(c, "run", "--name=testulimits", "--ulimit", "nofile=42", "busybox", "/bin/sh", "-c", "ulimit -n").Combined()
+	out := cli.DockerCmd(c, "run", "--name=testulimits", "--ulimit", "nofile=128", "busybox", "/bin/sh", "-c", "ulimit -n").Combined()
 	ul := strings.TrimSpace(out)
-	if ul != "42" {
-		c.Fatalf("expected `ulimit -n` to be 42, got %s", ul)
+	if ul != "128" {
+		c.Fatalf("expected `ulimit -n` to be 128, got %s", ul)
 	}
 }
 
@@ -4026,13 +4026,13 @@ func (s *DockerDaemonSuite) TestRunWithUlimitAndDaemonDefault(c *testing.T) {
 	assert.NilError(c, err)
 	assert.Assert(c, strings.Contains(out, "[nofile=65535:65535]"))
 	name = "test-B"
-	_, err = d.Cmd("run", "--name", name, "--ulimit=nofile=42", "-d", "busybox", "top")
+	_, err = d.Cmd("run", "--name", name, "--ulimit=nofile=128", "-d", "busybox", "top")
 	assert.NilError(c, err)
 	assert.NilError(c, d.WaitRun(name))
 
 	out, err = d.Cmd("inspect", "--format", "{{.HostConfig.Ulimits}}", name)
 	assert.NilError(c, err)
-	assert.Assert(c, strings.Contains(out, "[nofile=42:42]"))
+	assert.Assert(c, strings.Contains(out, "[nofile=128:128]"))
 }
 
 func (s *DockerCLIRunSuite) TestRunStoppedLoggingDriverNoLeak(c *testing.T) {
