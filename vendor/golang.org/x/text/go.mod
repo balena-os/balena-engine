@@ -1,5 +1,9 @@
 module golang.org/x/text
 
-require golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e
+go 1.18
 
-go 1.17
+require golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // tagx:ignore
+
+require golang.org/x/mod v0.17.0 // indirect; tagx:ignore
+
+require golang.org/x/sync v0.10.0 // indirect

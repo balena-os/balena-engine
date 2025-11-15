@@ -3,8 +3,7 @@ package runc
 import (
 	"os"
 
-	"github.com/opencontainers/runc/libcontainer"
-	"github.com/opencontainers/runc/libcontainer/userns"
+	"github.com/moby/sys/userns"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
 )
@@ -53,7 +52,7 @@ using the runc checkpoint command.`,
 		cli.StringFlag{
 			Name:  "manage-cgroups-mode",
 			Value: "",
-			Usage: "cgroups mode: 'soft' (default), 'full' and 'strict'",
+			Usage: "cgroups mode: soft|full|strict|ignore (default: soft)",
 		},
 		cli.StringFlag{
 			Name:  "bundle, b",
@@ -109,8 +108,8 @@ using the runc checkpoint command.`,
 			logrus.Warn("runc checkpoint is untested with rootless containers")
 		}
 
-		options := criuOptions(context)
-		if err := setEmptyNsMask(context, options); err != nil {
+		options, err := criuOptions(context)
+		if err != nil {
 			return err
 		}
 		status, err := startContainer(context, CT_ACT_RESTORE, options)
@@ -122,28 +121,4 @@ using the runc checkpoint command.`,
 		os.Exit(status)
 		return nil
 	},
-}
-
-func criuOptions(context *cli.Context) *libcontainer.CriuOpts {
-	imagePath, parentPath, err := prepareImagePaths(context)
-	if err != nil {
-		fatal(err)
-	}
-
-	return &libcontainer.CriuOpts{
-		ImagesDirectory:         imagePath,
-		WorkDirectory:           context.String("work-path"),
-		ParentImage:             parentPath,
-		LeaveRunning:            context.Bool("leave-running"),
-		TcpEstablished:          context.Bool("tcp-established"),
-		ExternalUnixConnections: context.Bool("ext-unix-sk"),
-		ShellJob:                context.Bool("shell-job"),
-		FileLocks:               context.Bool("file-locks"),
-		PreDump:                 context.Bool("pre-dump"),
-		AutoDedup:               context.Bool("auto-dedup"),
-		LazyPages:               context.Bool("lazy-pages"),
-		StatusFd:                context.Int("status-fd"),
-		LsmProfile:              context.String("lsm-profile"),
-		LsmMountContext:         context.String("lsm-mount-context"),
-	}
 }

@@ -1,33 +1,44 @@
 module github.com/opencontainers/runc
 
-go 1.17
+go 1.22
+
+// Suggest toolchain 1.22.4 due to a fix in golang for libcontainer/nsenter/.
+// For more info, see: #4233
+// Note that toolchain does not impose a requirement on other modules using runc.
+toolchain go1.22.4
 
 require (
-	github.com/checkpoint-restore/go-criu/v5 v5.3.0
-	github.com/cilium/ebpf v0.7.0
-	github.com/containerd/console v1.0.3
-	github.com/coreos/go-systemd/v22 v22.3.2
-	github.com/cyphar/filepath-securejoin v0.2.4
-	github.com/docker/go-units v0.4.0
-	github.com/godbus/dbus/v5 v5.0.6
-	github.com/moby/sys/mountinfo v0.5.0
+	github.com/checkpoint-restore/go-criu/v6 v6.3.0
+	github.com/cilium/ebpf v0.16.0
+	github.com/containerd/console v1.0.5
+	github.com/coreos/go-systemd/v22 v22.5.0
+	github.com/cyphar/filepath-securejoin v0.5.1
+	github.com/docker/go-units v0.5.0
+	github.com/godbus/dbus/v5 v5.1.0
+	github.com/moby/sys/mountinfo v0.7.1
+	github.com/moby/sys/user v0.3.0
+	github.com/moby/sys/userns v0.1.0
 	github.com/mrunalp/fileutils v0.5.1
-	github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417
-	github.com/opencontainers/selinux v1.10.0
-	github.com/seccomp/libseccomp-golang v0.9.2-0.20220502022130-f33da4d89646
-	github.com/sirupsen/logrus v1.8.1
+	github.com/opencontainers/runtime-spec v1.2.0
+	github.com/opencontainers/selinux v1.12.0
+	github.com/seccomp/libseccomp-golang v0.10.0
+	github.com/sirupsen/logrus v1.9.3
 	github.com/syndtr/gocapability v0.0.0-20200815063812-42c35b437635
-	// NOTE: urfave/cli must be <= v1.22.1 due to a regression: https://github.com/urfave/cli/issues/1092
-	github.com/urfave/cli v1.22.1
+	github.com/urfave/cli v1.22.14
 	github.com/vishvananda/netlink v1.1.0
-	golang.org/x/net v0.8.0
-	golang.org/x/sys v0.6.0
-	google.golang.org/protobuf v1.27.1
+	golang.org/x/net v0.33.0
+	golang.org/x/sys v0.28.0
+	google.golang.org/protobuf v1.33.0
 )
 
 require (
-	github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d // indirect
-	github.com/russross/blackfriday/v2 v2.0.1 // indirect
-	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect
+	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
+	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
+	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2 // indirect
 )
+
+// FIXME: This is only intended as a short-term solution to include a patch for
+// CVE-2025-52881 in go-selinux without pushing the patches upstream. This
+// should be removed as soon as possible after the embargo is lifted.
+replace github.com/opencontainers/selinux => ./internal/third_party/selinux

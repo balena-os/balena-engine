@@ -1,5 +1,8 @@
 module github.com/opencontainers/selinux
 
-go 1.13
+go 1.19
 
-require golang.org/x/sys v0.0.0-20191115151921-52ab43148777
+require (
+	github.com/cyphar/filepath-securejoin v0.5.1
+	golang.org/x/sys v0.26.0
+)

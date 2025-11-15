@@ -34,6 +34,10 @@ following will output a list of processes running in the container:
 			Usage: "path to an AF_UNIX socket which will receive a file descriptor referencing the master end of the console's pseudoterminal",
 		},
 		cli.StringFlag{
+			Name:  "pidfd-socket",
+			Usage: "path to an AF_UNIX socket which will receive a file descriptor referencing the exec process",
+		},
+		cli.StringFlag{
 			Name:  "cwd",
 			Usage: "current working directory in the container",
 		},
@@ -162,7 +166,10 @@ func execProcess(context *cli.Context) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	bundle := utils.SearchLabels(state.Config.Labels, "bundle")
+	bundle, ok := utils.SearchLabels(state.Config.Labels, "bundle")
+	if !ok {
+		return -1, errors.New("bundle not found in labels")
+	}
 	p, err := getProcess(context, bundle)
 	if err != nil {
 		return -1, err
@@ -178,6 +185,7 @@ func execProcess(context *cli.Context) (int, error) {
 		shouldDestroy:   false,
 		container:       container,
 		consoleSocket:   context.String("console-socket"),
+		pidfdSocket:     context.String("pidfd-socket"),
 		detach:          context.Bool("detach"),
 		pidFile:         context.String("pid-file"),
 		action:          CT_ACT_RUN,
@@ -211,9 +219,9 @@ func getProcess(context *cli.Context, bundle string) (*specs.Process, error) {
 	}
 	p := spec.Process
 	p.Args = context.Args()[1:]
-	// override the cwd, if passed
-	if context.String("cwd") != "" {
-		p.Cwd = context.String("cwd")
+	// Override the cwd, if passed.
+	if cwd := context.String("cwd"); cwd != "" {
+		p.Cwd = cwd
 	}
 	if ap := context.String("apparmor"); ap != "" {
 		p.ApparmorProfile = ap
@@ -226,33 +234,35 @@ func getProcess(context *cli.Context, bundle string) (*specs.Process, error) {
 			p.Capabilities.Bounding = append(p.Capabilities.Bounding, c)
 			p.Capabilities.Effective = append(p.Capabilities.Effective, c)
 			p.Capabilities.Permitted = append(p.Capabilities.Permitted, c)
-			p.Capabilities.Ambient = append(p.Capabilities.Ambient, c)
+			// Since ambient capabilities can't be set without inherritable,
+			// and runc exec --cap don't set inheritable, let's only set
+			// ambient if we already have some inheritable bits set from spec.
+			if p.Capabilities.Inheritable != nil {
+				p.Capabilities.Ambient = append(p.Capabilities.Ambient, c)
+			}
 		}
 	}
 	// append the passed env variables
 	p.Env = append(p.Env, context.StringSlice("env")...)
 
-	// set the tty
-	p.Terminal = false
-	if context.IsSet("tty") {
-		p.Terminal = context.Bool("tty")
-	}
+	// Always set tty to false, unless explicitly enabled from CLI.
+	p.Terminal = context.Bool("tty")
 	if context.IsSet("no-new-privs") {
 		p.NoNewPrivileges = context.Bool("no-new-privs")
 	}
-	// override the user, if passed
-	if context.String("user") != "" {
-		u := strings.SplitN(context.String("user"), ":", 2)
-		if len(u) > 1 {
-			gid, err := strconv.Atoi(u[1])
+	// Override the user, if passed.
+	if user := context.String("user"); user != "" {
+		uids, gids, ok := strings.Cut(user, ":")
+		if ok {
+			gid, err := strconv.Atoi(gids)
 			if err != nil {
-				return nil, fmt.Errorf("parsing %s as int for gid failed: %w", u[1], err)
+				return nil, fmt.Errorf("bad gid: %w", err)
 			}
 			p.User.GID = uint32(gid)
 		}
-		uid, err := strconv.Atoi(u[0])
+		uid, err := strconv.Atoi(uids)
 		if err != nil {
-			return nil, fmt.Errorf("parsing %s as int for uid failed: %w", u[0], err)
+			return nil, fmt.Errorf("bad uid: %w", err)
 		}
 		p.User.UID = uint32(uid)
 	}
