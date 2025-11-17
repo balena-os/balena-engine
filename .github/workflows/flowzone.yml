@@ -6,6 +6,7 @@ on:
     branches:
       - "main"
       - "master"
+      - "release/*"
 
 jobs:
   flowzone:
@@ -13,6 +14,5 @@ jobs:
     uses: product-os/flowzone/.github/workflows/flowzone.yml@master
     secrets: inherit
     with:
-      # https://github.com/golang/go/blob/master/src/go/build/syslist.go
-      custom_publish_matrix: "linux/arm/v5,linux/arm/v6,linux/arm/v7,linux/arm64,linux/amd64"
       cloudflare_website: "balena-engine"
+      disable_versioning: true
