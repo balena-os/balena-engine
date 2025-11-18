@@ -17,11 +17,13 @@ type Opt struct {
 	Dist                interface{}
 	NetworkController   interface{}
 	DefaultCgroupParent interface{}
+	RegistryHosts       interface{}
 	ResolverOpt         interface{}
 	BuilderConfig       interface{}
 	Rootless            interface{}
 	IdentityMapping     interface{}
 	DNSConfig           interface{}
+	ApparmorProfile     interface{}
 }
 
 type Builder struct{}
