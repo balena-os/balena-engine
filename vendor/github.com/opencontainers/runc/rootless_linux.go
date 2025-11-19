@@ -3,10 +3,11 @@ package runc
 import (
 	"os"
 
-	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
-	"github.com/opencontainers/runc/libcontainer/userns"
+	"github.com/moby/sys/userns"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
+
+	"github.com/opencontainers/runc/libcontainer/cgroups/systemd"
 )
 
 func shouldUseRootlessCgroupManager(context *cli.Context) (bool, error) {
@@ -52,9 +53,6 @@ func shouldUseRootlessCgroupManager(context *cli.Context) (bool, error) {
 }
 
 func shouldHonorXDGRuntimeDir() bool {
-	if os.Getenv("XDG_RUNTIME_DIR") == "" {
-		return false
-	}
 	if os.Geteuid() != 0 {
 		return true
 	}

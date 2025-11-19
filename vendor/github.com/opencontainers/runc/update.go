@@ -20,6 +20,7 @@ import (
 func i64Ptr(i int64) *int64   { return &i }
 func u64Ptr(i uint64) *uint64 { return &i }
 func u16Ptr(i uint16) *uint16 { return &i }
+func boolPtr(b bool) *bool    { return &b }
 
 var updateCommand = cli.Command{
 	Name:      "update",
@@ -37,16 +38,19 @@ The accepted format is as follow (unchanged values can be omitted):
   "memory": {
     "limit": 0,
     "reservation": 0,
-    "swap": 0
+    "swap": 0,
+    "checkBeforeUpdate": true
   },
   "cpu": {
     "shares": 0,
     "quota": 0,
+    "burst": 0,
     "period": 0,
     "realtimeRuntime": 0,
     "realtimePeriod": 0,
     "cpus": "",
-    "mems": ""
+    "mems": "",
+    "idle": 0
   },
   "blockIO": {
     "weight": 0
@@ -69,6 +73,10 @@ other options are ignored.
 		cli.StringFlag{
 			Name:  "cpu-quota",
 			Usage: "CPU CFS hardcap limit (in usecs). Allowed cpu time in a given period",
+		},
+		cli.StringFlag{
+			Name:  "cpu-burst",
+			Usage: "CPU CFS hardcap burst limit (in usecs). Allowed accumulated cpu time additionally for burst a given period",
 		},
 		cli.StringFlag{
 			Name:  "cpu-share",
@@ -105,6 +113,10 @@ other options are ignored.
 			Usage: "Memory limit (in bytes)",
 		},
 		cli.StringFlag{
+			Name:  "cpu-idle",
+			Usage: "set cgroup SCHED_IDLE or not, 0: default behavior, 1: SCHED_IDLE",
+		},
+		cli.StringFlag{
 			Name:  "memory-reservation",
 			Usage: "Memory reservation or soft_limit (in bytes)",
 		},
@@ -135,28 +147,13 @@ other options are ignored.
 		}
 
 		r := specs.LinuxResources{
+			// nil and u64Ptr(0) are not interchangeable
 			Memory: &specs.LinuxMemory{
-				Limit:       i64Ptr(0),
-				Reservation: i64Ptr(0),
-				Swap:        i64Ptr(0),
-				Kernel:      i64Ptr(0),
-				KernelTCP:   i64Ptr(0),
+				CheckBeforeUpdate: boolPtr(false), // constant
 			},
-			CPU: &specs.LinuxCPU{
-				Shares:          u64Ptr(0),
-				Quota:           i64Ptr(0),
-				Period:          u64Ptr(0),
-				RealtimeRuntime: i64Ptr(0),
-				RealtimePeriod:  u64Ptr(0),
-				Cpus:            "",
-				Mems:            "",
-			},
-			BlockIO: &specs.LinuxBlockIO{
-				Weight: u16Ptr(0),
-			},
-			Pids: &specs.LinuxPids{
-				Limit: 0,
-			},
+			CPU:     &specs.LinuxCPU{},
+			BlockIO: &specs.LinuxBlockIO{},
+			Pids:    &specs.LinuxPids{},
 		}
 
 		config := container.Config()
@@ -190,47 +187,55 @@ other options are ignored.
 			if val := context.String("cpuset-mems"); val != "" {
 				r.CPU.Mems = val
 			}
+			if val := context.String("cpu-idle"); val != "" {
+				idle, err := strconv.ParseInt(val, 10, 64)
+				if err != nil {
+					return fmt.Errorf("invalid value for cpu-idle: %w", err)
+				}
+				r.CPU.Idle = i64Ptr(idle)
+			}
 
 			for _, pair := range []struct {
 				opt  string
-				dest *uint64
+				dest **uint64
 			}{
-				{"cpu-period", r.CPU.Period},
-				{"cpu-rt-period", r.CPU.RealtimePeriod},
-				{"cpu-share", r.CPU.Shares},
+				{"cpu-burst", &r.CPU.Burst},
+				{"cpu-period", &r.CPU.Period},
+				{"cpu-rt-period", &r.CPU.RealtimePeriod},
+				{"cpu-share", &r.CPU.Shares},
 			} {
 				if val := context.String(pair.opt); val != "" {
-					var err error
-					*pair.dest, err = strconv.ParseUint(val, 10, 64)
+					v, err := strconv.ParseUint(val, 10, 64)
 					if err != nil {
 						return fmt.Errorf("invalid value for %s: %w", pair.opt, err)
 					}
+					*pair.dest = &v
 				}
 			}
 			for _, pair := range []struct {
 				opt  string
-				dest *int64
+				dest **int64
 			}{
-				{"cpu-quota", r.CPU.Quota},
-				{"cpu-rt-runtime", r.CPU.RealtimeRuntime},
+				{"cpu-quota", &r.CPU.Quota},
+				{"cpu-rt-runtime", &r.CPU.RealtimeRuntime},
 			} {
 				if val := context.String(pair.opt); val != "" {
-					var err error
-					*pair.dest, err = strconv.ParseInt(val, 10, 64)
+					v, err := strconv.ParseInt(val, 10, 64)
 					if err != nil {
 						return fmt.Errorf("invalid value for %s: %w", pair.opt, err)
 					}
+					*pair.dest = &v
 				}
 			}
 			for _, pair := range []struct {
 				opt  string
-				dest *int64
+				dest **int64
 			}{
-				{"memory", r.Memory.Limit},
-				{"memory-swap", r.Memory.Swap},
-				{"kernel-memory", r.Memory.Kernel},
-				{"kernel-memory-tcp", r.Memory.KernelTCP},
-				{"memory-reservation", r.Memory.Reservation},
+				{"memory", &r.Memory.Limit},
+				{"memory-swap", &r.Memory.Swap},
+				{"kernel-memory", &r.Memory.Kernel}, //nolint:staticcheck // Ignore SA1019. Need to keep deprecated package for compatibility.
+				{"kernel-memory-tcp", &r.Memory.KernelTCP},
+				{"memory-reservation", &r.Memory.Reservation},
 			} {
 				if val := context.String(pair.opt); val != "" {
 					var v int64
@@ -243,19 +248,31 @@ other options are ignored.
 					} else {
 						v = -1
 					}
-					*pair.dest = v
+					*pair.dest = &v
 				}
 			}
 
 			r.Pids.Limit = int64(context.Int("pids-limit"))
 		}
 
-		if *r.Memory.Kernel != 0 || *r.Memory.KernelTCP != 0 {
+		// Fix up values
+		if r.Memory.Limit != nil && *r.Memory.Limit == -1 && r.Memory.Swap == nil {
+			// To avoid error "unable to set swap limit without memory limit"
+			r.Memory.Swap = i64Ptr(0)
+		}
+		if r.CPU.Idle != nil && r.CPU.Shares == nil {
+			// To avoid error "failed to write \"4\": write /sys/fs/cgroup/runc-cgroups-integration-test/test-cgroup-7341/cpu.weight: invalid argument"
+			r.CPU.Shares = u64Ptr(0)
+		}
+
+		if (r.Memory.Kernel != nil) || (r.Memory.KernelTCP != nil) { //nolint:staticcheck // Ignore SA1019. Need to keep deprecated package for compatibility.
 			logrus.Warn("Kernel memory settings are ignored and will be removed")
 		}
 
 		// Update the values
-		config.Cgroups.Resources.BlkioWeight = *r.BlockIO.Weight
+		if r.BlockIO.Weight != nil {
+			config.Cgroups.Resources.BlkioWeight = *r.BlockIO.Weight
+		}
 
 		// Setting CPU quota and period independently does not make much sense,
 		// but historically runc allowed it and this needs to be supported
@@ -268,7 +285,16 @@ other options are ignored.
 		// Here in update, previously set values are available from config.
 		// If only one of {quota,period} is set and the other is not, leave
 		// the unset parameter at the old value (don't overwrite config).
-		p, q := *r.CPU.Period, *r.CPU.Quota
+		var (
+			p uint64
+			q int64
+		)
+		if r.CPU.Period != nil {
+			p = *r.CPU.Period
+		}
+		if r.CPU.Quota != nil {
+			q = *r.CPU.Quota
+		}
 		if (p == 0 && q == 0) || (p != 0 && q != 0) {
 			// both values are either set or unset (0)
 			config.Cgroups.Resources.CpuPeriod = p
@@ -284,16 +310,33 @@ other options are ignored.
 			}
 		}
 
-		config.Cgroups.Resources.CpuShares = *r.CPU.Shares
-		// CpuWeight is used for cgroupv2 and should be converted
-		config.Cgroups.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(*r.CPU.Shares)
-		config.Cgroups.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
-		config.Cgroups.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+		config.Cgroups.Resources.CpuBurst = r.CPU.Burst // can be nil
+		if r.CPU.Shares != nil {
+			config.Cgroups.Resources.CpuShares = *r.CPU.Shares
+			// CpuWeight is used for cgroupv2 and should be converted
+			config.Cgroups.Resources.CpuWeight = cgroups.ConvertCPUSharesToCgroupV2Value(*r.CPU.Shares)
+		}
+		if r.CPU.RealtimePeriod != nil {
+			config.Cgroups.Resources.CpuRtPeriod = *r.CPU.RealtimePeriod
+		}
+		if r.CPU.RealtimeRuntime != nil {
+			config.Cgroups.Resources.CpuRtRuntime = *r.CPU.RealtimeRuntime
+		}
 		config.Cgroups.Resources.CpusetCpus = r.CPU.Cpus
 		config.Cgroups.Resources.CpusetMems = r.CPU.Mems
-		config.Cgroups.Resources.Memory = *r.Memory.Limit
-		config.Cgroups.Resources.MemoryReservation = *r.Memory.Reservation
-		config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+		if r.Memory.Limit != nil {
+			config.Cgroups.Resources.Memory = *r.Memory.Limit
+		}
+		config.Cgroups.Resources.CPUIdle = r.CPU.Idle
+		if r.Memory.Reservation != nil {
+			config.Cgroups.Resources.MemoryReservation = *r.Memory.Reservation
+		}
+		if r.Memory.Swap != nil {
+			config.Cgroups.Resources.MemorySwap = *r.Memory.Swap
+		}
+		if r.Memory.CheckBeforeUpdate != nil {
+			config.Cgroups.Resources.MemoryCheckBeforeUpdate = *r.Memory.CheckBeforeUpdate
+		}
 		config.Cgroups.Resources.PidsLimit = r.Pids.Limit
 		config.Cgroups.Resources.Unified = r.Unified
 
@@ -324,8 +367,12 @@ other options are ignored.
 					return err
 				}
 			}
-			config.IntelRdt.L3CacheSchema = l3CacheSchema
-			config.IntelRdt.MemBwSchema = memBwSchema
+			if l3CacheSchema != "" {
+				config.IntelRdt.L3CacheSchema = l3CacheSchema
+			}
+			if memBwSchema != "" {
+				config.IntelRdt.MemBwSchema = memBwSchema
+			}
 		}
 
 		// XXX(kolyshkin@): currently "runc update" is unable to change

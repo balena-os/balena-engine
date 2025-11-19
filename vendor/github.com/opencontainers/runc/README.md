@@ -26,10 +26,37 @@ A third party security audit was performed by Cure53, you can see the full repor
 
 ## Building
 
-`runc` only supports Linux. It must be built with Go version 1.17 or higher.
+`runc` only supports Linux. See the header of [`go.mod`](./go mod) for the required Go version.
 
-In order to enable seccomp support you will need to install `libseccomp` on your platform.
-> e.g. `libseccomp-devel` for CentOS, or `libseccomp-dev` for Ubuntu
+### Pre-Requisites
+
+#### Utilities and Libraries
+
+In addition to Go, building `runc` requires multiple utilities and libraries to be installed on your system.
+
+On Ubuntu/Debian, you can install the required dependencies with:
+
+```bash
+apt update && apt install -y make gcc linux-libc-dev libseccomp-dev pkg-config git
+```
+
+On CentOS/Fedora, you can install the required dependencies with:
+
+```bash
+yum install -y make gcc kernel-headers libseccomp-devel pkg-config git
+```
+
+On Alpine Linux, you can install the required dependencies with:
+
+```bash
+apk --update add bash make gcc libseccomp-dev musl-dev linux-headers git
+```
+
+The following dependencies are optional:
+
+* `libseccomp` - only required if you enable seccomp support; to disable, see [Build Tags](#build-tags)
+
+### Build
 
 ```bash
 # create a 'github.com/opencontainers' in your GOPATH/src
@@ -52,6 +79,16 @@ sudo make install
 
 `runc` will be installed to `/usr/local/sbin/runc` on your system.
 
+#### Version string customization
+
+You can see the runc version by running `runc --version`. You can append a custom string to the
+version using the `EXTRA_VERSION` make variable when building, e.g.:
+
+```bash
+make EXTRA_VERSION="+build-1"
+```
+
+Bear in mind to include some separator for readability.
 
 #### Build Tags
 
@@ -65,11 +102,12 @@ e.g. to disable seccomp:
 make BUILDTAGS=""
 ```
 
-| Build Tag | Feature                            | Enabled by default | Dependency |
-|-----------|------------------------------------|--------------------|------------|
-| seccomp   | Syscall filtering                  | yes                | libseccomp |
+| Build Tag     | Feature                               | Enabled by Default | Dependencies        |
+|---------------|---------------------------------------|--------------------|---------------------|
+| `seccomp`     | Syscall filtering using `libseccomp`. | yes                | `libseccomp`        |
 
 The following build tags were used earlier, but are now obsoleted:
+ - **runc_nodmz** (since runc v1.2.1 runc dmz binary is dropped)
  - **nokmem** (since runc v1.0.0-rc94 kernel memory settings are ignored)
  - **apparmor** (since runc v1.0.0-rc93 the feature is always enabled)
  - **selinux**  (since runc v1.0.0-rc93 the feature is always enabled)
@@ -109,7 +147,7 @@ You can run a test using your container engine's flags by setting `CONTAINER_ENG
 # make test CONTAINER_ENGINE_BUILD_FLAGS="--build-arg http_proxy=http://yourproxy/" CONTAINER_ENGINE_RUN_FLAGS="-e http_proxy=http://yourproxy/"
 ```
 
-### Dependencies Management
+### Go Dependencies Management
 
 `runc` uses [Go Modules](https://github.com/golang/go/wiki/Modules) for dependencies management.
 Please refer to [Go Modules](https://github.com/golang/go/wiki/Modules) for how to add or update
@@ -300,6 +338,7 @@ WantedBy=multi-user.target
 
 ## More documentation
 
+* [Spec conformance](./docs/spec-conformance.md)
 * [cgroup v2](./docs/cgroup-v2.md)
 * [Checkpoint and restore](./docs/checkpoint-restore.md)
 * [systemd cgroup driver](./docs/systemd.md)

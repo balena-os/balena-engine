@@ -3,7 +3,6 @@
 // license that can be found in the LICENSE file.
 
 //go:build windows
-// +build windows
 
 package mgr
 
@@ -138,7 +137,7 @@ func (s *Service) RecoveryCommand() (string, error) {
 // SetRecoveryActionsOnNonCrashFailures sets the failure actions flag. If the
 // flag is set to false, recovery actions will only be performed if the service
 // terminates without reporting a status of SERVICE_STOPPED. If the flag is set
-// to true, recovery actions are also perfomed if the service stops with a
+// to true, recovery actions are also performed if the service stops with a
 // nonzero exit code.
 func (s *Service) SetRecoveryActionsOnNonCrashFailures(flag bool) error {
 	var setting windows.SERVICE_FAILURE_ACTIONS_FLAG
@@ -152,7 +151,7 @@ func (s *Service) SetRecoveryActionsOnNonCrashFailures(flag bool) error {
 // actions flag. If the flag is set to false, recovery actions will only be
 // performed if the service terminates without reporting a status of
 // SERVICE_STOPPED. If the flag is set to true, recovery actions are also
-// perfomed if the service stops with a nonzero exit code.
+// performed if the service stops with a nonzero exit code.
 func (s *Service) RecoveryActionsOnNonCrashFailures() (bool, error) {
 	b, err := s.queryServiceConfig2(windows.SERVICE_CONFIG_FAILURE_ACTIONS_FLAG)
 	if err != nil {
