@@ -26,12 +26,12 @@ import (
 
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/diff"
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/pkg/kmutex"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/rootfs"
 	"github.com/containerd/containerd/snapshots"
+	"github.com/containerd/errdefs"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -414,7 +414,15 @@ func (i *image) getLayers(ctx context.Context, platform platforms.MatchComparer,
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve rootfs: %w", err)
 	}
-	if len(diffIDs) != len(manifest.Layers) {
+
+	// parse out the image layers from oci artifact layers
+	imageLayers := []ocispec.Descriptor{}
+	for _, ociLayer := range manifest.Layers {
+		if images.IsLayerType(ociLayer.MediaType) {
+			imageLayers = append(imageLayers, ociLayer)
+		}
+	}
+	if len(diffIDs) != len(imageLayers) {
 		return nil, errors.New("mismatched image rootfs and manifest layers")
 	}
 	layers := make([]rootfs.Layer, len(diffIDs))
@@ -424,7 +432,7 @@ func (i *image) getLayers(ctx context.Context, platform platforms.MatchComparer,
 			MediaType: ocispec.MediaTypeImageLayer,
 			Digest:    diffIDs[i],
 		}
-		layers[i].Blob = manifest.Layers[i]
+		layers[i].Blob = imageLayers[i]
 	}
 	return layers, nil
 }

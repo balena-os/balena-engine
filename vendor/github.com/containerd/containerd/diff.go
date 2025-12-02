@@ -22,8 +22,8 @@ import (
 	diffapi "github.com/containerd/containerd/api/services/diff/v1"
 	"github.com/containerd/containerd/api/types"
 	"github.com/containerd/containerd/diff"
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/mount"
+	"github.com/containerd/errdefs"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -86,6 +86,9 @@ func (r *diffRemote) Compare(ctx context.Context, a, b []mount.Mount, opts ...di
 }
 
 func toDescriptor(d *types.Descriptor) ocispec.Descriptor {
+	if d == nil {
+		return ocispec.Descriptor{}
+	}
 	return ocispec.Descriptor{
 		MediaType:   d.MediaType,
 		Digest:      d.Digest,

@@ -28,10 +28,11 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/containerd/cgroups"
 	"github.com/containerd/containerd/containers"
-	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/oci"
+	"github.com/containerd/log"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/opencontainers/selinux/go-selinux/label"
 	"github.com/sirupsen/logrus"
@@ -116,7 +117,7 @@ func WithMounts(osi osinterface.OS, config *runtime.ContainerConfig, extra []*ru
 
 		// Sort mounts in number of parts. This ensures that high level mounts don't
 		// shadow other mounts.
-		sort.Sort(orderedMounts(mounts))
+		sort.Stable(orderedMounts(mounts))
 
 		// Mount cgroup into the container as readonly, which inherits docker's behavior.
 		s.Mounts = append(s.Mounts, runtimespec.Mount{
@@ -403,6 +404,37 @@ func WithSelinuxLabels(process, mount string) oci.SpecOpts {
 	}
 }
 
+var (
+	swapControllerAvailability     bool
+	swapControllerAvailabilityOnce sync.Once
+)
+
+// SwapControllerAvailable returns true if the swap controller is available
+func SwapControllerAvailable() bool {
+	swapControllerAvailabilityOnce.Do(func() {
+		const warn = "Failed to detect the availability of the swap controller, assuming not available"
+		p := "/sys/fs/cgroup/memory/memory.memsw.limit_in_bytes"
+		if cgroups.Mode() == cgroups.Unified {
+			// memory.swap.max does not exist in the cgroup root, so we check /sys/fs/cgroup/<SELF>/memory.swap.max
+			_, unified, err := cgroups.ParseCgroupFileUnified("/proc/self/cgroup")
+			if err != nil {
+				err = fmt.Errorf("failed to parse /proc/self/cgroup: %w", err)
+				logrus.WithError(err).Warn(warn)
+				return
+			}
+			p = filepath.Join("/sys/fs/cgroup", unified, "memory.swap.max")
+		}
+		if _, err := os.Stat(p); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				logrus.WithError(err).Warn(warn)
+			}
+			return
+		}
+		swapControllerAvailability = true
+	})
+	return swapControllerAvailability
+}
+
 // WithResources sets the provided resource restrictions
 func WithResources(resources *runtime.LinuxContainerResources, tolerateMissingHugetlbController, disableHugetlbController bool) oci.SpecOpts {
 	return func(ctx context.Context, client oci.Client, c *containers.Container, s *runtimespec.Spec) (err error) {
@@ -447,8 +479,12 @@ func WithResources(resources *runtime.LinuxContainerResources, tolerateMissingHu
 		}
 		if limit != 0 {
 			s.Linux.Resources.Memory.Limit = &limit
+			// swap/memory limit should be equal to prevent container from swapping by default
+			if swapLimit == 0 && SwapControllerAvailable() {
+				s.Linux.Resources.Memory.Swap = &limit
+			}
 		}
-		if swapLimit != 0 {
+		if swapLimit != 0 && SwapControllerAvailable() {
 			s.Linux.Resources.Memory.Swap = &swapLimit
 		}
 

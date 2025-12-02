@@ -1,5 +1,5 @@
 module github.com/moby/sys/symlink
 
-go 1.16
+go 1.18
 
-require golang.org/x/sys v0.0.0-20211025201205-69cdffdb9359
+require golang.org/x/sys v0.1.0

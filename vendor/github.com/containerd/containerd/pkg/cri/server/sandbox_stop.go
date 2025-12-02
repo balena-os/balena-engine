@@ -23,8 +23,8 @@ import (
 	"time"
 
 	eventtypes "github.com/containerd/containerd/api/events"
-	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/log"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/log"
 	"golang.org/x/net/context"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 
@@ -37,8 +37,15 @@ import (
 func (c *criService) StopPodSandbox(ctx context.Context, r *runtime.StopPodSandboxRequest) (*runtime.StopPodSandboxResponse, error) {
 	sandbox, err := c.sandboxStore.Get(r.GetPodSandboxId())
 	if err != nil {
-		return nil, fmt.Errorf("an error occurred when try to find sandbox %q: %w",
-			r.GetPodSandboxId(), err)
+		if !errdefs.IsNotFound(err) {
+			return nil, fmt.Errorf("an error occurred when try to find sandbox %q: %w",
+				r.GetPodSandboxId(), err)
+		}
+
+		// The StopPodSandbox RPC is idempotent, and must not return an error
+		// if all relevant resources have already been reclaimed. Ref:
+		// https://github.com/kubernetes/cri-api/blob/c20fa40/pkg/apis/runtime/v1/api.proto#L45-L46
+		return &runtime.StopPodSandboxResponse{}, nil
 	}
 
 	if err := c.stopPodSandbox(ctx, sandbox); err != nil {
@@ -91,8 +98,10 @@ func (c *criService) stopPodSandbox(ctx context.Context, sandbox sandboxstore.Sa
 		} else if closed {
 			sandbox.NetNSPath = ""
 		}
-		if err := c.teardownPodNetwork(ctx, sandbox); err != nil {
-			return fmt.Errorf("failed to destroy network for sandbox %q: %w", id, err)
+		if sandbox.CNIResult != nil {
+			if err := c.teardownPodNetwork(ctx, sandbox); err != nil {
+				return fmt.Errorf("failed to destroy network for sandbox %q: %w", id, err)
+			}
 		}
 		if err := sandbox.NetNS.Remove(); err != nil {
 			return fmt.Errorf("failed to remove network namespace for sandbox %q: %w", id, err)
@@ -119,7 +128,7 @@ func (c *criService) stopSandboxContainer(ctx context.Context, sandbox sandboxst
 		}
 		// Don't return for unknown state, some cleanup needs to be done.
 		if state == sandboxstore.StateUnknown {
-			return cleanupUnknownSandbox(ctx, id, sandbox)
+			return cleanupUnknownSandbox(ctx, id, sandbox, c)
 		}
 		return nil
 	}
@@ -135,7 +144,7 @@ func (c *criService) stopSandboxContainer(ctx context.Context, sandbox sandboxst
 			if !errdefs.IsNotFound(err) {
 				return fmt.Errorf("failed to wait for task: %w", err)
 			}
-			return cleanupUnknownSandbox(ctx, id, sandbox)
+			return cleanupUnknownSandbox(ctx, id, sandbox, c)
 		}
 
 		exitCtx, exitCancel := context.WithCancel(context.Background())
@@ -185,11 +194,19 @@ func (c *criService) teardownPodNetwork(ctx context.Context, sandbox sandboxstor
 		return fmt.Errorf("get cni namespace options: %w", err)
 	}
 
-	return netPlugin.Remove(ctx, id, path, opts...)
+	netStart := time.Now()
+	err = netPlugin.Remove(ctx, id, path, opts...)
+	networkPluginOperations.WithValues(networkTearDownOp).Inc()
+	networkPluginOperationsLatency.WithValues(networkTearDownOp).UpdateSince(netStart)
+	if err != nil {
+		networkPluginOperationsErrors.WithValues(networkTearDownOp).Inc()
+		return err
+	}
+	return nil
 }
 
 // cleanupUnknownSandbox cleanup stopped sandbox in unknown state.
-func cleanupUnknownSandbox(ctx context.Context, id string, sandbox sandboxstore.Sandbox) error {
+func cleanupUnknownSandbox(ctx context.Context, id string, sandbox sandboxstore.Sandbox, c *criService) error {
 	// Reuse handleSandboxExit to do the cleanup.
 	return handleSandboxExit(ctx, &eventtypes.TaskExit{
 		ContainerID: id,
@@ -197,5 +214,5 @@ func cleanupUnknownSandbox(ctx context.Context, id string, sandbox sandboxstore.
 		Pid:         0,
 		ExitStatus:  unknownExitCode,
 		ExitedAt:    time.Now(),
-	}, sandbox)
+	}, sandbox, c)
 }

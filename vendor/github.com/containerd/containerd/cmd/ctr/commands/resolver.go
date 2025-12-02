@@ -31,10 +31,10 @@ import (
 	"strings"
 
 	"github.com/containerd/console"
-	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/remotes/docker/config"
+	"github.com/containerd/log"
 	"github.com/urfave/cli"
 )
 
@@ -146,6 +146,11 @@ func resolverDefaultTLS(clicontext *cli.Context) (*tls.Config, error) {
 			return nil, fmt.Errorf("failed to load TLS client credentials (cert=%q, key=%q): %w", tlsCertPath, tlsKeyPath, err)
 		}
 		config.Certificates = []tls.Certificate{keyPair}
+	}
+
+	// If nothing was set, return nil rather than empty config
+	if !config.InsecureSkipVerify && config.RootCAs == nil && config.Certificates == nil {
+		return nil, nil
 	}
 
 	return config, nil

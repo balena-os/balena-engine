@@ -132,7 +132,7 @@ func copyDesc(desc ocispec.Descriptor) *ocispec.Descriptor {
 	return &descCopy
 }
 
-// convertLayer converts image image layers if c.layerConvertFunc is set.
+// convertLayer converts image layers if c.layerConvertFunc is set.
 //
 // c.layerConvertFunc can be nil, e.g., for converting Docker media types to OCI ones.
 func (c *defaultConverter) convertLayer(ctx context.Context, cs content.Store, desc ocispec.Descriptor) (*ocispec.Descriptor, error) {
@@ -431,11 +431,11 @@ func ConvertDockerMediaTypeToOCI(mt string) string {
 	case images.MediaTypeDockerSchema2LayerGzip:
 		return ocispec.MediaTypeImageLayerGzip
 	case images.MediaTypeDockerSchema2LayerForeignGzip:
-		return ocispec.MediaTypeImageLayerNonDistributableGzip
+		return ocispec.MediaTypeImageLayerNonDistributableGzip //nolint:staticcheck // deprecated
 	case images.MediaTypeDockerSchema2Layer:
 		return ocispec.MediaTypeImageLayer
 	case images.MediaTypeDockerSchema2LayerForeign:
-		return ocispec.MediaTypeImageLayerNonDistributable
+		return ocispec.MediaTypeImageLayerNonDistributable //nolint:staticcheck // deprecated
 	case images.MediaTypeDockerSchema2Config:
 		return ocispec.MediaTypeImageConfig
 	default:

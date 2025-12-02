@@ -23,10 +23,10 @@ import (
 	"time"
 
 	eventtypes "github.com/containerd/containerd/api/events"
-	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/log"
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
 	ctrdutil "github.com/containerd/containerd/pkg/cri/util"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/log"
 
 	"github.com/moby/sys/signal"
 	"golang.org/x/net/context"
@@ -39,7 +39,14 @@ func (c *criService) StopContainer(ctx context.Context, r *runtime.StopContainer
 	// Get container config from container store.
 	container, err := c.containerStore.Get(r.GetContainerId())
 	if err != nil {
-		return nil, fmt.Errorf("an error occurred when try to find container %q: %w", r.GetContainerId(), err)
+		if !errdefs.IsNotFound(err) {
+			return nil, fmt.Errorf("an error occurred when try to find container %q: %w", r.GetContainerId(), err)
+		}
+
+		// The StopContainer RPC is idempotent, and must not return an error if
+		// the container has already been stopped. Ref:
+		// https://github.com/kubernetes/cri-api/blob/c20fa40/pkg/apis/runtime/v1/api.proto#L67-L68
+		return &runtime.StopContainerResponse{}, nil
 	}
 
 	if err := c.stopContainer(ctx, container, time.Duration(r.GetTimeout())*time.Second); err != nil {
@@ -77,7 +84,7 @@ func (c *criService) stopContainer(ctx context.Context, container containerstore
 		}
 		// Don't return for unknown state, some cleanup needs to be done.
 		if state == runtime.ContainerState_CONTAINER_UNKNOWN {
-			return cleanupUnknownContainer(ctx, id, container)
+			return cleanupUnknownContainer(ctx, id, container, c)
 		}
 		return nil
 	}
@@ -92,7 +99,7 @@ func (c *criService) stopContainer(ctx context.Context, container containerstore
 			if !errdefs.IsNotFound(err) {
 				return fmt.Errorf("failed to wait for task for %q: %w", id, err)
 			}
-			return cleanupUnknownContainer(ctx, id, container)
+			return cleanupUnknownContainer(ctx, id, container, c)
 		}
 
 		exitCtx, exitCancel := context.WithCancel(context.Background())
@@ -195,7 +202,7 @@ func (c *criService) waitContainerStop(ctx context.Context, container containers
 }
 
 // cleanupUnknownContainer cleanup stopped container in unknown state.
-func cleanupUnknownContainer(ctx context.Context, id string, cntr containerstore.Container) error {
+func cleanupUnknownContainer(ctx context.Context, id string, cntr containerstore.Container, c *criService) error {
 	// Reuse handleContainerExit to do the cleanup.
 	return handleContainerExit(ctx, &eventtypes.TaskExit{
 		ContainerID: id,
@@ -203,5 +210,5 @@ func cleanupUnknownContainer(ctx context.Context, id string, cntr containerstore
 		Pid:         0,
 		ExitStatus:  unknownExitCode,
 		ExitedAt:    time.Now(),
-	}, cntr)
+	}, cntr, c)
 }

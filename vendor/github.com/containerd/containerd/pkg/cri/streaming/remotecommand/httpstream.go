@@ -33,12 +33,15 @@ limitations under the License.
 package remotecommand
 
 import (
+	gocontext "context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/containerd/containerd/pkg/cri/streaming/internal/wsstream"
 
 	api "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -47,7 +50,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/httpstream/spdy"
 	remotecommandconsts "k8s.io/apimachinery/pkg/util/remotecommand"
 	"k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apiserver/pkg/util/wsstream"
 	"k8s.io/client-go/tools/remotecommand"
 
 	"k8s.io/klog/v2"
@@ -132,7 +134,7 @@ func createStreams(req *http.Request, w http.ResponseWriter, opts *Options, supp
 
 	if ctx.resizeStream != nil {
 		ctx.resizeChan = make(chan remotecommand.TerminalSize)
-		go handleResizeEvents(ctx.resizeStream, ctx.resizeChan)
+		go handleResizeEvents(req.Context(), ctx.resizeStream, ctx.resizeChan)
 	}
 
 	return ctx, true
@@ -425,7 +427,7 @@ WaitForStreams:
 // supportsTerminalResizing returns false because v1ProtocolHandler doesn't support it.
 func (*v1ProtocolHandler) supportsTerminalResizing() bool { return false }
 
-func handleResizeEvents(stream io.Reader, channel chan<- remotecommand.TerminalSize) {
+func handleResizeEvents(ctx gocontext.Context, stream io.Reader, channel chan<- remotecommand.TerminalSize) {
 	defer runtime.HandleCrash()
 	defer close(channel)
 
@@ -435,7 +437,15 @@ func handleResizeEvents(stream io.Reader, channel chan<- remotecommand.TerminalS
 		if err := decoder.Decode(&size); err != nil {
 			break
 		}
-		channel <- size
+
+		select {
+		case channel <- size:
+		case <-ctx.Done():
+			// To avoid leaking this routine, exit if the http request finishes. This path
+			// would generally be hit if starting the process fails and nothing is started to
+			// ingest these resize events.
+			return
+		}
 	}
 }
 

@@ -17,7 +17,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +33,7 @@ import (
 	"github.com/containerd/containerd/pkg/cri/streaming"
 	"github.com/containerd/containerd/pkg/kmutex"
 	"github.com/containerd/containerd/plugin"
+	"github.com/containerd/containerd/services/warning"
 	cni "github.com/containerd/go-cni"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -66,7 +69,7 @@ type grpcAlphaServices interface {
 
 // CRIService is the interface implement CRI remote service server.
 type CRIService interface {
-	Run() error
+	Run(ready func()) error
 	// io.Closer is used by containerd to gracefully stop cri service.
 	io.Closer
 	Register(*grpc.Server) error
@@ -113,17 +116,24 @@ type criService struct {
 	baseOCISpecs map[string]*oci.Spec
 	// allCaps is the list of the capabilities.
 	// When nil, parsed from CapEff of /proc/self/status.
-	allCaps []string // nolint
+	allCaps []string //nolint:nolintlint,unused // Ignore on non-Linux
 	// unpackDuplicationSuppressor is used to make sure that there is only
 	// one in-flight fetch request or unpack handler for a given descriptor's
 	// or chain ID.
 	unpackDuplicationSuppressor kmutex.KeyedLocker
+	// warn is used to emit warnings for cri-api v1alpha2 usage.
+	warn warning.Service
 }
 
 // NewCRIService returns a new instance of CRIService
-func NewCRIService(config criconfig.Config, client *containerd.Client) (CRIService, error) {
+func NewCRIService(config criconfig.Config, client *containerd.Client, warn warning.Service) (CRIService, error) {
 	var err error
 	labels := label.NewStore()
+
+	if client.SnapshotService(config.ContainerdConfig.Snapshotter) == nil {
+		return nil, fmt.Errorf("failed to find snapshotter %q", config.ContainerdConfig.Snapshotter)
+	}
+
 	c := &criService{
 		config:                      config,
 		client:                      client,
@@ -137,13 +147,18 @@ func NewCRIService(config criconfig.Config, client *containerd.Client) (CRIServi
 		initialized:                 atomic.NewBool(false),
 		netPlugin:                   make(map[string]cni.CNI),
 		unpackDuplicationSuppressor: kmutex.New(),
+		warn:                        warn,
 	}
 
 	if client.SnapshotService(c.config.ContainerdConfig.Snapshotter) == nil {
 		return nil, fmt.Errorf("failed to find snapshotter %q", c.config.ContainerdConfig.Snapshotter)
 	}
 
-	c.imageFSPath = imageFSPath(config.ContainerdRootDir, config.ContainerdConfig.Snapshotter)
+	c.imageFSPath = imageFSPath(
+		config.ContainerdRootDir,
+		config.ContainerdConfig.Snapshotter,
+		client,
+	)
 	logrus.Infof("Get image filesystem path %q", c.imageFSPath)
 
 	if err := c.initPlatform(); err != nil {
@@ -200,7 +215,7 @@ func (c *criService) RegisterTCP(s *grpc.Server) error {
 }
 
 // Run starts the CRI service.
-func (c *criService) Run() error {
+func (c *criService) Run(ready func()) error {
 	logrus.Info("Start subscribing containerd event")
 	c.eventMonitor.subscribe(c.client)
 
@@ -251,6 +266,7 @@ func (c *criService) Run() error {
 
 	// Set the server as initialized. GRPC services could start serving traffic.
 	c.initialized.Set()
+	ready()
 
 	var eventMonitorErr, streamServerErr, cniNetConfMonitorErr error
 	// Stop the whole CRI service if any of the critical service exits.
@@ -318,7 +334,7 @@ func (c *criService) register(s *grpc.Server) error {
 	instrumented := newInstrumentedService(c)
 	runtime.RegisterRuntimeServiceServer(s, instrumented)
 	runtime.RegisterImageServiceServer(s, instrumented)
-	instrumentedAlpha := newInstrumentedAlphaService(c)
+	instrumentedAlpha := newInstrumentedAlphaService(c, c.warn)
 	runtime_alpha.RegisterRuntimeServiceServer(s, instrumentedAlpha)
 	runtime_alpha.RegisterImageServiceServer(s, instrumentedAlpha)
 	return nil
@@ -326,8 +342,40 @@ func (c *criService) register(s *grpc.Server) error {
 
 // imageFSPath returns containerd image filesystem path.
 // Note that if containerd changes directory layout, we also needs to change this.
-func imageFSPath(rootDir, snapshotter string) string {
-	return filepath.Join(rootDir, fmt.Sprintf("%s.%s", plugin.SnapshotPlugin, snapshotter))
+func imageFSPath(rootDir, snapshotter string, client *containerd.Client) string {
+	introspection := func() (string, error) {
+		filters := []string{fmt.Sprintf("type==%s, id==%s", plugin.SnapshotPlugin, snapshotter)}
+		in := client.IntrospectionService()
+
+		resp, err := in.Plugins(context.Background(), filters)
+		if err != nil {
+			return "", err
+		}
+
+		if len(resp.Plugins) <= 0 {
+			return "", fmt.Errorf("inspection service could not find snapshotter %s plugin", snapshotter)
+		}
+
+		sn := resp.Plugins[0]
+		if root, ok := sn.Exports[plugin.SnapshotterRootDir]; ok {
+			return root, nil
+		}
+		return "", errors.New("snapshotter does not export root path")
+	}
+
+	var imageFSPath string
+	path, err := introspection()
+	if err != nil {
+		logrus.WithError(err).WithField("snapshotter", snapshotter).Warn("snapshotter doesn't export root path")
+		imageFSPath = filepath.Join(
+			rootDir,
+			plugin.SnapshotPlugin.String()+"."+snapshotter,
+		)
+	} else {
+		imageFSPath = path
+	}
+
+	return imageFSPath
 }
 
 func loadOCISpec(filename string) (*oci.Spec, error) {

@@ -27,15 +27,15 @@ import (
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/containers"
-	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/snapshots"
 	"github.com/containerd/continuity/fs"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/log"
 )
 
 // WithNewSnapshot wraps `containerd.WithNewSnapshot` so that if creating the
-// snapshot fails we make sure the image is actually unpacked and and retry.
+// snapshot fails we make sure the image is actually unpacked and retry.
 func WithNewSnapshot(id string, i containerd.Image, opts ...snapshots.Opt) containerd.NewContainerOpts {
 	f := containerd.WithNewSnapshot(id, i, opts...)
 	return func(ctx context.Context, client *containerd.Client, c *containers.Container) error {
@@ -74,6 +74,7 @@ func WithVolumes(volumeMounts map[string]string) containerd.NewContainerOpts {
 		if len(mounts) == 1 && mounts[0].Type == "overlay" {
 			mounts[0].Options = append(mounts[0].Options, "ro")
 		}
+		mounts = mount.RemoveVolatileOption(mounts)
 
 		root, err := os.MkdirTemp("", "ctd-volume")
 		if err != nil {
@@ -83,7 +84,7 @@ func WithVolumes(volumeMounts map[string]string) containerd.NewContainerOpts {
 		// if it fails but not RM snapshot data.
 		// refer to https://github.com/containerd/containerd/pull/1868
 		// https://github.com/containerd/containerd/pull/1785
-		defer os.Remove(root) // nolint: errcheck
+		defer os.Remove(root)
 
 		unmounter := func(mountPath string) {
 			if uerr := mount.Unmount(mountPath, 0); uerr != nil {

@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/containerd/containerd/errdefs"
 	containerstore "github.com/containerd/containerd/pkg/cri/store/container"
+	"github.com/containerd/errdefs"
 
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/net/context"
@@ -60,6 +60,7 @@ func (c *criService) ContainerStatus(ctx context.Context, r *runtime.ContainerSt
 		}
 	}
 	status := toCRIContainerStatus(container, spec, imageRef)
+
 	if status.GetCreatedAt() == 0 {
 		// CRI doesn't allow CreatedAt == 0.
 		info, err := container.Container.Info(ctx)
@@ -119,6 +120,7 @@ func toCRIContainerStatus(container containerstore.Container, spec *runtime.Imag
 		Annotations: meta.Config.GetAnnotations(),
 		Mounts:      meta.Config.GetMounts(),
 		LogPath:     meta.LogPath,
+		Resources:   status.Resources,
 	}
 }
 

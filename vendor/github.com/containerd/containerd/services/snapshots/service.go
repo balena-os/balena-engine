@@ -22,12 +22,14 @@ import (
 
 	snapshotsapi "github.com/containerd/containerd/api/services/snapshots/v1"
 	"github.com/containerd/containerd/api/types"
-	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
+	"github.com/containerd/containerd/pkg/deprecation"
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/services"
+	"github.com/containerd/containerd/services/warning"
 	"github.com/containerd/containerd/snapshots"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/log"
 	ptypes "github.com/gogo/protobuf/types"
 	"google.golang.org/grpc"
 )
@@ -38,6 +40,7 @@ func init() {
 		ID:   "snapshots",
 		Requires: []plugin.Type{
 			plugin.ServicePlugin,
+			plugin.WarningPlugin,
 		},
 		InitFn: newService,
 	})
@@ -46,7 +49,8 @@ func init() {
 var empty = &ptypes.Empty{}
 
 type service struct {
-	ss map[string]snapshots.Snapshotter
+	ss       map[string]snapshots.Snapshotter
+	warnings warning.Service
 }
 
 func newService(ic *plugin.InitContext) (interface{}, error) {
@@ -63,7 +67,14 @@ func newService(ic *plugin.InitContext) (interface{}, error) {
 		return nil, err
 	}
 	ss := i.(map[string]snapshots.Snapshotter)
-	return &service{ss: ss}, nil
+	w, err := ic.Get(plugin.WarningPlugin)
+	if err != nil {
+		return nil, err
+	}
+	return &service{
+		ss:       ss,
+		warnings: w.(warning.Service),
+	}, nil
 }
 
 func (s *service) getSnapshotter(name string) (snapshots.Snapshotter, error) {
@@ -84,7 +95,7 @@ func (s *service) Register(gs *grpc.Server) error {
 }
 
 func (s *service) Prepare(ctx context.Context, pr *snapshotsapi.PrepareSnapshotRequest) (*snapshotsapi.PrepareSnapshotResponse, error) {
-	log.G(ctx).WithField("parent", pr.Parent).WithField("key", pr.Key).Debugf("prepare snapshot")
+	log.G(ctx).WithFields(log.Fields{"parent": pr.Parent, "key": pr.Key, "snapshotter": pr.Snapshotter}).Debugf("prepare snapshot")
 	sn, err := s.getSnapshotter(pr.Snapshotter)
 	if err != nil {
 		return nil, err
@@ -105,7 +116,7 @@ func (s *service) Prepare(ctx context.Context, pr *snapshotsapi.PrepareSnapshotR
 }
 
 func (s *service) View(ctx context.Context, pr *snapshotsapi.ViewSnapshotRequest) (*snapshotsapi.ViewSnapshotResponse, error) {
-	log.G(ctx).WithField("parent", pr.Parent).WithField("key", pr.Key).Debugf("prepare view snapshot")
+	log.G(ctx).WithFields(log.Fields{"parent": pr.Parent, "key": pr.Key, "snapshotter": pr.Snapshotter}).Debugf("prepare view snapshot")
 	sn, err := s.getSnapshotter(pr.Snapshotter)
 	if err != nil {
 		return nil, err
@@ -124,7 +135,7 @@ func (s *service) View(ctx context.Context, pr *snapshotsapi.ViewSnapshotRequest
 }
 
 func (s *service) Mounts(ctx context.Context, mr *snapshotsapi.MountsRequest) (*snapshotsapi.MountsResponse, error) {
-	log.G(ctx).WithField("key", mr.Key).Debugf("get snapshot mounts")
+	log.G(ctx).WithFields(log.Fields{"key": mr.Key, "snapshotter": mr.Snapshotter}).Debugf("get snapshot mounts")
 	sn, err := s.getSnapshotter(mr.Snapshotter)
 	if err != nil {
 		return nil, err
@@ -140,11 +151,12 @@ func (s *service) Mounts(ctx context.Context, mr *snapshotsapi.MountsRequest) (*
 }
 
 func (s *service) Commit(ctx context.Context, cr *snapshotsapi.CommitSnapshotRequest) (*ptypes.Empty, error) {
-	log.G(ctx).WithField("key", cr.Key).WithField("name", cr.Name).Debugf("commit snapshot")
+	log.G(ctx).WithFields(log.Fields{"key": cr.Key, "snapshotter": cr.Snapshotter, "name": cr.Name}).Debugf("commit snapshot")
 	sn, err := s.getSnapshotter(cr.Snapshotter)
 	if err != nil {
 		return nil, err
 	}
+	s.emitSnapshotterWarning(ctx, cr.Snapshotter)
 
 	var opts []snapshots.Opt
 	if cr.Labels != nil {
@@ -158,7 +170,7 @@ func (s *service) Commit(ctx context.Context, cr *snapshotsapi.CommitSnapshotReq
 }
 
 func (s *service) Remove(ctx context.Context, rr *snapshotsapi.RemoveSnapshotRequest) (*ptypes.Empty, error) {
-	log.G(ctx).WithField("key", rr.Key).Debugf("remove snapshot")
+	log.G(ctx).WithFields(log.Fields{"key": rr.Key, "snapshotter": rr.Snapshotter}).Debugf("remove snapshot")
 	sn, err := s.getSnapshotter(rr.Snapshotter)
 	if err != nil {
 		return nil, err
@@ -172,7 +184,7 @@ func (s *service) Remove(ctx context.Context, rr *snapshotsapi.RemoveSnapshotReq
 }
 
 func (s *service) Stat(ctx context.Context, sr *snapshotsapi.StatSnapshotRequest) (*snapshotsapi.StatSnapshotResponse, error) {
-	log.G(ctx).WithField("key", sr.Key).Debugf("stat snapshot")
+	log.G(ctx).WithFields(log.Fields{"key": sr.Key, "snapshotter": sr.Snapshotter}).Debugf("stat snapshot")
 	sn, err := s.getSnapshotter(sr.Snapshotter)
 	if err != nil {
 		return nil, err
@@ -187,7 +199,7 @@ func (s *service) Stat(ctx context.Context, sr *snapshotsapi.StatSnapshotRequest
 }
 
 func (s *service) Update(ctx context.Context, sr *snapshotsapi.UpdateSnapshotRequest) (*snapshotsapi.UpdateSnapshotResponse, error) {
-	log.G(ctx).WithField("key", sr.Info.Name).Debugf("update snapshot")
+	log.G(ctx).WithFields(log.Fields{"key": sr.Info.Name, "snapshotter": sr.Snapshotter}).Debugf("update snapshot")
 	sn, err := s.getSnapshotter(sr.Snapshotter)
 	if err != nil {
 		return nil, err
@@ -272,6 +284,14 @@ func (s *service) Cleanup(ctx context.Context, cr *snapshotsapi.CleanupRequest) 
 	}
 
 	return empty, nil
+}
+
+func (s *service) emitSnapshotterWarning(ctx context.Context, sn string) {
+	switch sn {
+	case "aufs":
+		log.G(ctx).Warn("aufs snapshotter is deprecated")
+		s.warnings.Emit(ctx, deprecation.AUFSSnapshotter)
+	}
 }
 
 func fromKind(kind snapshots.Kind) snapshotsapi.Kind {

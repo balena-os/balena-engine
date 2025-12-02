@@ -30,15 +30,16 @@ import (
 	"time"
 
 	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/errdefs"
 	containerdimages "github.com/containerd/containerd/images"
-	"github.com/containerd/containerd/labels"
-	"github.com/containerd/containerd/log"
+	crilabels "github.com/containerd/containerd/pkg/cri/labels"
+	snpkg "github.com/containerd/containerd/pkg/snapshotters"
 	distribution "github.com/containerd/containerd/reference/docker"
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/remotes/docker/config"
+	"github.com/containerd/errdefs"
 	"github.com/containerd/imgcrypt"
 	"github.com/containerd/imgcrypt/images/encryption"
+	"github.com/containerd/log"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/net/context"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
@@ -113,12 +114,14 @@ func (c *criService) PullImage(ctx context.Context, r *runtime.PullImageRequest)
 		}
 	)
 
+	labels := c.getLabels(ctx, ref)
+
 	pullOpts := []containerd.RemoteOpt{
 		containerd.WithSchema1Conversion,
 		containerd.WithResolver(resolver),
 		containerd.WithPullSnapshotter(c.config.ContainerdConfig.Snapshotter),
 		containerd.WithPullUnpack,
-		containerd.WithPullLabel(imageLabelKey, imageLabelValue),
+		containerd.WithPullLabels(labels),
 		containerd.WithMaxConcurrentDownloads(c.config.MaxConcurrentDownloads),
 		containerd.WithImageHandler(imageHandler),
 		containerd.WithUnpackOpts([]containerd.UnpackOpt{
@@ -129,7 +132,7 @@ func (c *criService) PullImage(ctx context.Context, r *runtime.PullImageRequest)
 	pullOpts = append(pullOpts, c.encryptedImagesPullOpts()...)
 	if !c.config.ContainerdConfig.DisableSnapshotAnnotations {
 		pullOpts = append(pullOpts,
-			containerd.WithImageHandlerWrapper(appendInfoHandlerWrapper(ref)))
+			containerd.WithImageHandlerWrapper(snpkg.AppendInfoHandlerWrapper(ref)))
 	}
 
 	if c.config.ContainerdConfig.DiscardUnpackedLayers {
@@ -154,7 +157,7 @@ func (c *criService) PullImage(ctx context.Context, r *runtime.PullImageRequest)
 		if r == "" {
 			continue
 		}
-		if err := c.createImageReference(ctx, r, image.Target()); err != nil {
+		if err := c.createImageReference(ctx, r, image.Target(), labels); err != nil {
 			return nil, fmt.Errorf("failed to create image reference %q: %w", r, err)
 		}
 		// Update image store to reflect the newest state in containerd.
@@ -219,24 +222,56 @@ func ParseAuth(auth *runtime.AuthConfig, host string) (string, string, error) {
 // Note that because create and update are not finished in one transaction, there could be race. E.g.
 // the image reference is deleted by someone else after create returns already exists, but before update
 // happens.
-func (c *criService) createImageReference(ctx context.Context, name string, desc imagespec.Descriptor) error {
+func (c *criService) createImageReference(ctx context.Context, name string, desc imagespec.Descriptor, labels map[string]string) error {
 	img := containerdimages.Image{
 		Name:   name,
 		Target: desc,
 		// Add a label to indicate that the image is managed by the cri plugin.
-		Labels: map[string]string{imageLabelKey: imageLabelValue},
+		Labels: labels,
 	}
 	// TODO(random-liu): Figure out which is the more performant sequence create then update or
 	// update then create.
-	oldImg, err := c.client.ImageService().Create(ctx, img)
+	_, err := c.client.ImageService().Create(ctx, img)
 	if err == nil || !errdefs.IsAlreadyExists(err) {
 		return err
 	}
-	if oldImg.Target.Digest == img.Target.Digest && oldImg.Labels[imageLabelKey] == imageLabelValue {
+	// Retrieve oldImg from image store here because Create routine returns an
+	// empty image on ErrAlreadyExists
+	oldImg, err := c.client.ImageService().Get(ctx, name)
+	if err != nil {
+		return err
+	}
+	fieldpaths := []string{"target"}
+	if oldImg.Labels[crilabels.ImageLabelKey] != labels[crilabels.ImageLabelKey] {
+		fieldpaths = append(fieldpaths, "labels."+crilabels.ImageLabelKey)
+	}
+	if oldImg.Labels[crilabels.PinnedImageLabelKey] != labels[crilabels.PinnedImageLabelKey] &&
+		labels[crilabels.PinnedImageLabelKey] == crilabels.PinnedImageLabelValue {
+		fieldpaths = append(fieldpaths, "labels."+crilabels.PinnedImageLabelKey)
+	}
+	if oldImg.Target.Digest == img.Target.Digest && len(fieldpaths) < 2 {
 		return nil
 	}
-	_, err = c.client.ImageService().Update(ctx, img, "target", "labels."+imageLabelKey)
+	_, err = c.client.ImageService().Update(ctx, img, fieldpaths...)
 	return err
+}
+
+// getLabels get image labels to be added on CRI image
+func (c *criService) getLabels(ctx context.Context, name string) map[string]string {
+	labels := map[string]string{crilabels.ImageLabelKey: crilabels.ImageLabelValue}
+	configSandboxImage := c.config.SandboxImage
+	// parse sandbox image
+	sandboxNamedRef, err := distribution.ParseDockerRef(configSandboxImage)
+	if err != nil {
+		log.G(ctx).Errorf("failed to parse sandbox image from config %s", sandboxNamedRef)
+		return nil
+	}
+	sandboxRef := sandboxNamedRef.String()
+	// Adding pinned image label to sandbox image
+	if sandboxRef == name {
+		labels[crilabels.PinnedImageLabelKey] = crilabels.PinnedImageLabelValue
+	}
+	return labels
 }
 
 // updateImage updates image store to reflect the newest state of an image reference
@@ -247,7 +282,7 @@ func (c *criService) updateImage(ctx context.Context, r string) error {
 	if err != nil && !errdefs.IsNotFound(err) {
 		return fmt.Errorf("get image by reference: %w", err)
 	}
-	if err == nil && img.Labels()[imageLabelKey] != imageLabelValue {
+	if err == nil && img.Labels()[crilabels.ImageLabelKey] != crilabels.ImageLabelValue {
 		// Make sure the image has the image id as its unique
 		// identifier that references the image in its lifetime.
 		configDesc, err := img.Config(ctx)
@@ -255,14 +290,15 @@ func (c *criService) updateImage(ctx context.Context, r string) error {
 			return fmt.Errorf("get image id: %w", err)
 		}
 		id := configDesc.Digest.String()
-		if err := c.createImageReference(ctx, id, img.Target()); err != nil {
+		labels := c.getLabels(ctx, r)
+		if err := c.createImageReference(ctx, id, img.Target(), labels); err != nil {
 			return fmt.Errorf("create image id reference %q: %w", id, err)
 		}
 		if err := c.imageStore.Update(ctx, id); err != nil {
 			return fmt.Errorf("update image store for %q: %w", id, err)
 		}
 		// The image id is ready, add the label to mark the image as managed.
-		if err := c.createImageReference(ctx, r, img.Target()); err != nil {
+		if err := c.createImageReference(ctx, r, img.Target(), labels); err != nil {
 			return fmt.Errorf("create managed label: %w", err)
 		}
 	}
@@ -295,7 +331,8 @@ func (c *criService) getTLSConfig(registryTLSConfig criconfig.TLSConfig) (*tls.C
 		if len(cert.Certificate) != 0 {
 			tlsConfig.Certificates = []tls.Certificate{cert}
 		}
-		tlsConfig.BuildNameToCertificate() // nolint:staticcheck
+		// TODO(thaJeztah): verify if we should ignore the deprecation; see https://github.com/containerd/containerd/pull/7349/files#r990644833
+		tlsConfig.BuildNameToCertificate() //nolint:staticcheck
 	}
 
 	if registryTLSConfig.CAFile != "" {
@@ -375,7 +412,7 @@ func (c *criService) registryHosts(ctx context.Context, auth *runtime.AuthConfig
 				if err != nil {
 					return nil, fmt.Errorf("get TLSConfig for registry %q: %w", e, err)
 				}
-			} else if isLocalHost(host) && u.Scheme == "http" {
+			} else if docker.IsLocalhost(host) && u.Scheme == "http" {
 				// Skipping TLS verification for localhost
 				transport.TLSClientConfig = &tls.Config{
 					InsecureSkipVerify: true,
@@ -413,24 +450,10 @@ func (c *criService) registryHosts(ctx context.Context, auth *runtime.AuthConfig
 
 // defaultScheme returns the default scheme for a registry host.
 func defaultScheme(host string) string {
-	if isLocalHost(host) {
+	if docker.IsLocalhost(host) {
 		return "http"
 	}
 	return "https"
-}
-
-// isLocalHost checks if the registry host is local.
-func isLocalHost(host string) bool {
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-
-	if host == "localhost" {
-		return true
-	}
-
-	ip := net.ParseIP(host)
-	return ip.IsLoopback()
 }
 
 // addDefaultScheme returns the endpoint with default scheme
@@ -508,74 +531,4 @@ func (c *criService) encryptedImagesPullOpts() []containerd.RemoteOpt {
 		return []containerd.RemoteOpt{opt}
 	}
 	return nil
-}
-
-const (
-	// targetRefLabel is a label which contains image reference and will be passed
-	// to snapshotters.
-	targetRefLabel = "containerd.io/snapshot/cri.image-ref"
-	// targetManifestDigestLabel is a label which contains manifest digest and will be passed
-	// to snapshotters.
-	targetManifestDigestLabel = "containerd.io/snapshot/cri.manifest-digest"
-	// targetLayerDigestLabel is a label which contains layer digest and will be passed
-	// to snapshotters.
-	targetLayerDigestLabel = "containerd.io/snapshot/cri.layer-digest"
-	// targetImageLayersLabel is a label which contains layer digests contained in
-	// the target image and will be passed to snapshotters for preparing layers in
-	// parallel. Skipping some layers is allowed and only affects performance.
-	targetImageLayersLabel = "containerd.io/snapshot/cri.image-layers"
-)
-
-// appendInfoHandlerWrapper makes a handler which appends some basic information
-// of images like digests for manifest and their child layers as annotations during unpack.
-// These annotations will be passed to snapshotters as labels. These labels will be
-// used mainly by stargz-based snapshotters for querying image contents from the
-// registry.
-func appendInfoHandlerWrapper(ref string) func(f containerdimages.Handler) containerdimages.Handler {
-	return func(f containerdimages.Handler) containerdimages.Handler {
-		return containerdimages.HandlerFunc(func(ctx context.Context, desc imagespec.Descriptor) ([]imagespec.Descriptor, error) {
-			children, err := f.Handle(ctx, desc)
-			if err != nil {
-				return nil, err
-			}
-			switch desc.MediaType {
-			case imagespec.MediaTypeImageManifest, containerdimages.MediaTypeDockerSchema2Manifest:
-				for i := range children {
-					c := &children[i]
-					if containerdimages.IsLayerType(c.MediaType) {
-						if c.Annotations == nil {
-							c.Annotations = make(map[string]string)
-						}
-						c.Annotations[targetRefLabel] = ref
-						c.Annotations[targetLayerDigestLabel] = c.Digest.String()
-						c.Annotations[targetImageLayersLabel] = getLayers(ctx, targetImageLayersLabel, children[i:], labels.Validate)
-						c.Annotations[targetManifestDigestLabel] = desc.Digest.String()
-					}
-				}
-			}
-			return children, nil
-		})
-	}
-}
-
-// getLayers returns comma-separated digests based on the passed list of
-// descriptors. The returned list contains as many digests as possible as well
-// as meets the label validation.
-func getLayers(ctx context.Context, key string, descs []imagespec.Descriptor, validate func(k, v string) error) (layers string) {
-	var item string
-	for _, l := range descs {
-		if containerdimages.IsLayerType(l.MediaType) {
-			item = l.Digest.String()
-			if layers != "" {
-				item = "," + item
-			}
-			// This avoids the label hits the size limitation.
-			if err := validate(key, layers+item); err != nil {
-				log.G(ctx).WithError(err).WithField("label", key).Debugf("%q is omitted in the layers list", l.Digest.String())
-				break
-			}
-			layers += item
-		}
-	}
-	return
 }

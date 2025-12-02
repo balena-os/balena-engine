@@ -30,13 +30,13 @@ import (
 	"github.com/containerd/cgroups"
 	cgroupsv2 "github.com/containerd/cgroups/v2"
 	"github.com/containerd/console"
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/pkg/process"
 	"github.com/containerd/containerd/pkg/stdio"
 	"github.com/containerd/containerd/runtime/v2/runc/options"
 	"github.com/containerd/containerd/runtime/v2/task"
+	"github.com/containerd/errdefs"
 	"github.com/containerd/typeurl"
 	"github.com/sirupsen/logrus"
 )
@@ -139,24 +139,9 @@ func NewContainer(ctx context.Context, platform stdio.Platform, r *task.CreateTa
 	}
 	pid := p.Pid()
 	if pid > 0 {
-		var cg interface{}
-		if cgroups.Mode() == cgroups.Unified {
-			g, err := cgroupsv2.PidGroupPath(pid)
-			if err != nil {
-				logrus.WithError(err).Errorf("loading cgroup2 for %d", pid)
-				return container, nil
-			}
-			cg, err = cgroupsv2.LoadManager("/sys/fs/cgroup", g)
-			if err != nil {
-				logrus.WithError(err).Errorf("loading cgroup2 for %d", pid)
-			}
-		} else {
-			cg, err = cgroups.Load(cgroups.V1, cgroups.PidPath(pid))
-			if err != nil {
-				logrus.WithError(err).Errorf("loading cgroup for %d", pid)
-			}
+		if cg, err := loadProcessCgroup(ctx, pid); err == nil {
+			container.cgroup = cg
 		}
-		container.cgroup = cg
 	}
 	return container, nil
 }
@@ -357,26 +342,12 @@ func (c *Container) Start(ctx context.Context, r *task.StartRequest) (process.Pr
 		return nil, err
 	}
 	if err := p.Start(ctx); err != nil {
-		return nil, err
+		return p, err
 	}
 	if c.Cgroup() == nil && p.Pid() > 0 {
-		var cg interface{}
-		if cgroups.Mode() == cgroups.Unified {
-			g, err := cgroupsv2.PidGroupPath(p.Pid())
-			if err != nil {
-				logrus.WithError(err).Errorf("loading cgroup2 for %d", p.Pid())
-			}
-			cg, err = cgroupsv2.LoadManager("/sys/fs/cgroup", g)
-			if err != nil {
-				logrus.WithError(err).Errorf("loading cgroup2 for %d", p.Pid())
-			}
-		} else {
-			cg, err = cgroups.Load(cgroups.V1, cgroups.PidPath(p.Pid()))
-			if err != nil {
-				logrus.WithError(err).Errorf("loading cgroup for %d", p.Pid())
-			}
+		if cg, err := loadProcessCgroup(ctx, p.Pid()); err == nil {
+			c.cgroup = cg
 		}
-		c.cgroup = cg
 	}
 	return p, nil
 }
@@ -505,4 +476,26 @@ func (c *Container) HasPid(pid int) bool {
 		}
 	}
 	return false
+}
+
+func loadProcessCgroup(_ context.Context, pid int) (cg interface{}, err error) {
+	if cgroups.Mode() == cgroups.Unified {
+		g, err := cgroupsv2.PidGroupPath(pid)
+		if err != nil {
+			logrus.WithError(err).Errorf("loading cgroup2 for %d", pid)
+			return nil, err
+		}
+		cg, err = cgroupsv2.LoadManager("/sys/fs/cgroup", g)
+		if err != nil {
+			logrus.WithError(err).Errorf("loading cgroup2 for %d", pid)
+			return nil, err
+		}
+	} else {
+		cg, err = cgroups.Load(cgroups.V1, cgroups.PidPath(pid))
+		if err != nil {
+			logrus.WithError(err).Errorf("loading cgroup for %d", pid)
+			return nil, err
+		}
+	}
+	return cg, nil
 }

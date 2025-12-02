@@ -18,21 +18,24 @@ package docker
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
 
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
-	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/reference"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker/schema1"
+	remoteerrors "github.com/containerd/containerd/remotes/errors"
 	"github.com/containerd/containerd/version"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/log"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
@@ -94,25 +97,30 @@ type ResolverOptions struct {
 	Tracker StatusTracker
 
 	// Authorizer is used to authorize registry requests
-	// Deprecated: use Hosts
+	//
+	// Deprecated: use Hosts.
 	Authorizer Authorizer
 
 	// Credentials provides username and secret given a host.
 	// If username is empty but a secret is given, that secret
 	// is interpreted as a long lived token.
-	// Deprecated: use Hosts
+	//
+	// Deprecated: use Hosts.
 	Credentials func(string) (string, string, error)
 
 	// Host provides the hostname given a namespace.
-	// Deprecated: use Hosts
+	//
+	// Deprecated: use Hosts.
 	Host func(string) (string, error)
 
 	// PlainHTTP specifies to use plain http and not https
-	// Deprecated: use Hosts
+	//
+	// Deprecated: use Hosts.
 	PlainHTTP bool
 
 	// Client is the http client to used when making registry requests
-	// Deprecated: use Hosts
+	//
+	// Deprecated: use Hosts.
 	Client *http.Client
 }
 
@@ -139,6 +147,9 @@ func NewResolver(options ResolverOptions) remotes.Resolver {
 
 	if options.Headers == nil {
 		options.Headers = make(http.Header)
+	} else {
+		// make a copy of the headers to avoid race due to concurrent map write
+		options.Headers = options.Headers.Clone()
 	}
 	if _, ok := options.Headers["User-Agent"]; !ok {
 		options.Headers.Set("User-Agent", "containerd/"+version.Version)
@@ -298,11 +309,11 @@ func (r *dockerResolver) Resolve(ctx context.Context, ref string) (string, ocisp
 				if resp.StatusCode > 399 {
 					// Set firstErr when encountering the first non-404 status code.
 					if firstErr == nil {
-						firstErr = fmt.Errorf("pulling from host %s failed with status code %v: %v", host.Host, u, resp.Status)
+						firstErr = remoteerrors.NewUnexpectedStatusErr(resp)
 					}
 					continue // try another host
 				}
-				return "", ocispec.Descriptor{}, fmt.Errorf("pulling from host %s failed with unexpected status code %v: %v", host.Host, u, resp.Status)
+				return "", ocispec.Descriptor{}, remoteerrors.NewUnexpectedStatusErr(resp)
 			}
 			size := resp.ContentLength
 			contentType := getManifestMediaType(resp)
@@ -528,9 +539,10 @@ func (r *request) do(ctx context.Context) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header = http.Header{} // headers need to be copied to avoid concurrent map access
-	for k, v := range r.header {
-		req.Header[k] = v
+	if r.header == nil {
+		req.Header = http.Header{}
+	} else {
+		req.Header = r.header.Clone() // headers need to be copied to avoid concurrent map access
 	}
 	if r.body != nil {
 		body, err := r.body()
@@ -666,4 +678,104 @@ func responseFields(resp *http.Response) logrus.Fields {
 	}
 
 	return logrus.Fields(fields)
+}
+
+// IsLocalhost checks if the registry host is local.
+func IsLocalhost(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	if host == "localhost" {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+	return ip.IsLoopback()
+}
+
+// NewHTTPFallback returns http.RoundTripper which allows fallback from https to
+// http for registry endpoints with configurations for both http and TLS,
+// such as defaulted localhost endpoints.
+func NewHTTPFallback(transport http.RoundTripper) http.RoundTripper {
+	return &httpFallback{
+		super: transport,
+	}
+}
+
+type httpFallback struct {
+	super http.RoundTripper
+	host  string
+}
+
+func (f *httpFallback) RoundTrip(r *http.Request) (*http.Response, error) {
+	// only fall back if the same host had previously fell back
+	if f.host != r.URL.Host {
+		resp, err := f.super.RoundTrip(r)
+		if !isTLSError(err) {
+			return resp, err
+		}
+	}
+
+	plainHTTPUrl := *r.URL
+	plainHTTPUrl.Scheme = "http"
+
+	plainHTTPRequest := *r
+	plainHTTPRequest.URL = &plainHTTPUrl
+
+	if f.host != r.URL.Host {
+		f.host = r.URL.Host
+
+		// update body on the second attempt
+		if r.Body != nil && r.GetBody != nil {
+			body, err := r.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			plainHTTPRequest.Body = body
+		}
+	}
+
+	return f.super.RoundTrip(&plainHTTPRequest)
+}
+
+func isTLSError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var tlsErr tls.RecordHeaderError
+	if errors.As(err, &tlsErr) && string(tlsErr.RecordHeader[:]) == "HTTP/" {
+		return true
+	}
+	if strings.Contains(err.Error(), "TLS handshake timeout") {
+		return true
+	}
+
+	return false
+}
+
+// HTTPFallback is an http.RoundTripper which allows fallback from https to http
+// for registry endpoints with configurations for both http and TLS, such as
+// defaulted localhost endpoints.
+//
+// Deprecated: Use NewHTTPFallback instead.
+type HTTPFallback struct {
+	http.RoundTripper
+}
+
+func (f HTTPFallback) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := f.RoundTripper.RoundTrip(r)
+	var tlsErr tls.RecordHeaderError
+	if errors.As(err, &tlsErr) && string(tlsErr.RecordHeader[:]) == "HTTP/" {
+		// server gave HTTP response to HTTPS client
+		plainHTTPUrl := *r.URL
+		plainHTTPUrl.Scheme = "http"
+
+		plainHTTPRequest := *r
+		plainHTTPRequest.URL = &plainHTTPUrl
+
+		return f.RoundTripper.RoundTrip(&plainHTTPRequest)
+	}
+
+	return resp, err
 }

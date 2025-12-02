@@ -22,13 +22,13 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/exporters/otlp/internal/retry"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/internal/otlpconfig"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal/otlpconfig"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc/internal/retry"
 )
 
 // Option applies an option to the gRPC driver.
 type Option interface {
-	applyGRPCOption(*otlpconfig.Config)
+	applyGRPCOption(otlpconfig.Config) otlpconfig.Config
 }
 
 func asGRPCOptions(opts []Option) []otlpconfig.GRPCOption {
@@ -50,8 +50,8 @@ type wrappedOption struct {
 	otlpconfig.GRPCOption
 }
 
-func (w wrappedOption) applyGRPCOption(cfg *otlpconfig.Config) {
-	w.ApplyGRPCOption(cfg)
+func (w wrappedOption) applyGRPCOption(cfg otlpconfig.Config) otlpconfig.Config {
+	return w.ApplyGRPCOption(cfg)
 }
 
 // WithInsecure disables client transport security for the exporter's gRPC
@@ -77,14 +77,14 @@ func WithEndpoint(endpoint string) Option {
 //
 // This option has no effect if WithGRPCConn is used.
 func WithReconnectionPeriod(rp time.Duration) Option {
-	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg *otlpconfig.Config) {
+	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg otlpconfig.Config) otlpconfig.Config {
 		cfg.ReconnectionPeriod = rp
+		return cfg
 	})}
 }
 
 func compressorToCompression(compressor string) otlpconfig.Compression {
-	switch compressor {
-	case "gzip":
+	if compressor == "gzip" {
 		return otlpconfig.GzipCompression
 	}
 
@@ -93,13 +93,7 @@ func compressorToCompression(compressor string) otlpconfig.Compression {
 }
 
 // WithCompressor sets the compressor for the gRPC client to use when sending
-// requests. It is the responsibility of the caller to ensure that the
-// compressor set has been registered with google.golang.org/grpc/encoding.
-// This can be done by encoding.RegisterCompressor. Some compressors
-// auto-register on import, such as gzip, which can be registered by calling
-// `import _ "google.golang.org/grpc/encoding/gzip"`.
-//
-// This option has no effect if WithGRPCConn is used.
+// requests. Supported compressor values: "gzip".
 func WithCompressor(compressor string) Option {
 	return wrappedOption{otlpconfig.WithCompression(compressorToCompression(compressor))}
 }
@@ -117,8 +111,9 @@ func WithHeaders(headers map[string]string) Option {
 //
 // This option has no effect if WithGRPCConn is used.
 func WithTLSCredentials(creds credentials.TransportCredentials) Option {
-	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg *otlpconfig.Config) {
+	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg otlpconfig.Config) otlpconfig.Config {
 		cfg.Traces.GRPCCredentials = creds
+		return cfg
 	})}
 }
 
@@ -126,8 +121,9 @@ func WithTLSCredentials(creds credentials.TransportCredentials) Option {
 //
 // This option has no effect if WithGRPCConn is used.
 func WithServiceConfig(serviceConfig string) Option {
-	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg *otlpconfig.Config) {
+	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg otlpconfig.Config) otlpconfig.Config {
 		cfg.ServiceConfig = serviceConfig
+		return cfg
 	})}
 }
 
@@ -138,8 +134,9 @@ func WithServiceConfig(serviceConfig string) Option {
 //
 // This option has no effect if WithGRPCConn is used.
 func WithDialOption(opts ...grpc.DialOption) Option {
-	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg *otlpconfig.Config) {
+	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg otlpconfig.Config) otlpconfig.Config {
 		cfg.DialOptions = opts
+		return cfg
 	})}
 }
 
@@ -152,8 +149,9 @@ func WithDialOption(opts ...grpc.DialOption) Option {
 // It is the callers responsibility to close the passed conn. The client
 // Shutdown method will not close this connection.
 func WithGRPCConn(conn *grpc.ClientConn) Option {
-	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg *otlpconfig.Config) {
+	return wrappedOption{otlpconfig.NewGRPCOption(func(cfg otlpconfig.Config) otlpconfig.Config {
 		cfg.GRPCConn = conn
+		return cfg
 	})}
 }
 

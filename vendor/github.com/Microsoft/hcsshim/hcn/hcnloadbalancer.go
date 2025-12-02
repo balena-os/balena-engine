@@ -28,14 +28,15 @@ type HostComputeLoadBalancer struct {
 	Flags                LoadBalancerFlags         `json:",omitempty"` // 0: None, 1: EnableDirectServerReturn
 }
 
-//LoadBalancerFlags modify settings for a loadbalancer.
+// LoadBalancerFlags modify settings for a loadbalancer.
 type LoadBalancerFlags uint32
 
 var (
 	// LoadBalancerFlagsNone is the default.
 	LoadBalancerFlagsNone LoadBalancerFlags = 0
 	// LoadBalancerFlagsDSR enables Direct Server Return (DSR)
-	LoadBalancerFlagsDSR LoadBalancerFlags = 1
+	LoadBalancerFlagsDSR  LoadBalancerFlags = 1
+	LoadBalancerFlagsIPv6 LoadBalancerFlags = 2
 )
 
 // LoadBalancerPortMappingFlags are special settings on a loadbalancer.
@@ -160,12 +161,12 @@ func createLoadBalancer(settings string) (*HostComputeLoadBalancer, error) {
 	return &outputLoadBalancer, nil
 }
 
-func modifyLoadBalancer(loadBalancerId string, settings string) (*HostComputeLoadBalancer, error) {
-	loadBalancerGuid, err := guid.FromString(loadBalancerId)
+func updateLoadBalancer(loadbalancerId string, settings string) (*HostComputeLoadBalancer, error) {
+	loadBalancerGuid, err := guid.FromString(loadbalancerId)
 	if err != nil {
 		return nil, errInvalidLoadBalancerID
 	}
-	// Open loadBalancer.
+	// Update loadBalancer.
 	var (
 		loadBalancerHandle hcnLoadBalancer
 		resultBuffer       *uint16
@@ -175,7 +176,6 @@ func modifyLoadBalancer(loadBalancerId string, settings string) (*HostComputeLoa
 	if err := checkForErrors("hcnOpenLoadBalancer", hr, resultBuffer); err != nil {
 		return nil, err
 	}
-	// Modify loadBalancer.
 	hr = hcnModifyLoadBalancer(loadBalancerHandle, settings, &resultBuffer)
 	if err := checkForErrors("hcnModifyLoadBalancer", hr, resultBuffer); err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func modifyLoadBalancer(loadBalancerId string, settings string) (*HostComputeLoa
 	if err := checkForErrors("hcnCloseLoadBalancer", hr, nil); err != nil {
 		return nil, err
 	}
-	// Convert output to LoadBalancer
+	// Convert output to HostComputeLoadBalancer
 	var outputLoadBalancer HostComputeLoadBalancer
 	if err := json.Unmarshal([]byte(properties), &outputLoadBalancer); err != nil {
 		return nil, err
@@ -272,6 +272,23 @@ func (loadBalancer *HostComputeLoadBalancer) Create() (*HostComputeLoadBalancer,
 
 	logrus.Debugf("hcn::HostComputeLoadBalancer::Create JSON: %s", jsonString)
 	loadBalancer, hcnErr := createLoadBalancer(string(jsonString))
+	if hcnErr != nil {
+		return nil, hcnErr
+	}
+	return loadBalancer, nil
+}
+
+// Update Loadbalancer.
+func (loadBalancer *HostComputeLoadBalancer) Update(hnsLoadbalancerID string) (*HostComputeLoadBalancer, error) {
+	logrus.Debugf("hcn::HostComputeLoadBalancer::Create id=%s", hnsLoadbalancerID)
+
+	jsonString, err := json.Marshal(loadBalancer)
+	if err != nil {
+		return nil, err
+	}
+
+	logrus.Debugf("hcn::HostComputeLoadBalancer::Update JSON: %s", jsonString)
+	loadBalancer, hcnErr := updateLoadBalancer(hnsLoadbalancerID, string(jsonString))
 	if hcnErr != nil {
 		return nil, hcnErr
 	}

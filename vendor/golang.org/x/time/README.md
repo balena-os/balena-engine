@@ -1,5 +1,7 @@
 # Go Time
 
+[![Go Reference](https://pkg.go.dev/badge/golang.org/x/time.svg)](https://pkg.go.dev/golang.org/x/time)
+
 This repository provides supplementary Go time packages.
 
 ## Download/Install

@@ -27,8 +27,8 @@ import (
 
 	"github.com/containerd/containerd/cmd/ctr/commands"
 	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/log"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/log"
 	units "github.com/docker/go-units"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -420,7 +420,7 @@ var (
 
 			ctx = log.WithLogger(ctx, log.G(ctx).WithField("ref", ref))
 
-			log.G(ctx).Debugf("resolving")
+			log.G(ctx).Tracef("resolving")
 			name, desc, err := resolver.Resolve(ctx, ref)
 			if err != nil {
 				return err
@@ -430,7 +430,7 @@ var (
 				return err
 			}
 
-			log.G(ctx).Debugf("fetching")
+			log.G(ctx).Tracef("fetching")
 			rc, err := fetcher.Fetch(ctx, desc)
 			if err != nil {
 				return err
@@ -471,7 +471,7 @@ var (
 
 			ctx = log.WithLogger(ctx, log.G(ctx).WithField("ref", ref))
 
-			log.G(ctx).Debugf("resolving")
+			log.G(ctx).Tracef("resolving")
 			pusher, err := resolver.Pusher(ctx, ref)
 			if err != nil {
 				return err

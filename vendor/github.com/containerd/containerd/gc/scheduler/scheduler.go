@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/gc"
-	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/plugin"
+	"github.com/containerd/log"
 )
 
 // config configures the garbage collection policies.
@@ -246,6 +246,7 @@ func schedule(d time.Duration) (<-chan time.Time, *time.Time) {
 }
 
 func (s *gcScheduler) run(ctx context.Context) {
+	const minimumGCTime = float64(5 * time.Millisecond)
 	var (
 		schedC <-chan time.Time
 
@@ -326,7 +327,7 @@ func (s *gcScheduler) run(ctx context.Context) {
 			continue
 		}
 
-		log.G(ctx).WithField("d", stats.Elapsed()).Debug("garbage collected")
+		log.G(ctx).WithField("d", stats.Elapsed()).Trace("garbage collected")
 
 		gcTime += stats.Elapsed()
 		collections++
@@ -341,6 +342,11 @@ func (s *gcScheduler) run(ctx context.Context) {
 			// runtime in between gc to reach the pause threshold.
 			// Pause threshold is always 0.0 < threshold <= 0.5
 			avg := float64(gcTime) / float64(collections)
+			// Enforce that avg is no less than minimumGCTime
+			// to prevent immediate rescheduling
+			if avg < minimumGCTime {
+				avg = minimumGCTime
+			}
 			interval = time.Duration(avg/s.pauseThreshold - avg)
 		}
 

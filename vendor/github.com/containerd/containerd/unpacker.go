@@ -18,23 +18,23 @@ package containerd
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
-	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/mount"
 	"github.com/containerd/containerd/pkg/kmutex"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/snapshots"
+	"github.com/containerd/errdefs"
+	"github.com/containerd/log"
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/identity"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -88,6 +88,7 @@ func (u *unpacker) unpack(
 	config ocispec.Descriptor,
 	layers []ocispec.Descriptor,
 ) error {
+	unpackStart := time.Now()
 	p, err := content.ReadBlob(ctx, u.c.ContentStore(), config)
 	if err != nil {
 		return err
@@ -140,13 +141,6 @@ func (u *unpacker) unpack(
 			return err
 		}
 		defer unlock()
-
-		if _, err := sn.Stat(ctx, chainID); err == nil {
-			// no need to handle
-			return nil
-		} else if !errdefs.IsNotFound(err) {
-			return fmt.Errorf("failed to stat snapshot %s: %w", chainID, err)
-		}
 
 		// inherits annotations which are provided as snapshot labels.
 		labels := snapshots.FilterInheritedLabels(desc.Annotations)
@@ -255,9 +249,14 @@ func (u *unpacker) unpack(
 	}
 
 	for i, desc := range layers {
+		unpackLayerStart := time.Now()
 		if err := doUnpackFn(i, desc); err != nil {
 			return err
 		}
+		log.G(ctx).WithFields(logrus.Fields{
+			"layer":    desc.Digest,
+			"duration": time.Since(unpackLayerStart),
+		}).Debug("layer unpacked")
 	}
 
 	chainID := identity.ChainID(chain).String()
@@ -272,8 +271,9 @@ func (u *unpacker) unpack(
 		return err
 	}
 	log.G(ctx).WithFields(logrus.Fields{
-		"config":  config.Digest,
-		"chainID": chainID,
+		"config":   config.Digest,
+		"chainID":  chainID,
+		"duration": time.Since(unpackStart),
 	}).Debug("image unpacked")
 
 	return nil

@@ -21,8 +21,8 @@ import (
 
 	imagesapi "github.com/containerd/containerd/api/services/images/v1"
 	"github.com/containerd/containerd/api/types"
-	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
+	"github.com/containerd/errdefs"
 	ptypes "github.com/gogo/protobuf/types"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -129,6 +129,7 @@ func imagesFromProto(imagespb []imagesapi.Image) []images.Image {
 	var images []images.Image
 
 	for _, image := range imagespb {
+		image := image
 		images = append(images, imageFromProto(&image))
 	}
 

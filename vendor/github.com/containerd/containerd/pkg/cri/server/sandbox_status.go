@@ -22,7 +22,7 @@ import (
 	goruntime "runtime"
 
 	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/errdefs"
 	cni "github.com/containerd/go-cni"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	"golang.org/x/net/context"
@@ -155,12 +155,14 @@ func toCRISandboxInfo(ctx context.Context, sandbox sandboxstore.Sandbox) (map[st
 
 	var processStatus containerd.ProcessStatus
 	if task != nil {
-		taskStatus, err := task.Status(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get task status: %w", err)
+		if taskStatus, err := task.Status(ctx); err != nil {
+			if !errdefs.IsNotFound(err) {
+				return nil, fmt.Errorf("failed to get task status: %w", err)
+			}
+			processStatus = containerd.Unknown
+		} else {
+			processStatus = taskStatus.Status
 		}
-
-		processStatus = taskStatus.Status
 	}
 
 	si := &SandboxInfo{
