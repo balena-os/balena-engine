@@ -27,13 +27,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/pkg/atomicfile"
+	"github.com/containerd/containerd/runtime/v2/balena"
 	"github.com/containerd/ttrpc"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	exec "golang.org/x/sys/execabs"
-
-	"github.com/containerd/containerd/namespaces"
-	"github.com/containerd/containerd/pkg/atomicfile"
 )
 
 type CommandConfig struct {
@@ -52,7 +52,7 @@ func Command(ctx context.Context, config *CommandConfig) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	self, err := os.Executable()
+	self, err := balena.Executable()
 	if err != nil {
 		return nil, err
 	}
