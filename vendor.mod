@@ -167,3 +167,9 @@ require (
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	k8s.io/klog/v2 v2.80.1 // indirect
 )
+
+replace github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.1.13-0.20240202185956-538e236b0059
+
+replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.6.23-0.20251204223054-27af7c297d34
+
+replace github.com/docker/cli => github.com/balena-os/balena-engine-cli v23.0.16-0.20251204204926-70bd8080ab94+incompatible
