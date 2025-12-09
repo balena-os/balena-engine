@@ -141,7 +141,7 @@ can be used and modified as necessary as a custom configuration.`
 		// Stop if we are registering or unregistering against Windows SCM.
 		stop, err := registerUnregisterService(config.Root)
 		if err != nil {
-			logrus.Fatal(err)
+			log.L.Fatal(err)
 		}
 		if stop {
 			return nil
@@ -187,7 +187,7 @@ can be used and modified as necessary as a custom configuration.`
 		// run server initialization in a goroutine so we don't end up blocking important things like SIGTERM handling
 		// while the server is initializing.
 		// As an example opening the bolt database will block forever if another containerd is already running and containerd
-		// will have to be be `kill -9`'ed to recover.
+		// will have to be `kill -9`'ed to recover.
 		chsrv := make(chan srvResp)
 		go func() {
 			defer close(chsrv)
@@ -203,7 +203,7 @@ can be used and modified as necessary as a custom configuration.`
 
 			// Launch as a Windows Service if necessary
 			if err := launchService(server, done); err != nil {
-				logrus.Fatal(err)
+				log.L.Fatal(err)
 			}
 			select {
 			case <-ctx.Done():
@@ -271,12 +271,21 @@ can be used and modified as necessary as a custom configuration.`
 		}
 		serve(ctx, l, server.ServeGRPC)
 
-		if err := notifyReady(ctx); err != nil {
-			log.G(ctx).WithError(err).Warn("notify ready failed")
-		}
+		readyC := make(chan struct{})
+		go func() {
+			server.Wait()
+			close(readyC)
+		}()
 
-		log.G(ctx).Infof("containerd successfully booted in %fs", time.Since(start).Seconds())
-		<-done
+		select {
+		case <-readyC:
+			if err := notifyReady(ctx); err != nil {
+				log.G(ctx).WithError(err).Warn("notify ready failed")
+			}
+			log.G(ctx).Infof("containerd successfully booted in %fs", time.Since(start).Seconds())
+			<-done
+		case <-done:
+		}
 		return nil
 	}
 	return app
@@ -337,36 +346,18 @@ func setLogLevel(context *cli.Context, config *srvconfig.Config) error {
 		l = config.Debug.Level
 	}
 	if l != "" {
-		lvl, err := logrus.ParseLevel(l)
-		if err != nil {
-			return err
-		}
-		logrus.SetLevel(lvl)
+		return log.SetLevel(l)
 	}
 	return nil
 }
 
 func setLogFormat(config *srvconfig.Config) error {
-	f := config.Debug.Format
+	f := log.OutputFormat(config.Debug.Format)
 	if f == "" {
 		f = log.TextFormat
 	}
 
-	switch f {
-	case log.TextFormat:
-		logrus.SetFormatter(&logrus.TextFormatter{
-			TimestampFormat: log.RFC3339NanoFixed,
-			FullTimestamp:   true,
-		})
-	case log.JSONFormat:
-		logrus.SetFormatter(&logrus.JSONFormatter{
-			TimestampFormat: log.RFC3339NanoFixed,
-		})
-	default:
-		return fmt.Errorf("unknown log format: %s", f)
-	}
-
-	return nil
+	return log.SetFormat(f)
 }
 
 func setLogHooks() {
@@ -385,7 +376,7 @@ func dumpStacks(writeToFile bool) {
 		bufferLen *= 2
 	}
 	buf = buf[:stackSize]
-	logrus.Infof("=== BEGIN goroutine stack dump ===\n%s\n=== END goroutine stack dump ===", buf)
+	log.L.Infof("=== BEGIN goroutine stack dump ===\n%s\n=== END goroutine stack dump ===", buf)
 
 	if writeToFile {
 		// Also write to file to aid gathering diagnostics
@@ -396,6 +387,6 @@ func dumpStacks(writeToFile bool) {
 		}
 		defer f.Close()
 		f.WriteString(string(buf))
-		logrus.Infof("goroutine stack dump written to %s", name)
+		log.L.Infof("goroutine stack dump written to %s", name)
 	}
 }

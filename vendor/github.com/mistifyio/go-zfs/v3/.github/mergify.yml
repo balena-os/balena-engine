@@ -1,0 +1,31 @@
+queue_rules:
+  - name: default
+    conditions:
+      # Conditions to get out of the queue (= merged)
+      - check-success=validation
+
+pull_request_rules:
+  - name: Automatic merge on approval
+    conditions:
+      - base=master
+      - "#changes-requested-reviews-by=0"
+      - "#review-requested=0"
+      - check-success=validation
+      - label!=do-not-merge
+      - label=ready-to-merge
+    actions:
+      queue:
+        method: merge
+        name: default
+        commit_message_template: |
+          {{ title }} (#{{ number }})
+
+          {{ body }}
+
+  - name: remove ready-to-merge label when no longer needed
+    conditions:
+      - closed
+    actions:
+      label:
+        remove:
+          - ready-to-merge

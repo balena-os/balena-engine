@@ -1,5 +1,7 @@
 # Open Container Initiative Runtime Specification
 
+[![GitHub Actions status](https://github.com/opencontainers/runtime-spec/workflows/build/badge.svg)](https://github.com/opencontainers/runtime-spec/actions?query=workflow%3Abuild)
+
 The [Open Container Initiative][oci] develops specifications for standards on Operating System process and application containers.
 
 The specification can be found [here](spec.md).
@@ -61,9 +63,12 @@ minutes for all prior meetings.
 
 You can subscribe and join the mailing list on [Google Groups][dev-list].
 
-### IRC
+### Chat
 
-OCI discussion happens on #opencontainers on Freenode ([logs][irc-logs]).
+OCI discussion happens in the following chat rooms, which are all bridged together:
+
+- #general channel on [OCI Slack](https://opencontainers.org/community/overview/#chat)
+- #opencontainers:matrix.org
 
 ### Git commit
 
@@ -139,7 +144,6 @@ Read more on [How to Write a Git Commit Message][how-to-git-commit] or the Discu
 [code-of-conduct]: https://github.com/opencontainers/org/blob/master/CODE_OF_CONDUCT.md
 [dev-list]: https://groups.google.com/a/opencontainers.org/forum/#!forum/dev
 [how-to-git-commit]: http://chris.beams.io/posts/git-commit
-[irc-logs]: http://ircbot.wl.linuxfoundation.org/eavesdrop/%23opencontainers/
 [iso-week]: https://en.wikipedia.org/wiki/ISO_week_date#Calculating_the_week_number_of_a_given_date
 [minutes]: http://ircbot.wl.linuxfoundation.org/meetings/opencontainers/
 [oci]: https://www.opencontainers.org

@@ -175,6 +175,7 @@ func (c *criService) sandboxContainerSpec(id string, config *runtime.PodSandboxC
 		customopts.WithAnnotation(annotations.ContainerType, annotations.ContainerTypeSandbox),
 		customopts.WithAnnotation(annotations.SandboxID, id),
 		customopts.WithAnnotation(annotations.SandboxNamespace, config.GetMetadata().GetNamespace()),
+		customopts.WithAnnotation(annotations.SandboxUID, config.GetMetadata().GetUid()),
 		customopts.WithAnnotation(annotations.SandboxName, config.GetMetadata().GetName()),
 		customopts.WithAnnotation(annotations.SandboxLogDir, config.GetLogDirectory()),
 	)
@@ -342,4 +343,13 @@ func (c *criService) taskOpts(runtimeType string) []containerd.NewTaskOpts {
 	}
 
 	return taskOpts
+}
+
+func (c *criService) updateNetNamespacePath(spec *runtimespec.Spec, nsPath string) {
+	for i := range spec.Linux.Namespaces {
+		if spec.Linux.Namespaces[i].Type == runtimespec.NetworkNamespace {
+			spec.Linux.Namespaces[i].Path = nsPath
+			break
+		}
+	}
 }

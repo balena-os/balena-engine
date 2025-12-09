@@ -24,6 +24,8 @@ import (
 	"strings"
 
 	"github.com/containerd/containerd/defaults"
+	"github.com/containerd/containerd/pkg/atomicfile"
+
 	"github.com/urfave/cli"
 )
 
@@ -115,6 +117,10 @@ var (
 		cli.StringSliceFlag{
 			Name:  "label",
 			Usage: "specify additional labels (e.g. foo=bar)",
+		},
+		cli.StringSliceFlag{
+			Name:  "annotation",
+			Usage: "specify additional OCI annotations (e.g. foo=bar)",
 		},
 		cli.StringSliceFlag{
 			Name:  "mount",
@@ -227,6 +233,19 @@ func LabelArgs(labelStrings []string) map[string]string {
 	return labels
 }
 
+// AnnotationArgs returns a map of annotation key,value pairs.
+func AnnotationArgs(annoStrings []string) (map[string]string, error) {
+	annotations := make(map[string]string, len(annoStrings))
+	for _, anno := range annoStrings {
+		parts := strings.SplitN(anno, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid key=value format annotation: %v", anno)
+		}
+		annotations[parts[0]] = parts[1]
+	}
+	return annotations, nil
+}
+
 // PrintAsJSON prints input in JSON format
 func PrintAsJSON(x interface{}) {
 	b, err := json.MarshalIndent(x, "", "    ")
@@ -242,15 +261,14 @@ func WritePidFile(path string, pid int) error {
 	if err != nil {
 		return err
 	}
-	tempPath := filepath.Join(filepath.Dir(path), fmt.Sprintf(".%s", filepath.Base(path)))
-	f, err := os.OpenFile(tempPath, os.O_RDWR|os.O_CREATE|os.O_EXCL|os.O_SYNC, 0666)
+	f, err := atomicfile.New(path, 0o666)
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(f, "%d", pid)
-	f.Close()
 	if err != nil {
+		f.Cancel()
 		return err
 	}
-	return os.Rename(tempPath, path)
+	return f.Close()
 }

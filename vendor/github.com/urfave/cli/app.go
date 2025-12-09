@@ -121,7 +121,6 @@ func NewApp() *App {
 		HelpName:     filepath.Base(os.Args[0]),
 		Usage:        "A new cli application",
 		UsageText:    "",
-		Version:      "0.0.0",
 		BashComplete: DefaultAppComplete,
 		Action:       helpCommand.Action,
 		Compiled:     compileTime(),
@@ -157,6 +156,10 @@ func (a *App) Setup() {
 		if (HelpFlag != BoolFlag{}) {
 			a.appendFlag(HelpFlag)
 		}
+	}
+
+	if a.Version == "" {
+		a.HideVersion = true
 	}
 
 	if !a.HideVersion {
@@ -199,12 +202,12 @@ func (a *App) Run(arguments []string) (err error) {
 	// always appends the completion flag at the end of the command
 	shellComplete, arguments := checkShellCompleteFlag(a, arguments)
 
-	_, err = a.newFlagSet()
+	set, err := a.newFlagSet()
 	if err != nil {
 		return err
 	}
 
-	set, err := parseIter(a, arguments[1:])
+	err = parseIter(set, a, arguments[1:], shellComplete)
 	nerr := normalizeFlags(a.Flags, set)
 	context := NewContext(a, set, nil)
 	if nerr != nil {
@@ -245,7 +248,7 @@ func (a *App) Run(arguments []string) (err error) {
 		return cerr
 	}
 
-	if a.After != nil {
+	if a.After != nil && !context.shellComplete {
 		defer func() {
 			if afterErr := a.After(context); afterErr != nil {
 				if err != nil {
@@ -257,11 +260,9 @@ func (a *App) Run(arguments []string) (err error) {
 		}()
 	}
 
-	if a.Before != nil {
+	if a.Before != nil && !context.shellComplete {
 		beforeErr := a.Before(context)
 		if beforeErr != nil {
-			_, _ = fmt.Fprintf(a.Writer, "%v\n\n", beforeErr)
-			_ = ShowAppHelp(context)
 			a.handleExitCoder(context, beforeErr)
 			err = beforeErr
 			return err
@@ -322,12 +323,12 @@ func (a *App) RunAsSubcommand(ctx *Context) (err error) {
 	}
 	a.Commands = newCmds
 
-	_, err = a.newFlagSet()
+	set, err := a.newFlagSet()
 	if err != nil {
 		return err
 	}
 
-	set, err := parseIter(a, ctx.Args().Tail())
+	err = parseIter(set, a, ctx.Args().Tail(), ctx.shellComplete)
 	nerr := normalizeFlags(a.Flags, set)
 	context := NewContext(a, set, ctx)
 
@@ -373,7 +374,7 @@ func (a *App) RunAsSubcommand(ctx *Context) (err error) {
 		return cerr
 	}
 
-	if a.After != nil {
+	if a.After != nil && !context.shellComplete {
 		defer func() {
 			afterErr := a.After(context)
 			if afterErr != nil {
@@ -387,7 +388,7 @@ func (a *App) RunAsSubcommand(ctx *Context) (err error) {
 		}()
 	}
 
-	if a.Before != nil {
+	if a.Before != nil && !context.shellComplete {
 		beforeErr := a.Before(context)
 		if beforeErr != nil {
 			a.handleExitCoder(context, beforeErr)

@@ -3,7 +3,7 @@
 A collection of packages to augment `testing` and support common patterns.
 
 [![GoDoc](https://godoc.org/gotest.tools?status.svg)](https://pkg.go.dev/gotest.tools/v3/?tab=subdirectories)
-[![CircleCI](https://circleci.com/gh/gotestyourself/gotest.tools/tree/master.svg?style=shield)](https://circleci.com/gh/gotestyourself/gotest.tools/tree/master)
+[![CircleCI](https://circleci.com/gh/gotestyourself/gotest.tools/tree/main.svg?style=shield)](https://circleci.com/gh/gotestyourself/gotest.tools/tree/main)
 [![Go Reportcard](https://goreportcard.com/badge/gotest.tools)](https://goreportcard.com/report/gotest.tools)
 
 ## Usage
@@ -41,9 +41,12 @@ module paths pin to version `v2.3.0`.
 
 ## Related
 
-* [gotest.tools/gotestsum](https://github.com/gotestyourself/gotestsum) - go test runner with custom output
-* [maxbrunsfeld/counterfeiter](https://github.com/maxbrunsfeld/counterfeiter) - generate fakes for interfaces
-* [jonboulle/clockwork](https://github.com/jonboulle/clockwork) - a fake clock for testing code that uses `time`
+* [gotest.tools/gotestsum](https://github.com/gotestyourself/gotestsum) -
+  go test runner with custom output
+* [go testing patterns](https://github.com/gotestyourself/gotest.tools/wiki/Go-Testing-Patterns) -
+  zero-dependency patterns for organizing test cases
+* [test doubles and patching](https://github.com/gotestyourself/gotest.tools/wiki/Test-Doubles-And-Patching) -
+  zero-dependency test doubles (fakes, spies, stubs, and mocks) and monkey patching patterns
 
 ## Contributing
 

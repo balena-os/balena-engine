@@ -21,15 +21,16 @@ import (
 	"errors"
 	"fmt"
 
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
+
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/platforms"
 	"github.com/containerd/containerd/remotes"
 	"github.com/containerd/containerd/remotes/docker"
 	"github.com/containerd/containerd/remotes/docker/schema1"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/semaphore"
 )
 
 // Pull downloads the provided content into containerd's content store
@@ -141,9 +142,10 @@ func (c *Client) fetch(ctx context.Context, rCtx *RemoteContext, ref string, lim
 	var (
 		handler images.Handler
 
-		isConvertible bool
-		converterFunc func(context.Context, ocispec.Descriptor) (ocispec.Descriptor, error)
-		limiter       *semaphore.Weighted
+		isConvertible         bool
+		originalSchema1Digest string
+		converterFunc         func(context.Context, ocispec.Descriptor) (ocispec.Descriptor, error)
+		limiter               *semaphore.Weighted
 	)
 
 	if desc.MediaType == images.MediaTypeDockerSchema1Manifest && rCtx.ConvertSchema1 {
@@ -156,6 +158,8 @@ func (c *Client) fetch(ctx context.Context, rCtx *RemoteContext, ref string, lim
 		converterFunc = func(ctx context.Context, _ ocispec.Descriptor) (ocispec.Descriptor, error) {
 			return schema1Converter.Convert(ctx)
 		}
+
+		originalSchema1Digest = desc.Digest.String()
 	} else {
 		// Get all the children for a descriptor
 		childrenHandler := images.ChildrenHandler(store)
@@ -220,6 +224,13 @@ func (c *Client) fetch(ctx context.Context, rCtx *RemoteContext, ref string, lim
 		if desc, err = converterFunc(ctx, desc); err != nil {
 			return images.Image{}, err
 		}
+	}
+
+	if originalSchema1Digest != "" {
+		if rCtx.Labels == nil {
+			rCtx.Labels = make(map[string]string)
+		}
+		rCtx.Labels[images.ConvertedDockerSchema1LabelKey] = originalSchema1Digest
 	}
 
 	return images.Image{

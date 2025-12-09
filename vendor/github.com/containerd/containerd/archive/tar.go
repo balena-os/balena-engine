@@ -30,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/containerd/containerd/archive/tarheader"
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/pkg/userns"
 	"github.com/containerd/continuity/fs"
@@ -120,6 +121,8 @@ const (
 	whiteoutOpaqueDir = whiteoutMetaPrefix + ".opq"
 
 	paxSchilyXattr = "SCHILY.xattr."
+
+	userXattrPrefix = "user."
 )
 
 // Apply applies a tar stream of an OCI style diff tar.
@@ -329,6 +332,7 @@ func createTarFile(ctx context.Context, path, extractDir string, hdr *tar.Header
 			}
 		}
 
+	//nolint:staticcheck // TypeRegA is deprecated but we may still receive an external tar with TypeRegA
 	case tar.TypeReg, tar.TypeRegA:
 		file, err := openFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, hdrInfo.Mode())
 		if err != nil {
@@ -393,11 +397,19 @@ func createTarFile(ctx context.Context, path, extractDir string, hdr *tar.Header
 		if strings.HasPrefix(key, paxSchilyXattr) {
 			key = key[len(paxSchilyXattr):]
 			if err := setxattr(path, key, value); err != nil {
+				if errors.Is(err, syscall.EPERM) && strings.HasPrefix(key, userXattrPrefix) {
+					// In the user.* namespace, only regular files and directories can have extended attributes.
+					// See https://man7.org/linux/man-pages/man7/xattr.7.html for details.
+					if fi, err := os.Lstat(path); err == nil && (!fi.Mode().IsRegular() && !fi.Mode().IsDir()) {
+						log.G(ctx).WithError(err).Warnf("ignored xattr %s in archive", key)
+						continue
+					}
+				}
 				if errors.Is(err, syscall.ENOTSUP) {
 					log.G(ctx).WithError(err).Warnf("ignored xattr %s in archive", key)
 					continue
 				}
-				return err
+				return fmt.Errorf("failed to setxattr %q for key %q: %w", path, key, err)
 			}
 		}
 	}
@@ -544,7 +556,8 @@ func (cw *ChangeWriter) HandleChange(k fs.ChangeKind, p string, f os.FileInfo, e
 			}
 		}
 
-		hdr, err := tar.FileInfoHeader(f, link)
+		// Use FileInfoHeaderNoLookups to avoid propagating user names and group names from the host
+		hdr, err := tarheader.FileInfoHeaderNoLookups(f, link)
 		if err != nil {
 			return err
 		}
