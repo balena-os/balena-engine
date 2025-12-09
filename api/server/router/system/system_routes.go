@@ -48,11 +48,7 @@ func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r
 }
 
 func (s *systemRouter) swarmStatus() string {
-	if s.cluster != nil {
-		if p, ok := s.cluster.(StatusProvider); ok {
-			return p.Status()
-		}
-	}
+	// Swarm is not supported in balenaEngine
 	return string(swarm.LocalNodeStateInactive)
 }
 
