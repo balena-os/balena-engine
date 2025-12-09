@@ -238,7 +238,8 @@ func handleProbeResult(d *Daemon, c *container.Container, result *types.Healthch
 					err := <-wait
 					if err == nil {
 						d.stopHealthchecks(c)
-						if err := d.containerRestart(c, c.StopTimeout()); err != nil {
+						timeout := c.StopTimeout()
+						if err := d.containerRestart(context.Background(), c, containertypes.StopOptions{Timeout: &timeout}); err != nil {
 							logrus.Debugf("failed to restart container: %+v", err)
 						}
 					} else if err != restartmanager.ErrRestartCanceled {
