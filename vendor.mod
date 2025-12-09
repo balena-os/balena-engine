@@ -16,6 +16,7 @@ require (
 	github.com/RackSec/srslog v0.0.0-20180709174129-a4725f04ec91
 	github.com/armon/go-radix v1.0.1-0.20221118154546-54df44f2176c
 	github.com/aws/aws-sdk-go v1.37.0
+	github.com/balena-os/librsync-go v0.8.5
 	github.com/bsphere/le_go v0.0.0-20200109081728-fc06dab2caa8
 	github.com/cloudflare/cfssl v0.0.0-20180323000720-5d63dbd981b5
 	github.com/containerd/cgroups v1.0.4
