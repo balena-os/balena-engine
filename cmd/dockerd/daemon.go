@@ -49,7 +49,6 @@ import (
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/go-connections/tlsconfig"
 	"github.com/moby/buildkit/session"
-	swarmapi "github.com/moby/swarmkit/v2/api"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
@@ -512,7 +511,7 @@ func initRouter(opts routerOptions) {
 			opts.daemon.ImageService().DistributionServices().LayerStore,
 		),
 		systemrouter.NewRouter(opts.daemon, opts.buildkit, opts.features),
-		volume.NewRouter(opts.daemon.VolumesService(), opts.cluster),
+		volume.NewRouter(opts.daemon.VolumesService(), nil),
 		build.NewRouter(opts.buildBackend, opts.daemon, opts.features),
 		sessionrouter.NewRouter(opts.sessionManager),
 		distributionrouter.NewRouter(opts.daemon.ImageService()),
