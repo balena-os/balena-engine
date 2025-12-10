@@ -566,6 +566,7 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
             pkg-config \
             dpkg-dev \
             libapparmor-dev \
+            libbtrfs-dev \
             libseccomp-dev \
             libsecret-1-dev \
             libsystemd-dev \
