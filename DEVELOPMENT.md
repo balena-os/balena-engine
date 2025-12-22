@@ -424,6 +424,27 @@ Finally your should bump the version found in [`VERSION`](./VERSION) to the new 
 
 ## Tips
 
+### Integration test failures with userns-remap
+
+If `TestBuildUserNamespaceValidateCapabilitiesAreV2` (or other userns tests) fail with:
+
+```
+a subdirectory in your graphroot path (...) restricts access to the remapped root uid/gid
+```
+
+The likely cause is stale `bundles/` directory permissions. When running locally,
+`bundles/` is bind-mounted from the host. If it was created with restrictive
+permissions (e.g., `drwx------`), the remapped uid (165536) cannot traverse it.
+
+**Fix:** Delete the bundles directory and let it be recreated:
+
+```sh
+sudo rm -rf bundles
+```
+
+This doesn't affect CI because GitHub Actions uses an anonymous Docker volume
+for `bundles/` instead of a bind mount.
+
 ### Random tips
 
 * This is something we need to look deeper, but I have seen some errors in
