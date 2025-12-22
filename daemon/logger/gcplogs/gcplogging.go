@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 package gcplogs // import "github.com/docker/docker/daemon/logger/gcplogs"
 
 import (
