@@ -66,7 +66,7 @@ func (s *DockerCLIVolumeSuite) TestVolumeCLIInspectMulti(c *testing.T) {
 	result := dockerCmdWithResult("volume", "inspect", "--format={{ .Name }}", "test1", "test2", "doesnotexist", "test3")
 	result.Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "No such volume: doesnotexist",
+		Err:      "no such volume",
 	})
 
 	out := result.Stdout()
@@ -248,7 +248,7 @@ func (s *DockerCLIVolumeSuite) TestVolumeCLIInspectTmplError(c *testing.T) {
 	out, exitCode, err := dockerCmdWithError("volume", "inspect", "--format='{{ .FooBar }}'", name)
 	assert.Assert(c, err != nil, "Output: %s", out)
 	assert.Equal(c, exitCode, 1, fmt.Sprintf("Output: %s", out))
-	assert.Assert(c, strings.Contains(out, "Template parsing error"))
+	assert.Assert(c, strings.Contains(out, "template parsing error"))
 }
 
 func (s *DockerCLIVolumeSuite) TestVolumeCLICreateWithOpts(c *testing.T) {

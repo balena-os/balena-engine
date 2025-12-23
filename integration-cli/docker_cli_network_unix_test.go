@@ -449,7 +449,7 @@ func (s *DockerCLINetworkSuite) TestDockerInspectMultipleNetworksIncludingNonexi
 	result := dockerCmdWithResult("network", "inspect", "host", "nonexistent")
 	result.Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "Error: No such network: nonexistent",
+		Err:      "network nonexistent not found",
 		Out:      "host",
 	})
 
@@ -463,7 +463,7 @@ func (s *DockerCLINetworkSuite) TestDockerInspectMultipleNetworksIncludingNonexi
 	result = dockerCmdWithResult("network", "inspect", "nonexistent")
 	result.Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "Error: No such network: nonexistent",
+		Err:      "network nonexistent not found",
 		Out:      "[]",
 	})
 
@@ -472,7 +472,7 @@ func (s *DockerCLINetworkSuite) TestDockerInspectMultipleNetworksIncludingNonexi
 	result = dockerCmdWithResult("network", "inspect", "nonexistent", "host")
 	result.Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "Error: No such network: nonexistent",
+		Err:      "network nonexistent not found",
 		Out:      "host",
 	})
 

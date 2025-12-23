@@ -50,8 +50,10 @@ func (s *DockerCLILinksSuite) TestLinksPingLinkedContainers(c *testing.T) {
 	testRequires(c, DaemonIsLinux)
 	// Test with the three different ways of specifying the default network on Linux
 	testLinkPingOnNetwork(c, "")
-	testLinkPingOnNetwork(c, "default")
-	testLinkPingOnNetwork(c, "bridge")
+
+	// TODO(thaJeztah): cli flags this as an error; "links are only supported for user-defined networks"
+	// testLinkPingOnNetwork(c, "default")
+	// testLinkPingOnNetwork(c, "bridge")
 }
 
 func testLinkPingOnNetwork(c *testing.T, network string) {
