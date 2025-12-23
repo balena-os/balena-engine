@@ -9,7 +9,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
-
+	"github.com/docker/docker/client"
 	"github.com/docker/docker/testutil/daemon"
 
 	"golang.org/x/sys/unix"
@@ -83,8 +83,11 @@ func TestAufsToOverlay2Migration(t *testing.T) {
 	assert.NilError(t, err)
 
 	// original f1 should be removed (.wh.)
+	// Note: We check for "not found" error type instead of error message content
+	// because HEAD requests don't include error bodies per HTTP specification,
+	// so the client may receive different error messages.
 	_, err = cl.ContainerStatPath(ctx, ctr.ID, "/tmp/f1")
-	assert.ErrorContains(t, err, "No such container:path")
+	assert.Assert(t, client.IsErrNotFound(err), "expected 'not found' error for whiteout file, got: %v", err)
 	// original d1 should be opaque (.wh..wh.opq)
 	_, err = cl.ContainerStatPath(ctx, ctr.ID, "/tmp/d1/d1f2")
 	assert.NilError(t, err)
