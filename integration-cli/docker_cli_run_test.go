@@ -296,7 +296,8 @@ func (s *DockerCLIRunSuite) TestRunWithNetAliasOnDefaultNetworks(c *testing.T) {
 	for _, net := range defaults {
 		out, _, err := dockerCmdWithError("run", "-d", "--net", net, "--net-alias", "alias_"+net, "busybox", "top")
 		assert.ErrorContains(c, err, "")
-		assert.Assert(c, strings.Contains(out, runconfig.ErrUnsupportedNetworkAndAlias.Error()))
+		// TODO(thaJeztah): this validation should be on the daemon side (and already is?): https://github.com/moby/moby/blob/5856ec5348ccacf430f8b17fe8a6e30c579a7817/daemon/container_operations.go#L528-L539
+		assert.Assert(c, strings.Contains(out, "network-scoped aliases are only supported for user-defined networks"))
 	}
 }
 
@@ -2462,13 +2463,17 @@ func (s *DockerCLIRunSuite) TestRunTLSVerify(c *testing.T) {
 		c.Fatalf("Should have worked: %v:\n%v", err, out)
 	}
 
+	// CLI v23+ validates TLS config before connecting, so we get a file-not-found
+	// error for ca.pem instead of a connection error. This matches upstream behavior.
+	notFoundErr := "ca.pem: no such file or directory"
+
 	// Regardless of whether we specify true or false we need to
 	// test to make sure tls is turned on if --tlsverify is specified at all
 	result := dockerCmdWithResult("--tlsverify=false", "ps")
-	result.Assert(c, icmd.Expected{ExitCode: 1, Err: "error during connect"})
+	result.Assert(c, icmd.Expected{ExitCode: 1, Err: notFoundErr})
 
 	result = dockerCmdWithResult("--tlsverify=true", "ps")
-	result.Assert(c, icmd.Expected{ExitCode: 1, Err: "cert"})
+	result.Assert(c, icmd.Expected{ExitCode: 1, Err: notFoundErr})
 }
 
 func (s *DockerCLIRunSuite) TestRunPortFromDockerRangeInUse(c *testing.T) {

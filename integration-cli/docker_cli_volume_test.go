@@ -66,7 +66,7 @@ func (s *DockerCLIVolumeSuite) TestVolumeCLIInspectMulti(c *testing.T) {
 	result := dockerCmdWithResult("volume", "inspect", "--format={{ .Name }}", "test1", "test2", "doesnotexist", "test3")
 	result.Assert(c, icmd.Expected{
 		ExitCode: 1,
-		Err:      "No such volume: doesnotexist",
+		Err:      "no such volume",
 	})
 
 	out := result.Stdout()
@@ -222,7 +222,9 @@ func (s *DockerCLIVolumeSuite) TestVolumeCLIRm(c *testing.T) {
 func (s *DockerCLIVolumeSuite) TestVolumeCLINoArgs(c *testing.T) {
 	out, _ := dockerCmd(c, "volume")
 	// no args should produce the cmd usage output
-	usage := "Usage:	balena-engine volume COMMAND"
+	// CLI v23+ uses different formatting for Usage: line, so check for the
+	// --help suggestion text instead (matches upstream fix in 6aea8c2591)
+	usage := "balena-engine volume COMMAND --help"
 	assert.Assert(c, strings.Contains(out, usage))
 	// invalid arg should error and show the command usage on stderr
 	icmd.RunCommand(dockerBinary, "volume", "somearg").Assert(c, icmd.Expected{
@@ -248,7 +250,7 @@ func (s *DockerCLIVolumeSuite) TestVolumeCLIInspectTmplError(c *testing.T) {
 	out, exitCode, err := dockerCmdWithError("volume", "inspect", "--format='{{ .FooBar }}'", name)
 	assert.Assert(c, err != nil, "Output: %s", out)
 	assert.Equal(c, exitCode, 1, fmt.Sprintf("Output: %s", out))
-	assert.Assert(c, strings.Contains(out, "Template parsing error"))
+	assert.Assert(c, strings.Contains(out, "template parsing error"))
 }
 
 func (s *DockerCLIVolumeSuite) TestVolumeCLICreateWithOpts(c *testing.T) {
