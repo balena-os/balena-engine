@@ -81,10 +81,8 @@ func processBuilder(dockerCli command.Cli, cmd *cobra.Command, args, osargs []st
 	}
 
 	if buildKitDisabled {
-		// display warning if not wcow and continue
-		if dockerCli.ServerInfo().OSType != "windows" {
-			_, _ = fmt.Fprintf(dockerCli.Err(), "%s\n\n", buildkitDisabledWarning)
-		}
+		// balena-engine: suppress deprecation warning since we intentionally
+		// use the legacy builder and don't ship buildx
 		return args, osargs, nil, nil
 	}
 
@@ -99,8 +97,8 @@ func processBuilder(dockerCli command.Cli, cmd *cobra.Command, args, osargs []st
 		if useBuilder {
 			return args, osargs, nil, newBuilderError(buildxMissingError, perr)
 		}
-		// otherwise, display warning and continue
-		_, _ = fmt.Fprintf(dockerCli.Err(), "%s\n\n", newBuilderError(buildxMissingWarning, perr))
+		// balena-engine: suppress deprecation warning since we intentionally
+		// use the legacy builder and don't ship buildx
 		return args, osargs, nil, nil
 	}
 

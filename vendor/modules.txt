@@ -480,7 +480,7 @@ github.com/davecgh/go-spew/spew
 # github.com/deckarep/golang-set v0.0.0-20141123011944-ef32fa3046d9
 ## explicit
 github.com/deckarep/golang-set
-# github.com/docker/cli v20.10.13+incompatible => github.com/balena-os/balena-engine-cli v23.0.16-0.20251204204926-70bd8080ab94+incompatible
+# github.com/docker/cli v20.10.13+incompatible => github.com/balena-os/balena-engine-cli v23.0.16-0.20251229232154-3c4ae613f4c7+incompatible
 ## explicit
 github.com/docker/cli/cli
 github.com/docker/cli/cli-plugins/manager
@@ -1600,5 +1600,5 @@ sigs.k8s.io/structured-merge-diff/v4/value
 sigs.k8s.io/yaml
 # github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.1.13-0.20240202185956-538e236b0059
 # github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.6.23-0.20251204223054-27af7c297d34
-# github.com/docker/cli => github.com/balena-os/balena-engine-cli v23.0.16-0.20251204204926-70bd8080ab94+incompatible
+# github.com/docker/cli => github.com/balena-os/balena-engine-cli v23.0.16-0.20251229232154-3c4ae613f4c7+incompatible
 # google.golang.org/genproto => google.golang.org/genproto v0.0.0-20200224152610-e50cd9704f63
