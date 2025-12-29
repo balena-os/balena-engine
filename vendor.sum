@@ -109,8 +109,8 @@ github.com/aws/aws-sdk-go v1.37.0 h1:GzFnhOIsrGyQ69s7VgqtrG2BG8v7X7vwB3Xpbd/DBBk
 github.com/aws/aws-sdk-go v1.37.0/go.mod h1:hcU610XS61/+aQV88ixoOzUoG7v3b31pl2zKMmprdro=
 github.com/balena-os/balena-containerd v1.6.23-0.20251204223054-27af7c297d34 h1:159Q5p9riaIo53B7eg56QtEyrRLv5Gip+wVzfsDxCks=
 github.com/balena-os/balena-containerd v1.6.23-0.20251204223054-27af7c297d34/go.mod h1:f+dFzuYkYbBZ9nn6gSF2+qMYhA2ojvjr88oKStcPXcc=
-github.com/balena-os/balena-engine-cli v23.0.16-0.20251204204926-70bd8080ab94+incompatible h1:2NfCR7AiMB0WmUUOACf8k/F3tiwdIV8i0fzkQEKCWPs=
-github.com/balena-os/balena-engine-cli v23.0.16-0.20251204204926-70bd8080ab94+incompatible/go.mod h1:QO1dMBjQfxaXuL/iu85TiozUX6zZF7Kg2G9zunxJyWc=
+github.com/balena-os/balena-engine-cli v23.0.16-0.20251229232154-3c4ae613f4c7+incompatible h1:upRnQE07n9JrkLe0/GxUlcJK2WcpfgULwbqhiiOKS3k=
+github.com/balena-os/balena-engine-cli v23.0.16-0.20251229232154-3c4ae613f4c7+incompatible/go.mod h1:QO1dMBjQfxaXuL/iu85TiozUX6zZF7Kg2G9zunxJyWc=
 github.com/balena-os/balena-runc v1.1.13-0.20240202185956-538e236b0059 h1:kUVwhR6a5IFS5vaW3nOqagoOOSON1YMPAVWdBaFu6G0=
 github.com/balena-os/balena-runc v1.1.13-0.20240202185956-538e236b0059/go.mod h1:S+lQwSfncpBha7XTy/5lBwWgm5+y5Ma/O44Ekby9FK8=
 github.com/balena-os/circbuf v0.1.3 h1:pLkTha46mQ2FOfB4l9sz4fckt8oorpVSWIp6N3xW+wE=
