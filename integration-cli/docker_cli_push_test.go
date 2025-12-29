@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/docker/distribution/reference"
-	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/integration-cli/cli/build"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/icmd"
@@ -69,14 +68,8 @@ func (s *DockerRegistrySuite) TestPushMultipleTags(c *testing.T) {
 	dockerCmd(c, "tag", "busybox", repoTag1)
 	dockerCmd(c, "tag", "busybox", repoTag2)
 
-	args := []string{"push"}
-	if versions.GreaterThanOrEqualTo(DockerCLIVersion(c), "20.10.0") {
-		// 20.10 CLI removed implicit push all tags and requires the "--all" flag
-		args = append(args, "--all-tags")
-	}
-	args = append(args, repoName)
-
-	dockerCmd(c, args...)
+	// CLI v20.10+ removed implicit push all tags and requires the "--all-tags" flag
+	dockerCmd(c, "push", "--all-tags", repoName)
 
 	imageAlreadyExists := ": Image already exists"
 

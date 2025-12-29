@@ -2463,13 +2463,17 @@ func (s *DockerCLIRunSuite) TestRunTLSVerify(c *testing.T) {
 		c.Fatalf("Should have worked: %v:\n%v", err, out)
 	}
 
+	// CLI v23+ validates TLS config before connecting, so we get a file-not-found
+	// error for ca.pem instead of a connection error. This matches upstream behavior.
+	notFoundErr := "ca.pem: no such file or directory"
+
 	// Regardless of whether we specify true or false we need to
 	// test to make sure tls is turned on if --tlsverify is specified at all
 	result := dockerCmdWithResult("--tlsverify=false", "ps")
-	result.Assert(c, icmd.Expected{ExitCode: 1, Err: "error during connect"})
+	result.Assert(c, icmd.Expected{ExitCode: 1, Err: notFoundErr})
 
 	result = dockerCmdWithResult("--tlsverify=true", "ps")
-	result.Assert(c, icmd.Expected{ExitCode: 1, Err: "cert"})
+	result.Assert(c, icmd.Expected{ExitCode: 1, Err: notFoundErr})
 }
 
 func (s *DockerCLIRunSuite) TestRunPortFromDockerRangeInUse(c *testing.T) {
