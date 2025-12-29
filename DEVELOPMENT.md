@@ -110,7 +110,7 @@ make dynbinary
 ```
 
 This will place the generated binary and symlinks into
-`bundles/dynbinary-daemon`.
+`bundles/dynbinary`.
 
 #### Build and run
 
@@ -125,7 +125,7 @@ can run it. What I usually do to run the Engine inside this container is:
 
 ```sh
 # Copy the binary and symlinks to somewhere in the $PATH
-cp bundles/dynbinary-daemon/balena* /bin
+cp bundles/dynbinary/balena* /bin
 
 # Run the required daemons in the background.
 # The engine daemon also starts the balena-engine-containerd daemon
