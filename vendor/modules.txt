@@ -132,7 +132,7 @@ github.com/aws/aws-sdk-go/service/sts/stsiface
 # github.com/balena-os/circbuf v0.1.3
 ## explicit; go 1.16
 github.com/balena-os/circbuf
-# github.com/balena-os/librsync-go v0.8.5
+# github.com/balena-os/librsync-go v0.9.0
 ## explicit; go 1.17
 github.com/balena-os/librsync-go
 # github.com/beorn7/perks v1.0.1
