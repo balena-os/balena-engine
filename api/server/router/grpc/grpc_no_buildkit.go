@@ -1,11 +1,10 @@
-//go:build !no_buildkit
-// +build !no_buildkit
+//go:build no_buildkit
+// +build no_buildkit
 
 package grpc // import "github.com/docker/docker/api/server/router/grpc"
 
 import (
 	"github.com/docker/docker/api/server/router"
-	"github.com/moby/buildkit/util/grpcerrors"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 )
@@ -19,11 +18,8 @@ type grpcRouter struct {
 // NewRouter initializes a new grpc http router
 func NewRouter(backends ...Backend) router.Router {
 	r := &grpcRouter{
-		h2Server: &http2.Server{},
-		grpcServer: grpc.NewServer(
-			grpc.UnaryInterceptor(grpcerrors.UnaryServerInterceptor),
-			grpc.StreamInterceptor(grpcerrors.StreamServerInterceptor),
-		),
+		h2Server:   &http2.Server{},
+		grpcServer: grpc.NewServer(),
 	}
 	for _, b := range backends {
 		b.RegisterGRPC(r.grpcServer)
