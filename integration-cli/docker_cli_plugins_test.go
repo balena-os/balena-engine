@@ -370,6 +370,7 @@ func (s *DockerCLIPluginsSuite) TestPluginInspectOnWindows(c *testing.T) {
 }
 
 func (ps *DockerPluginSuite) TestPluginIDPrefix(c *testing.T) {
+	c.Skip("Plugins aren't supported")
 	name := "test"
 	client := testEnv.APIClient()
 

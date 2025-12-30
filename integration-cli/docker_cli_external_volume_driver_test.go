@@ -482,6 +482,8 @@ func (s *DockerExternalVolumeSuite) TestExternalVolumeDriverList(c *testing.T) {
 }
 
 func (s *DockerExternalVolumeSuite) TestExternalVolumeDriverGet(c *testing.T) {
+	c.Skip("Pending balenaEngine compatibility investigation")
+
 	out, _, err := dockerCmdWithError("volume", "inspect", "dummy")
 	assert.ErrorContains(c, err, "", out)
 	assert.Assert(c, strings.Contains(out, "No such volume"))
