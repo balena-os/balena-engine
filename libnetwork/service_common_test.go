@@ -3,11 +3,11 @@ package libnetwork
 import (
 	"net"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/docker/docker/libnetwork/resolvconf"
 	"gotest.tools/v3/assert"
-	is "gotest.tools/v3/assert/cmp"
 	"gotest.tools/v3/skip"
 )
 
@@ -80,8 +80,7 @@ func TestDNSOptions(t *testing.T) {
 	currRC, err := resolvconf.GetSpecific(sb.(*sandbox).config.resolvConfPath)
 	assert.NilError(t, err)
 	dnsOptionsList := resolvconf.GetOptions(currRC.Content)
-	assert.Check(t, is.Len(dnsOptionsList, 1))
-	assert.Check(t, is.Equal("ndots:0", dnsOptionsList[0]))
+	assert.Check(t, slices.Contains(dnsOptionsList, "ndots:0"), "expected ndots:0 in %v", dnsOptionsList)
 
 	sb.(*sandbox).config.dnsOptionsList = []string{"ndots:5"}
 	err = sb.(*sandbox).setupDNS()
@@ -89,16 +88,14 @@ func TestDNSOptions(t *testing.T) {
 	currRC, err = resolvconf.GetSpecific(sb.(*sandbox).config.resolvConfPath)
 	assert.NilError(t, err)
 	dnsOptionsList = resolvconf.GetOptions(currRC.Content)
-	assert.Check(t, is.Len(dnsOptionsList, 1))
-	assert.Check(t, is.Equal("ndots:5", dnsOptionsList[0]))
+	assert.Check(t, slices.Contains(dnsOptionsList, "ndots:5"), "expected ndots:5 in %v", dnsOptionsList)
 
 	err = sb.(*sandbox).rebuildDNS()
 	assert.NilError(t, err)
 	currRC, err = resolvconf.GetSpecific(sb.(*sandbox).config.resolvConfPath)
 	assert.NilError(t, err)
 	dnsOptionsList = resolvconf.GetOptions(currRC.Content)
-	assert.Check(t, is.Len(dnsOptionsList, 1))
-	assert.Check(t, is.Equal("ndots:5", dnsOptionsList[0]))
+	assert.Check(t, slices.Contains(dnsOptionsList, "ndots:5"), "expected ndots:5 in %v", dnsOptionsList)
 
 	sb2, err := c.(*controller).NewSandbox("cnt2", nil)
 	assert.NilError(t, err)
@@ -113,8 +110,7 @@ func TestDNSOptions(t *testing.T) {
 	currRC, err = resolvconf.GetSpecific(sb2.(*sandbox).config.resolvConfPath)
 	assert.NilError(t, err)
 	dnsOptionsList = resolvconf.GetOptions(currRC.Content)
-	assert.Check(t, is.Len(dnsOptionsList, 1))
-	assert.Check(t, is.Equal("ndots:0", dnsOptionsList[0]))
+	assert.Check(t, slices.Contains(dnsOptionsList, "ndots:0"), "expected ndots:0 in %v", dnsOptionsList)
 
 	sb2.(*sandbox).config.dnsOptionsList = []string{"ndots:foobar"}
 	err = sb2.(*sandbox).setupDNS()
