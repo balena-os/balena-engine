@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"gotest.tools/v3/assert"
@@ -174,8 +176,46 @@ func (s *DockerCLIPortSuite) TestPortList(c *testing.T) {
 	dockerCmd(c, "rm", "-f", ID)
 }
 
+var (
+	v6ListenableCached bool
+	v6ListenableOnce   sync.Once
+)
+
+// isV6Listenable returns true when `[::1]:0` is listenable.
+// Returns false when the kernel was booted with `ipv6.disable=1` or IPv6 is otherwise unavailable.
+// Mirrors libnetwork/drivers/bridge.IsV6Listenable() for test use.
+func isV6Listenable() bool {
+	v6ListenableOnce.Do(func() {
+		ln, err := net.Listen("tcp6", "[::1]:0")
+		if err == nil {
+			v6ListenableCached = true
+			ln.Close()
+		}
+	})
+	return v6ListenableCached
+}
+
+// isIPv6Mapping returns true if the port mapping string contains an IPv6 address
+func isIPv6Mapping(mapping string) bool {
+	return strings.Contains(mapping, "[::]") || strings.Contains(mapping, ":::")
+}
+
 func assertPortList(c *testing.T, out string, expected []string) error {
 	c.Helper()
+
+	// Filter out IPv6 expectations when IPv6 is not available on the host.
+	// This matches daemon behavior in libnetwork/drivers/bridge/port_mapping.go
+	// which skips IPv6 port bindings when IsV6Listenable() returns false.
+	if !isV6Listenable() {
+		filtered := make([]string, 0, len(expected))
+		for _, e := range expected {
+			if !isIPv6Mapping(e) {
+				filtered = append(filtered, e)
+			}
+		}
+		expected = filtered
+	}
+
 	lines := strings.Split(strings.Trim(out, "\n "), "\n")
 	if len(lines) != len(expected) {
 		return fmt.Errorf("different size lists %s, %d, %d", out, len(lines), len(expected))
