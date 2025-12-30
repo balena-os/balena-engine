@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strconv"
 
 	"github.com/opencontainers/selinux/go-selinux"
 	"github.com/sirupsen/logrus"
@@ -21,14 +20,15 @@ import (
 // linuxSetnsInit performs the container's initialization for running a new process
 // inside an existing container.
 type linuxSetnsInit struct {
-	pipe          *os.File
+	pipe          *syncSocket
 	consoleSocket *os.File
+	pidfdSocket   *os.File
 	config        *initConfig
-	logFd         int
+	logPipe       *os.File
 }
 
 func (l *linuxSetnsInit) getSessionRingName() string {
-	return "_ses." + l.config.ContainerId
+	return "_ses." + l.config.ContainerID
 }
 
 func (l *linuxSetnsInit) Init() error {
@@ -48,6 +48,7 @@ func (l *linuxSetnsInit) Init() error {
 			}
 		}
 	}
+
 	if l.config.CreateConsole {
 		if err := setupConsole(l.consoleSocket, l.config, false); err != nil {
 			return err
@@ -56,11 +57,33 @@ func (l *linuxSetnsInit) Init() error {
 			return err
 		}
 	}
+	if l.pidfdSocket != nil {
+		if err := setupPidfd(l.pidfdSocket, "setns"); err != nil {
+			return fmt.Errorf("failed to setup pidfd: %w", err)
+		}
+	}
 	if l.config.NoNewPrivileges {
 		if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 			return err
 		}
 	}
+	if l.config.Config.Umask != nil {
+		unix.Umask(int(*l.config.Config.Umask))
+	}
+
+	if l.config.Config.Scheduler != nil {
+		if err := setupScheduler(l.config.Config); err != nil {
+			return err
+		}
+	}
+
+	// Tell our parent that we're ready to exec. This must be done before the
+	// Seccomp rules have been applied, because we need to be able to read and
+	// write to a socket.
+	if err := syncParentReady(l.pipe); err != nil {
+		return fmt.Errorf("sync ready: %w", err)
+	}
+
 	if err := selinux.SetExecLabel(l.config.ProcessLabel); err != nil {
 		return err
 	}
@@ -73,7 +96,6 @@ func (l *linuxSetnsInit) Init() error {
 		if err != nil {
 			return err
 		}
-
 		if err := syncParentSeccomp(l.pipe, seccompFd); err != nil {
 			return err
 		}
@@ -84,21 +106,16 @@ func (l *linuxSetnsInit) Init() error {
 	if err := apparmor.ApplyProfile(l.config.AppArmorProfile); err != nil {
 		return err
 	}
-
-	// Check for the arg before waiting to make sure it exists and it is
-	// returned as a create time error.
+	if l.config.Config.Personality != nil {
+		if err := setupPersonality(l.config.Config); err != nil {
+			return err
+		}
+	}
+	// Check for the arg early to make sure it exists.
 	name, err := exec.LookPath(l.config.Args[0])
 	if err != nil {
 		return err
 	}
-	// exec.LookPath in Go < 1.20 might return no error for an executable
-	// residing on a file system mounted with noexec flag, so perform this
-	// extra check now while we can still return a proper error.
-	// TODO: remove this once go < 1.20 is not supported.
-	if err := eaccess(name); err != nil {
-		return &os.PathError{Op: "eaccess", Path: name, Err: err}
-	}
-
 	// Set seccomp as close to execve as possible, so as few syscalls take
 	// place afterward (reducing the amount of syscalls that users need to
 	// enable in their seccomp profiles).
@@ -107,15 +124,20 @@ func (l *linuxSetnsInit) Init() error {
 		if err != nil {
 			return fmt.Errorf("unable to init seccomp: %w", err)
 		}
-
 		if err := syncParentSeccomp(l.pipe, seccompFd); err != nil {
 			return err
 		}
 	}
-	logrus.Debugf("setns_init: about to exec")
+
+	// Close the pipe to signal that we have completed our init.
+	// Please keep this because we don't want to get a pipe write error if
+	// there is an error from `execve` after all fds closed.
+	_ = l.pipe.Close()
+
 	// Close the log pipe fd so the parent's ForwardLogs can exit.
-	if err := unix.Close(l.logFd); err != nil {
-		return &os.PathError{Op: "close log pipe", Path: "fd " + strconv.Itoa(l.logFd), Err: err}
+	logrus.Debugf("setns_init: about to exec")
+	if err := l.logPipe.Close(); err != nil {
+		return fmt.Errorf("close log pipe: %w", err)
 	}
 
 	// Close all file descriptors we are not passing to the container. This is
@@ -128,13 +150,8 @@ func (l *linuxSetnsInit) Init() error {
 	// (otherwise the (*os.File) finaliser could close the wrong file). See
 	// CVE-2024-21626 for more information as to why this protection is
 	// necessary.
-	//
-	// This is not needed for runc-dmz, because the extra execve(2) step means
-	// that all O_CLOEXEC file descriptors have already been closed and thus
-	// the second execve(2) from runc-dmz cannot access internal file
-	// descriptors from runc.
 	if err := utils.UnsafeCloseFrom(l.config.PassedFilesCount + 3); err != nil {
 		return err
 	}
-	return system.Exec(name, l.config.Args[0:], os.Environ())
+	return system.Exec(name, l.config.Args, os.Environ())
 }
