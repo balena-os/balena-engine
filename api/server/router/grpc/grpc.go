@@ -1,3 +1,6 @@
+//go:build !no_buildkit
+// +build !no_buildkit
+
 package grpc // import "github.com/docker/docker/api/server/router/grpc"
 
 import (
