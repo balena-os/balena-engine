@@ -2453,7 +2453,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromConfigFile(c *testing.T) {
 {
     "runtimes": {
         "oci": {
-            "path": "balena-engine-runc"
+            "path": "runc"
         },
         "vm": {
             "path": "/usr/local/bin/vm-manager",
@@ -2531,7 +2531,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromConfigFile(c *testing.T) {
     "default-runtime": "vm",
     "runtimes": {
         "oci": {
-            "path": "balena-engine-runc"
+            "path": "runc"
         },
         "vm": {
             "path": "/usr/local/bin/vm-manager",
@@ -2558,7 +2558,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromConfigFile(c *testing.T) {
 func (s *DockerDaemonSuite) TestRunWithRuntimeFromCommandLine(c *testing.T) {
 	c.Skip("Pending balenaEngine compatibility investigation")
 
-	s.d.StartWithBusybox(c, "--add-runtime", "oci=balena-engine-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
+	s.d.StartWithBusybox(c, "--add-runtime", "oci=runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
 
 	// Run with default runtime
 	out, err := s.d.Cmd("run", "--rm", "busybox", "ls")
@@ -2601,7 +2601,7 @@ func (s *DockerDaemonSuite) TestRunWithRuntimeFromCommandLine(c *testing.T) {
 	assert.Assert(c, is.Contains(string(content), `runtime name 'runc' is reserved`))
 	// Check that we can select a default runtime
 	s.d.Stop(c)
-	s.d.StartWithBusybox(c, "--default-runtime=vm", "--add-runtime", "oci=balena-engine-runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
+	s.d.StartWithBusybox(c, "--default-runtime=vm", "--add-runtime", "oci=runc", "--add-runtime", "vm=/usr/local/bin/vm-manager")
 
 	out, err = s.d.Cmd("run", "--rm", "busybox", "ls")
 	assert.ErrorContains(c, err, "", out)

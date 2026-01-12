@@ -13,7 +13,6 @@ import (
 	proxy "github.com/docker/docker/cmd/docker-proxy"
 	"github.com/docker/docker/cmd/dockerd"
 	"github.com/docker/docker/pkg/reexec"
-	"github.com/opencontainers/runc"
 
 	"os"
 	filepath "path/filepath"
@@ -37,8 +36,6 @@ func main() {
 		containerdShimRuncV2.Main()
 	case "balena-containerd-ctr", "balena-engine-containerd-ctr":
 		ctr.Main()
-	case "balena-runc", "balena-engine-runc":
-		runc.Main()
 	case "balena-proxy", "balena-engine-proxy":
 		proxy.Main()
 	default:

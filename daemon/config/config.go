@@ -55,7 +55,7 @@ const (
 	DefaultInitBinary = "balena-engine-init"
 	// DefaultRuntimeBinary is the default runtime to be used by
 	// containerd if none is specified
-	DefaultRuntimeBinary = "balena-engine-runc"
+	DefaultRuntimeBinary = "runc"
 	// DefaultContainersNamespace is the name of the default containerd namespace used for users containers.
 	DefaultContainersNamespace = "moby"
 	// DefaultPluginNamespace is the name of the default containerd namespace used for plugins.

@@ -223,8 +223,6 @@ require (
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 
-replace github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03
-
 replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.6.23-0.20251204223054-27af7c297d34
 
 replace github.com/docker/cli => github.com/balena-os/balena-engine-cli v23.0.16-0.20251229232154-3c4ae613f4c7+incompatible
