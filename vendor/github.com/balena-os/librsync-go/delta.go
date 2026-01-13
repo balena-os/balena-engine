@@ -47,13 +47,24 @@ func DeltaBuff(sig *SignatureType, i io.Reader, output io.Writer, litBuff []byte
 	weakSum := NewRollsum()
 	block, _ := circbuf.NewBuffer(int64(sig.blockLen))
 
+	buf := make([]byte, sig.blockLen)
+
 	for {
-		in, err := input.ReadByte()
-		if err == io.EOF {
-			break
-		} else if err != nil {
+		var readCount uint64
+		if weakSum.count < uint64(sig.blockLen) {
+			readCount = uint64(sig.blockLen) - weakSum.count
+		} else {
+			readCount = 1
+		}
+
+		n, err := input.Read(buf[:readCount])
+		if err != nil && err != io.EOF {
 			return err
 		}
+		if n == 0 {
+			break
+		}
+		data := buf[:n]
 
 		if block.TotalWritten() > 0 {
 			prevByte, err = block.Get(0)
@@ -61,8 +72,8 @@ func DeltaBuff(sig *SignatureType, i io.Reader, output io.Writer, litBuff []byte
 				return err
 			}
 		}
-		block.WriteByte(in)
-		weakSum.Rollin(in)
+		block.Write(data)
+		weakSum.Update(data)
 
 		if weakSum.count < uint64(sig.blockLen) {
 			continue
