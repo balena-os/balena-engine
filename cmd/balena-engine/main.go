@@ -5,18 +5,19 @@ package main
 
 import (
 	"fmt"
+	"os"
+	filepath "path/filepath"
 
-	"github.com/containerd/containerd/cmd/containerd"
-	containerdShimRuncV2 "github.com/containerd/containerd/cmd/containerd-shim-runc-v2"
-	"github.com/containerd/containerd/cmd/ctr"
-	"github.com/docker/cli/cmd/docker"
+	// TODO: Add these once balena forks are updated for v27
+	// "github.com/containerd/containerd/cmd/containerd"
+	// containerdShimRuncV2 "github.com/containerd/containerd/cmd/containerd-shim-runc-v2"
+	// "github.com/containerd/containerd/cmd/ctr"
+	// "github.com/docker/cli/cmd/docker"
+	// "github.com/opencontainers/runc"
+
 	proxy "github.com/docker/docker/cmd/docker-proxy"
 	"github.com/docker/docker/cmd/dockerd"
 	"github.com/docker/docker/pkg/reexec"
-	"github.com/opencontainers/runc"
-
-	"os"
-	filepath "path/filepath"
 )
 
 func main() {
@@ -27,18 +28,19 @@ func main() {
 	command := filepath.Base(os.Args[0])
 
 	switch command {
-	case "balena", "balena-engine":
-		docker.Main()
+	// TODO: Uncomment once balena forks are updated for v27
+	// case "balena", "balena-engine":
+	// 	docker.Main()
 	case "balenad", "balena-engine-daemon":
 		dockerd.Main()
-	case "balena-containerd", "balena-engine-containerd":
-		containerd.Main()
-	case "balena-containerd-shim-runc-v2":
-		containerdShimRuncV2.Main()
-	case "balena-containerd-ctr", "balena-engine-containerd-ctr":
-		ctr.Main()
-	case "balena-runc", "balena-engine-runc":
-		runc.Main()
+	// case "balena-containerd", "balena-engine-containerd":
+	// 	containerd.Main()
+	// case "balena-containerd-shim-runc-v2":
+	// 	containerdShimRuncV2.Main()
+	// case "balena-containerd-ctr", "balena-engine-containerd-ctr":
+	// 	ctr.Main()
+	// case "balena-runc", "balena-engine-runc":
+	// 	runc.Main()
 	case "balena-proxy", "balena-engine-proxy":
 		proxy.Main()
 	default:

@@ -7,5 +7,6 @@ rm -rf "$DEST"
 	DEST="${DEST}-daemon"
 	ABS_DEST="${ABS_DEST}-daemon"
 	. hack/make/dynbinary-daemon
-	. hack/make/dynbinary-proxy
+	# Note: proxy is built into the multicall balena-engine binary
+	# . hack/make/dynbinary-proxy
 )

@@ -620,7 +620,7 @@ RUN --mount=type=bind,target=.,rw \
   xx-go --wrap
   PKG_CONFIG=$(xx-go env PKG_CONFIG) ./hack/make.sh $target
   xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/balena-engine$([ "$(xx-info os)" = "windows" ] && echo ".exe")
-  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/balena-engine-proxy$([ "$(xx-info os)" = "windows" ] && echo ".exe")
+  # Note: balena-engine-proxy is built into the multicall balena-engine binary
   mkdir /build
   mv /tmp/bundles/${target}-daemon/* /build/
 EOT
@@ -653,10 +653,9 @@ WORKDIR /usr/local/bin
 COPY --from=build /build .
 RUN <<EOT
   set -ex
-  file dockerd
+  file balena-engine
   balena-engine --version
-  file docker-proxy
-  balena-engine-proxy --version
+  # Note: proxy is built into the multicall balena-engine binary
 EOT
 
 # devcontainer is a stage used by .devcontainer/devcontainer.json
