@@ -36,7 +36,6 @@ import (
 	"github.com/docker/docker/volume"
 	volumemounts "github.com/docker/docker/volume/mounts"
 	"github.com/docker/go-units"
-	agentexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/sys/signal"
 	"github.com/moby/sys/symlink"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -88,8 +87,8 @@ type Container struct {
 	HasBeenManuallyRestarted bool `json:"-"` // used to distinguish restart caused by restart policy from the manual one
 	MountPoints              map[string]*volumemounts.MountPoint
 	HostConfig               *containertypes.HostConfig `json:"-"` // do not serialize the host config in the json, otherwise we'll make the container unportable
-	ExecCommands             *ExecStore                 `json:"-"`
-	DependencyStore          agentexec.DependencyGetter `json:"-"`
+	ExecCommands    *ExecStore  `json:"-"`
+	DependencyStore interface{} `json:"-"`
 	SecretReferences         []*swarmtypes.SecretReference
 	ConfigReferences         []*swarmtypes.ConfigReference
 	// logDriver for closing
