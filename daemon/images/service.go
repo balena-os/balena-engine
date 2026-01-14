@@ -35,6 +35,7 @@ type ImageServiceConfig struct {
 	EventsService             *daemonevents.Events
 	ImageStore                image.Store
 	LayerStore                layer.Store
+	DeltaImageStore           image.Store
 	MaxConcurrentDownloads    int
 	MaxConcurrentUploads      int
 	MaxDownloadAttempts       int
@@ -54,6 +55,7 @@ func NewImageService(config ImageServiceConfig) *ImageService {
 		eventsService:             config.EventsService,
 		imageStore:                &imageStoreWithLease{Store: config.ImageStore, leases: config.Leases, ns: config.ContentNamespace},
 		layerStore:                config.LayerStore,
+		deltaStore:                config.DeltaImageStore,
 		referenceStore:            config.ReferenceStore,
 		registryService:           config.RegistryService,
 		uploadManager:             xfer.NewLayerUploadManager(config.MaxConcurrentUploads),
@@ -71,6 +73,7 @@ type ImageService struct {
 	eventsService             *daemonevents.Events
 	imageStore                image.Store
 	layerStore                layer.Store
+	deltaStore                image.Store
 	pruneRunning              int32
 	referenceStore            dockerreference.Store
 	registryService           distribution.RegistryResolver
