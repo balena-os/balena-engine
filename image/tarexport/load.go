@@ -1,6 +1,7 @@
 package tarexport // import "github.com/docker/docker/image/tarexport"
 
 import (
+	"archive/tar"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,11 +12,13 @@ import (
 	"reflect"
 	"runtime"
 
+	"github.com/balena-os/librsync-go"
 	"github.com/containerd/containerd/tracing"
 	"github.com/containerd/log"
 	"github.com/distribution/reference"
 	"github.com/docker/distribution"
 	"github.com/docker/docker/api/types/events"
+	mobyDistribution "github.com/docker/docker/distribution"
 	"github.com/docker/docker/image"
 	v1 "github.com/docker/docker/image/v1"
 	"github.com/docker/docker/internal/ioutils"
@@ -108,7 +111,56 @@ func (l *tarexporter) Load(ctx context.Context, inTar io.ReadCloser, outStream i
 			return fmt.Errorf("invalid manifest, layers length mismatch: expected %d, got %d", expected, actual)
 		}
 
-		for i, diffID := range img.RootFS.DiffIDs {
+		// On Windows, validate the platform, defaulting to windows if not present.
+		imgOS := img.OS
+		if imgOS == "" {
+			imgOS = runtime.GOOS
+		}
+		if runtime.GOOS == "windows" {
+			if (imgOS != "windows") && (imgOS != "linux") {
+				return fmt.Errorf("configuration for this image has an unsupported operating system: %s", imgOS)
+			}
+		}
+
+		imgConfigStore := mobyDistribution.NewImageConfigStoreFromStore(l.is, l.ds)
+		var deltaBase io.ReadSeeker
+
+		if img.Config != nil {
+			if base, ok := img.Config.Labels["io.resin.delta.base"]; ok {
+				baseDigest, err := digest.Parse(base)
+				if err != nil {
+					return err
+				}
+
+				stream, err := imgConfigStore.GetTarSeekStream(baseDigest)
+				if err != nil {
+					return fmt.Errorf("loading delta base image %v: %w", baseDigest, err)
+				}
+				defer stream.Close()
+
+				deltaBase = stream
+			}
+
+			if targetConfig, ok := img.Config.Labels["io.resin.delta.config"]; ok {
+				targetDigest := digest.FromString(targetConfig)
+				if _, err := l.is.Get(image.ID(targetDigest)); err == nil {
+					outStream.Write([]byte("Target image already exists locally, no need to load it.\n"))
+					return nil
+				}
+
+				config = []byte(targetConfig)
+			}
+		}
+
+		configRootFS, err := imgConfigStore.RootFSFromConfig(config)
+		if err == nil && configRootFS == nil {
+			return errors.New("nil target image root filesystem")
+		}
+		if err != nil {
+			return err
+		}
+
+		for i, diffID := range configRootFS.DiffIDs {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -122,7 +174,7 @@ func (l *tarexporter) Load(ctx context.Context, inTar io.ReadCloser, outStream i
 			r.Append(diffID)
 			newLayer, err := l.lss.Get(r.ChainID())
 			if err != nil {
-				newLayer, err = l.loadLayer(ctx, layerPath, rootFS, diffID.String(), m.LayerSources[diffID], progressOutput)
+				newLayer, err = l.loadLayer(ctx, layerPath, rootFS, diffID.String(), imgOS, m.LayerSources[diffID], progressOutput, deltaBase)
 				if err != nil {
 					return err
 				}
@@ -198,7 +250,7 @@ func (l *tarexporter) setParentID(id, parentID image.ID) error {
 	return l.is.SetParent(id, parentID)
 }
 
-func (l *tarexporter) loadLayer(ctx context.Context, filename string, rootFS image.RootFS, id string, foreignSrc distribution.Descriptor, progressOutput progress.Output) (_ layer.Layer, outErr error) {
+func (l *tarexporter) loadLayer(ctx context.Context, filename string, rootFS image.RootFS, id string, imgOS string, foreignSrc distribution.Descriptor, progressOutput progress.Output, deltaBase io.ReadSeeker) (_ layer.Layer, outErr error) {
 	ctx, span := tracing.StartSpan(ctx, "loadLayer")
 	span.SetAttributes(tracing.Attribute("image.id", id))
 	defer span.End()
@@ -232,12 +284,37 @@ func (l *tarexporter) loadLayer(ctx context.Context, filename string, rootFS ima
 	if err != nil {
 		return nil, err
 	}
+
+	layerData := io.Reader(inflatedLayerData)
+	if deltaBase != nil {
+		pR, pW := io.Pipe()
+		go func() {
+			tr := tar.NewReader(inflatedLayerData)
+
+			_, err := tr.Next()
+			if err == io.EOF {
+				err = fmt.Errorf("unexpected EOF. Invalid delta tar archive")
+				pW.CloseWithError(err)
+				return
+			}
+
+			err = librsync.Patch(deltaBase, tr, pW)
+			if err != nil {
+				pW.CloseWithError(err)
+			}
+
+			pW.Close()
+		}()
+
+		layerData = pR
+	}
+
 	defer inflatedLayerData.Close()
 
 	if ds, ok := l.lss.(layer.DescribableStore); ok {
-		return ds.RegisterWithDescriptor(inflatedLayerData, rootFS.ChainID(), foreignSrc)
+		return ds.RegisterWithDescriptor(layerData, rootFS.ChainID(), foreignSrc)
 	}
-	return l.lss.Register(inflatedLayerData, rootFS.ChainID())
+	return l.lss.Register(layerData, rootFS.ChainID())
 }
 
 func (l *tarexporter) setLoadedTag(ref reference.Named, imgID digest.Digest, outStream io.Writer) error {
@@ -367,7 +444,7 @@ func (l *tarexporter) legacyLoadImage(oldID, sourceDir string, loadedMap map[str
 	if err != nil {
 		return err
 	}
-	newLayer, err := l.loadLayer(context.TODO(), layerPath, *rootFS, oldID, distribution.Descriptor{}, progressOutput)
+	newLayer, err := l.loadLayer(context.TODO(), layerPath, *rootFS, oldID, img.OS, distribution.Descriptor{}, progressOutput, nil)
 	if err != nil {
 		return err
 	}
