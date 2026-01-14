@@ -273,8 +273,7 @@ func (l *tarexporter) loadLayer(ctx context.Context, filename string, rootFS ima
 	}
 	defer inflatedLayerData.Close()
 
-	var dummyErr error
-	layerData := xfer.DecorateWithDeltaPatcher(inflatedLayerData, deltaBase, &dummyErr)
+	layerData := xfer.DecorateWithDeltaPatcher(inflatedLayerData, deltaBase)
 
 	if ds, ok := l.lss.(layer.DescribableStore); ok {
 		return ds.RegisterWithDescriptor(layerData, rootFS.ChainID(), foreignSrc)
