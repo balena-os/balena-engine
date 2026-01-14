@@ -22,6 +22,7 @@ type Backend interface {
 }
 
 type imageBackend interface {
+	DeltaCreate(deltaSrc, deltaDest string, outStream io.Writer) error
 	ImageDelete(ctx context.Context, imageRef string, force, prune bool) ([]image.DeleteResponse, error)
 	ImageHistory(ctx context.Context, imageName string) ([]*image.HistoryResponseItem, error)
 	Images(ctx context.Context, opts image.ListOptions) ([]*image.Summary, error)
