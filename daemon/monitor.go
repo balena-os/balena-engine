@@ -61,6 +61,11 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 	c.Reset(false)
 
+	var health types.Health
+	if c.Health != nil {
+		health = c.Health.Health
+	}
+
 	if e != nil {
 		exitStatus.ExitCode = int(e.ExitCode)
 		exitStatus.ExitedAt = e.ExitedAt
@@ -71,7 +76,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 	daemonShutdown := daemon.IsShuttingDown()
 	execDuration := time.Since(c.StartedAt)
-	restart, wait, err := c.RestartManager().ShouldRestart(uint32(exitStatus.ExitCode), daemonShutdown || c.HasBeenManuallyStopped, execDuration, c.Health.Health)
+	restart, wait, err := c.RestartManager().ShouldRestart(uint32(exitStatus.ExitCode), daemonShutdown || c.HasBeenManuallyStopped, execDuration, health)
 	if err != nil {
 		log.G(ctx).WithFields(log.Fields{
 			"error":                  err,
