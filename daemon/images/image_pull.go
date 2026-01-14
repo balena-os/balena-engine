@@ -69,11 +69,6 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 		close(writesDone)
 	}()
 
-	var deltaImageStore image.Store
-	if daemon.deltaStore != nil {
-		deltaImageStore = daemon.deltaStore.imageStore
-	}
-
 	ctx = namespaces.WithNamespace(ctx, i.contentNamespace)
 	// Take out a temporary lease for everything that gets persisted to the content store.
 	// Before the lease is cancelled, any content we want to keep should have it's own lease applied.
@@ -88,7 +83,7 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 		leases:       i.leases,
 	}
 	imageStore := &imageStoreForPull{
-		ImageConfigStore: distribution.NewImageConfigStoreFromStore(i.imageStore),
+		ImageConfigStore: distribution.NewImageConfigStoreFromStore(i.imageStore, i.deltaStore),
 		ingested:         cs,
 		leases:           i.leases,
 	}
@@ -102,7 +97,6 @@ func (i *ImageService) pullImageWithReference(ctx context.Context, ref reference
 			ImageEventLogger: i.LogImageEvent,
 			MetadataStore:    i.distributionMetadataStore,
 			ImageStore:       imageStore,
-			ImageStore:       distribution.NewImageConfigStoreFromStore(i.imageStore, nil),
 			ReferenceStore:   i.referenceStore,
 		},
 		DownloadManager: i.downloadManager,
