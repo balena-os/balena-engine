@@ -244,7 +244,7 @@ func (is *store) GetTarSeekStream(id ID) (ioutils.ReadSeekCloser, error) {
 		rootFS := *img.RootFS
 		rootFS.DiffIDs = rootFS.DiffIDs[:i+1]
 
-		l, err := is.ls.Get(rootFS.ChainID())
+		l, err := is.lss.Get(rootFS.ChainID())
 		if err != nil {
 			return nil, err
 		}
@@ -255,7 +255,7 @@ func (is *store) GetTarSeekStream(id ID) (ioutils.ReadSeekCloser, error) {
 		}
 
 		stream := ioutils.NewReadSeekCloserWrapper(arch, func() error {
-			_, err := is.ls.Release(l)
+			_, err := is.lss.Release(l)
 			return err
 		})
 
