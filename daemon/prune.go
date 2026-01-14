@@ -204,10 +204,8 @@ func (daemon *Daemon) NetworksPrune(ctx context.Context, pruneFilters filters.Ar
 		return nil, err
 	}
 
-	rep := &network.PruneReport{}
-	if clusterRep, err := daemon.clusterNetworksPrune(ctx, pruneFilters); err == nil {
-		rep.NetworksDeleted = append(rep.NetworksDeleted, clusterRep.NetworksDeleted...)
-	}
+rep := &network.PruneReport{}
+	// Cluster prune removed - swarm not supported
 
 	localRep := daemon.localNetworksPrune(ctx, pruneFilters)
 	rep.NetworksDeleted = append(rep.NetworksDeleted, localRep.NetworksDeleted...)
