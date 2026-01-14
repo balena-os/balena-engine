@@ -311,12 +311,14 @@ func (ls *layerStore) registerWithDescriptor(ts io.Reader, parent ChainID, descr
 		descriptor:     descriptor,
 	}
 
-	if cErr = ls.driver.Create(layer.cacheID, pid, nil); cErr != nil {
+	// New transaction should be persisted before we do any operations with the graph driver
+	// to avoid a possibility of having an FS layer not referenced from the layer store.
+	tx, cErr := ls.store.StartTransaction(layer.cacheID)
+	if cErr != nil {
 		return nil, cErr
 	}
 
-	tx, cErr := ls.store.StartTransaction()
-	if cErr != nil {
+	if cErr = ls.driver.Create(layer.cacheID, pid, nil); cErr != nil {
 		return nil, cErr
 	}
 

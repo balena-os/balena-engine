@@ -61,7 +61,10 @@ func (fms *fileMetadataStore) getMountFilename(mount, filename string) string {
 	return filepath.Join(fms.getMountDirectory(mount), filename)
 }
 
-func (fms *fileMetadataStore) StartTransaction() (*fileMetadataTransaction, error) {
+func (fms *fileMetadataStore) StartTransaction(cacheID string) (*fileMetadataTransaction, error) {
+	if len(cacheID) == 0 {
+		return nil, errors.New("cacheID is not specified for the transaction")
+	}
 	tmpDir := filepath.Join(fms.root, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return nil, err
@@ -71,10 +74,15 @@ func (fms *fileMetadataStore) StartTransaction() (*fileMetadataTransaction, erro
 		return nil, err
 	}
 
-	return &fileMetadataTransaction{
+	tx := &fileMetadataTransaction{
 		store: fms,
 		ws:    ws,
-	}, nil
+	}
+	if err = tx.ws.WriteFile("cache-id", []byte(cacheID), 0644); err != nil {
+		_ = tx.Cancel()
+		return nil, err
+	}
+	return tx, nil
 }
 
 func (fm *fileMetadataTransaction) SetSize(size int64) error {
