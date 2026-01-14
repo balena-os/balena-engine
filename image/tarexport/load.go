@@ -1,7 +1,6 @@
 package tarexport // import "github.com/docker/docker/image/tarexport"
 
 import (
-	"archive/tar"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,13 +11,13 @@ import (
 	"reflect"
 	"runtime"
 
-	"github.com/balena-os/librsync-go"
 	"github.com/containerd/containerd/tracing"
 	"github.com/containerd/log"
 	"github.com/distribution/reference"
 	"github.com/docker/distribution"
 	"github.com/docker/docker/api/types/events"
 	mobyDistribution "github.com/docker/docker/distribution"
+	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
 	v1 "github.com/docker/docker/image/v1"
 	"github.com/docker/docker/internal/ioutils"
@@ -272,32 +271,10 @@ func (l *tarexporter) loadLayer(ctx context.Context, filename string, rootFS ima
 	if err != nil {
 		return nil, err
 	}
-
-	layerData := io.Reader(inflatedLayerData)
-	if deltaBase != nil {
-		pR, pW := io.Pipe()
-		go func() {
-			tr := tar.NewReader(inflatedLayerData)
-
-			_, err := tr.Next()
-			if err == io.EOF {
-				err = fmt.Errorf("unexpected EOF. Invalid delta tar archive")
-				pW.CloseWithError(err)
-				return
-			}
-
-			err = librsync.Patch(deltaBase, tr, pW)
-			if err != nil {
-				pW.CloseWithError(err)
-			}
-
-			pW.Close()
-		}()
-
-		layerData = pR
-	}
-
 	defer inflatedLayerData.Close()
+
+	var dummyErr error
+	layerData := xfer.DecorateWithDeltaPatcher(inflatedLayerData, deltaBase, &dummyErr)
 
 	if ds, ok := l.lss.(layer.DescribableStore); ok {
 		return ds.RegisterWithDescriptor(layerData, rootFS.ChainID(), foreignSrc)
