@@ -709,6 +709,17 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, o
 			file.Close()
 			return err
 		}
+
+		if err := file.Sync(); err != nil {
+			file.Close()
+			return err
+		}
+
+		if err := unix.Fadvise(int(file.Fd()), 0, 0, unix.FADV_DONTNEED); err != nil {
+			file.Close()
+			return err
+		}
+
 		file.Close()
 
 	case tar.TypeBlock, tar.TypeChar:
@@ -830,19 +841,6 @@ func createTarFile(path, extractDir string, hdr *tar.Header, reader io.Reader, o
 		if err := system.LUtimesNano(path, ts); err != nil && err != system.ErrNotSupportedPlatform {
 			return err
 		}
-	}
-
-	if hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA {
-		file, err := os.Open(path)
-		if err != nil {
-			file.Close()
-			return err
-		}
-		if err := unix.Fadvise(int(file.Fd()), 0, 0, unix.FADV_DONTNEED); err != nil {
-			file.Close()
-			return err
-		}
-		file.Close()
 	}
 
 	return nil
