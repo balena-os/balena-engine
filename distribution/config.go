@@ -15,7 +15,7 @@ import (
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
-	// "github.com/docker/docker/pkg/ioutils" // TODO: Add back for delta support
+	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	refstore "github.com/docker/docker/reference"
 	registrypkg "github.com/docker/docker/registry"
@@ -90,8 +90,7 @@ type RegistryResolver interface {
 type ImageConfigStore interface {
 	Put(context.Context, []byte) (digest.Digest, error)
 	Get(context.Context, digest.Digest) ([]byte, error)
-	// TODO: Add delta support
-	// GetTarSeekStream(digest.Digest) (ioutils.ReadSeekCloser, error)
+	GetTarSeekStream(digest.Digest) (ioutils.ReadSeekCloser, error)
 }
 
 // PushLayerProvider provides layers to be pushed by ChainID.
@@ -113,13 +112,15 @@ type PushLayer interface {
 
 type imageConfigStore struct {
 	image.Store
+	deltaStore image.Store
 }
 
 // NewImageConfigStoreFromStore returns an ImageConfigStore backed
 // by an image.Store for container images.
-func NewImageConfigStoreFromStore(is image.Store) ImageConfigStore {
+func NewImageConfigStoreFromStore(is, deltaImageStore image.Store) ImageConfigStore {
 	return &imageConfigStore{
 		Store: is,
+		deltaStore: deltaImageStore,
 	}
 }
 
@@ -136,10 +137,13 @@ func (s *imageConfigStore) Get(_ context.Context, d digest.Digest) ([]byte, erro
 	return img.RawJSON(), nil
 }
 
-// TODO: Add delta support - requires image.Store.GetTarSeekStream and image.IDFromDigest
-// func (s *imageConfigStore) GetTarSeekStream(d digest.Digest) (ioutils.ReadSeekCloser, error) {
-// 	return s.Store.GetTarSeekStream(image.IDFromDigest(d))
-// }
+func (s *imageConfigStore) GetTarSeekStream(d digest.Digest) (ioutils.ReadSeekCloser, error) {
+	stream, err := s.Store.GetTarSeekStream(image.ID(d))
+	if err != nil && s.deltaStore != nil {
+		return s.deltaStore.GetTarSeekStream(image.ID(d))
+	}
+	return stream, err
+}
 
 func rootFSFromConfig(c []byte) (*image.RootFS, error) {
 	var unmarshalledConfig image.Image
