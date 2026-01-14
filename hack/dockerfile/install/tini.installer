@@ -13,5 +13,5 @@ install_tini() {
 	cmake .
 	make tini-static
 	mkdir -p "${PREFIX}"
-	cp tini-static "${PREFIX}/docker-init"
+	cp tini-static ${PREFIX}/balena-engine-init
 }

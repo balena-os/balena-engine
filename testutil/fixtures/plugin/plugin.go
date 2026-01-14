@@ -116,7 +116,7 @@ func CreateInRegistry(ctx context.Context, repo string, auth *registry.AuthConfi
 		Store:           plugin.NewStore(),
 		RegistryService: regService,
 		Root:            filepath.Join(tmpDir, "root"),
-		ExecRoot:        "/run/docker", // manager init fails if not set
+		ExecRoot:        "/run/balena-engine", // manager init fails if not set
 		CreateExecutor:  dummyExec,
 		LogPluginEvent:  func(id, name string, action events.Action) {}, // panics when not set
 	}

@@ -1,16 +1,16 @@
 [Unit]
-Description=Docker Application Container Engine
-Documentation=https://docs.docker.com
-After=network-online.target docker.socket firewalld.service containerd.service time-set.target
-Wants=network-online.target containerd.service
-Requires=docker.socket
+Description=Balena Application Container Engine
+Documentation=https://www.balena.io/engine/docs
+After=network-online.target balena-engine.socket firewalld.service
+Wants=network-online.target
+Requires=balena-engine.socket
 
 [Service]
 Type=notify
 # the default is not to use systemd for cgroups because the delegate issues still
 # exists and systemd currently does not support the cgroup feature set required
-# for containers run by docker
-ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+# for containers run by balena-engine
+ExecStart=/usr/bin/balena-engine-daemon -H fd://
 ExecReload=/bin/kill -s HUP $MAINPID
 TimeoutStartSec=0
 RestartSec=2
@@ -35,10 +35,10 @@ LimitCORE=infinity
 # Only systemd 226 and above support this option.
 TasksMax=infinity
 
-# set delegate yes so that systemd does not reset the cgroups of docker containers
+# set delegate yes so that systemd does not reset the cgroups of balena-engine containers
 Delegate=yes
 
-# kill only the docker process, not all processes in the cgroup
+# kill only the balena-engine process, not all processes in the cgroup
 KillMode=process
 OOMScoreAdjust=-500
 

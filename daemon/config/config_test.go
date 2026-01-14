@@ -108,7 +108,7 @@ func TestFindConfigurationConflictsWithNamedOptions(t *testing.T) {
 	var hosts []string
 	flags.VarP(opts.NewNamedListOptsRef("hosts", &hosts, opts.ValidateHost), "host", "H", "Daemon socket(s) to connect to")
 	assert.Check(t, flags.Set("host", "tcp://127.0.0.1:4444"))
-	assert.Check(t, flags.Set("host", "unix:///var/run/docker.sock"))
+	assert.Check(t, flags.Set("host", "unix:///var/run/balena-engine.sock"))
 	assert.Check(t, is.ErrorContains(findConfigurationConflicts(config, flags), "hosts"))
 }
 
@@ -211,9 +211,9 @@ func TestFindConfigurationConflictsWithMergedValues(t *testing.T) {
 	err := findConfigurationConflicts(config, flags)
 	assert.NilError(t, err)
 
-	assert.Check(t, flags.Set("host", "unix:///var/run/docker.sock"))
+	assert.Check(t, flags.Set("host", "unix:///var/run/balena-engine.sock"))
 	err = findConfigurationConflicts(config, flags)
-	assert.ErrorContains(t, err, "hosts: (from flag: [unix:///var/run/docker.sock], from file: tcp://127.0.0.1:2345)")
+	assert.ErrorContains(t, err, "hosts: (from flag: [unix:///var/run/balena-engine.sock], from file: tcp://127.0.0.1:2345)")
 }
 
 func TestValidateConfigurationErrors(t *testing.T) {
@@ -316,24 +316,6 @@ func TestValidateConfigurationErrors(t *testing.T) {
 				expectedErr: "invalid max download attempts: 0",
 			},
 		*/
-		{
-			name: "generic resource without =",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo"},
-				},
-			},
-			expectedErr: "could not parse GenericResource: incorrect term foo, missing '=' or malformed expression",
-		},
-		{
-			name: "generic resource mixed named and discrete",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=bar", "foo=1"},
-				},
-			},
-			expectedErr: "could not parse GenericResource: mixed discrete and named resources in expression 'foo=[bar 1]'",
-		},
 		{
 			name: "with invalid hosts",
 			config: &Config{
@@ -443,30 +425,13 @@ func TestValidateConfiguration(t *testing.T) {
 				},
 			},
 		},
+		// remove swarm-specific test cases
 		{
 			name:  "with max-download-attempts",
 			field: "MaxDownloadAttempts",
 			config: &Config{
 				CommonConfig: CommonConfig{
 					MaxDownloadAttempts: 4,
-				},
-			},
-		},
-		{
-			name:  "with multiple node generic resources",
-			field: "NodeGenericResources",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=bar", "foo=baz"},
-				},
-			},
-		},
-		{
-			name:  "with node generic resources",
-			field: "NodeGenericResources",
-			config: &Config{
-				CommonConfig: CommonConfig{
-					NodeGenericResources: []string{"foo=1"},
 				},
 			},
 		},

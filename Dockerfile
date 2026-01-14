@@ -505,9 +505,9 @@ RUN --mount=type=cache,sharing=locked,id=moby-dev-aptlib,target=/var/lib/apt \
 ENTRYPOINT ["hack/dind-systemd"]
 
 FROM dev-systemd-${SYSTEMD} AS dev-base
-RUN groupadd -r docker
-RUN useradd --create-home --gid docker unprivilegeduser \
- && mkdir -p /home/unprivilegeduser/.local/share/docker \
+RUN groupadd -r balena-engine
+RUN useradd --create-home --gid balena-engine unprivilegeduser \
+ && mkdir -p /home/unprivilegeduser/.local/share/balena-engine \
  && chown -R unprivilegeduser /home/unprivilegeduser
 # Let us use a .bashrc file
 RUN ln -sfv /go/src/github.com/docker/docker/.bashrc ~/.bashrc

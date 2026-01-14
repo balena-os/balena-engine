@@ -13,7 +13,7 @@ var DefaultClientBinary = os.Getenv("TEST_CLIENT_BINARY")
 
 func init() {
 	if DefaultClientBinary == "" {
-		DefaultClientBinary = "docker"
+		DefaultClientBinary = "balena-engine"
 	}
 }
 
