@@ -39,6 +39,7 @@ type ImageServiceConfig struct {
 	MaxConcurrentDownloads    int
 	MaxConcurrentUploads      int
 	MaxDownloadAttempts       int
+	MaxUploadAttempts         int
 	ReferenceStore            dockerreference.Store
 	RegistryService           distribution.RegistryResolver
 	ContentStore              content.Store
@@ -58,7 +59,7 @@ func NewImageService(config ImageServiceConfig) *ImageService {
 		deltaStore:                config.DeltaImageStore,
 		referenceStore:            config.ReferenceStore,
 		registryService:           config.RegistryService,
-		uploadManager:             xfer.NewLayerUploadManager(config.MaxConcurrentUploads),
+		uploadManager:             xfer.NewLayerUploadManager(config.MaxConcurrentUploads, xfer.WithMaxUploadAttempts(config.MaxUploadAttempts)),
 		leases:                    config.Leases,
 		content:                   config.ContentStore,
 		contentNamespace:          config.ContentNamespace,

@@ -18,6 +18,7 @@ const maxUploadAttempts = 5
 type LayerUploadManager struct {
 	tm           *transferManager
 	waitDuration time.Duration
+	maxUploadAttempts int
 }
 
 // SetConcurrency sets the max concurrent uploads for each push
@@ -30,11 +31,20 @@ func NewLayerUploadManager(concurrencyLimit int, options ...func(*LayerUploadMan
 	manager := LayerUploadManager{
 		tm:           newTransferManager(concurrencyLimit),
 		waitDuration: time.Second,
+		maxUploadAttempts: maxUploadAttempts,
 	}
 	for _, option := range options {
 		option(&manager)
 	}
 	return &manager
+}
+
+// WithMaxUploadAttempts configures the maximum number of upload
+// attempts for a upload manager.
+func WithMaxUploadAttempts(max int) func(*LayerUploadManager) {
+	return func(dlm *LayerUploadManager) {
+		dlm.maxUploadAttempts = max
+	}
 }
 
 type uploadTransfer struct {
@@ -140,7 +150,7 @@ func (lum *LayerUploadManager) makeUploadFunc(descriptor UploadDescriptor) doFun
 				}
 
 				retries++
-				if _, isDNR := err.(DoNotRetry); isDNR || retries == maxUploadAttempts {
+				if _, isDNR := err.(DoNotRetry); isDNR || retries >= lum.maxUploadAttempts {
 					log.G(context.TODO()).Errorf("Upload failed: %v", err)
 					u.err = err
 					return

@@ -36,6 +36,10 @@ const (
 	// maximum number of attempts that
 	// may take place at a time for each pull when the connection is lost.
 	DefaultDownloadAttempts = 5
+	// DefaultUploadAttempts is the default value for
+	// maximum number of attempts that
+	// may take place at a time for each push when the connection is lost.
+	DefaultUploadAttempts = 5
 	// DefaultShmSize is the default value for container's shm size (64 MiB)
 	DefaultShmSize int64 = 64 * 1024 * 1024
 	// DefaultNetworkMtu is the default value for network MTU
@@ -184,6 +188,10 @@ type CommonConfig struct {
 	// may take place at a time for each push.
 	MaxDownloadAttempts int `json:"max-download-attempts,omitempty"`
 
+	// MaxUploadAttempts is the maximum number of attempts that
+	// may take place at a time for each push.
+	MaxUploadAttempts int `json:"max-upload-attempts,omitempty"`
+
 	// ShutdownTimeout is the timeout value (in seconds) the daemon will wait for the container
 	// to stop when daemon is being shutdown
 	ShutdownTimeout int `json:"shutdown-timeout,omitempty"`
@@ -297,6 +305,7 @@ func New() (*Config, error) {
 			MaxConcurrentDownloads: DefaultMaxConcurrentDownloads,
 			MaxConcurrentUploads:   DefaultMaxConcurrentUploads,
 			MaxDownloadAttempts:    DefaultDownloadAttempts,
+			MaxUploadAttempts:      DefaultUploadAttempts,
 			BridgeConfig: BridgeConfig{
 				DefaultBridgeConfig: DefaultBridgeConfig{
 					MTU: DefaultNetworkMtu,
@@ -675,6 +684,9 @@ func Validate(config *Config) error {
 	}
 	if config.MaxDownloadAttempts < 0 {
 		return errors.Errorf("invalid max download attempts: %d", config.MaxDownloadAttempts)
+	}
+	if config.MaxUploadAttempts < 0 {
+		return errors.Errorf("invalid max upload attempts: %d", config.MaxUploadAttempts)
 	}
 
 	if _, err := ParseGenericResources(config.NodeGenericResources); err != nil {

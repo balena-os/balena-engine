@@ -1246,15 +1246,21 @@ d.volumes, err = volumesservice.NewVolumeService(cfgStore.Root, d.PluginStore, r
 			return nil, err
 		}
 
+		var deltaStore image.Store
+		if d.deltaStore != nil {
+			deltaStore = d.deltaStore.imageStore
+		}
 		imgSvcConfig := images.ImageServiceConfig{
 			ContainerStore:            d.containers,
 			DistributionMetadataStore: distributionMetadataStore,
 			EventsService:             d.EventsService,
 			ImageStore:                imageStore,
 			LayerStore:                layerStore,
+			DeltaStore:                deltaStore,
 			MaxConcurrentDownloads:    config.MaxConcurrentDownloads,
 			MaxConcurrentUploads:      config.MaxConcurrentUploads,
 			MaxDownloadAttempts:       config.MaxDownloadAttempts,
+			MaxUploadAttempts:         config.MaxUploadAttempts,
 			ReferenceStore:            rs,
 			RegistryService:           registryService,
 			ContentNamespace:          config.ContainerdNamespace,
@@ -1281,6 +1287,7 @@ d.volumes, err = volumesservice.NewVolumeService(cfgStore.Root, d.PluginStore, r
 		log.G(ctx).Debugf("Max Concurrent Downloads: %d", imgSvcConfig.MaxConcurrentDownloads)
 		log.G(ctx).Debugf("Max Concurrent Uploads: %d", imgSvcConfig.MaxConcurrentUploads)
 		log.G(ctx).Debugf("Max Download Attempts: %d", imgSvcConfig.MaxDownloadAttempts)
+		log.G(ctx).Debugf("Max Upload Attempts: %d", imgSvcConfig.MaxUploadAttempts)
 	}
 
 	go d.execCommandGC()

@@ -167,8 +167,17 @@ type mockDownloadDescriptor struct {
 	registeredDiffID layer.DiffID
 	expectedDiffID   layer.DiffID
 	simulateRetries  int
-	retries          int
 	size             int64
+	retries          int
+}
+
+func (d *mockDownloadDescriptor) DeltaBase() io.ReadSeeker {
+	// TODO implement a test for DeltaBase
+	return nil
+}
+
+func (d *mockDownloadDescriptor) Size() int64 {
+	return d.size
 }
 
 // Key returns the key used to deduplicate downloads.
@@ -179,10 +188,6 @@ func (d *mockDownloadDescriptor) Key() string {
 // ID returns the ID for display purposes.
 func (d *mockDownloadDescriptor) ID() string {
 	return d.id
-}
-
-func (d *mockDownloadDescriptor) Size() int64 {
-	return d.size
 }
 
 // DiffID should return the DiffID for this layer, or an error
@@ -232,11 +237,6 @@ func (d *mockDownloadDescriptor) Download(ctx context.Context, progressOutput pr
 	}
 
 	return d.mockTarStream(), 0, nil
-}
-
-func (d *mockDownloadDescriptor) DeltaBase() io.ReadSeeker {
-	// TODO implement a test for DeltaBase 
-	return nil
 }
 
 func (d *mockDownloadDescriptor) Close() {
