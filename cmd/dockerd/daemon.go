@@ -1,7 +1,6 @@
 package dockerd
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -23,7 +22,6 @@ import (
 	"github.com/docker/docker/api/server/middleware"
 	"github.com/docker/docker/api/server/router"
 	"github.com/docker/docker/api/server/router/build"
-	checkpointrouter "github.com/docker/docker/api/server/router/checkpoint"
 	"github.com/docker/docker/api/server/router/container"
 	distributionrouter "github.com/docker/docker/api/server/router/distribution"
 	grpcrouter "github.com/docker/docker/api/server/router/grpc"
@@ -31,7 +29,6 @@ import (
 	"github.com/docker/docker/api/server/router/network"
 	pluginrouter "github.com/docker/docker/api/server/router/plugin"
 	sessionrouter "github.com/docker/docker/api/server/router/session"
-	swarmrouter "github.com/docker/docker/api/server/router/swarm"
 	systemrouter "github.com/docker/docker/api/server/router/system"
 	"github.com/docker/docker/api/server/router/volume"
 	buildkit "github.com/docker/docker/builder/builder-next"
@@ -40,7 +37,6 @@ import (
 	"github.com/docker/docker/cmd/dockerd/debug"
 	"github.com/docker/docker/cmd/dockerd/trap"
 	"github.com/docker/docker/daemon"
-	"github.com/docker/docker/daemon/cluster"
 	"github.com/docker/docker/daemon/config"
 	"github.com/docker/docker/daemon/listeners"
 	"github.com/docker/docker/dockerversion"
@@ -59,7 +55,6 @@ import (
 	"github.com/docker/go-connections/tlsconfig"
 	"github.com/moby/buildkit/session"
 	"github.com/moby/buildkit/util/tracing/detect"
-	swarmapi "github.com/moby/swarmkit/v2/api"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
@@ -284,16 +279,6 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 		return errors.Wrap(err, "failed to start metrics server")
 	}
 
-	c, err := createAndStartCluster(cli, d)
-	if err != nil {
-		log.G(ctx).Fatalf("Error starting cluster component: %v", err)
-	}
-
-	// Restart all autostart containers which has a swarm endpoint
-	// and is not yet running now that we have successfully
-	// initialized the cluster.
-	d.RestartSwarmContainers()
-
 	log.G(ctx).Info("Daemon has completed initialization")
 
 	// Get a the current daemon config, because the daemon sets up config
@@ -302,14 +287,12 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	//
 	// FIXME(thaJeztah): better separate runtime and config data?
 	daemonCfg := d.Config()
-	routerOpts, err := newRouterOptions(ctx, &daemonCfg, d, c)
+	routerOpts, err := newRouterOptions(ctx, &daemonCfg, d)
 	if err != nil {
 		return err
 	}
 
 	httpServer.Handler = apiServer.CreateMux(routerOpts.Build()...)
-
-	go d.ProcessClusterNotifications(ctx, c.GetWatchStream())
 
 	cli.setupConfigReloadTrap()
 
@@ -342,8 +325,6 @@ func (cli *DaemonCli) start(opts *daemonOptions) (err error) {
 	}
 	apiWG.Wait()
 	close(errAPI)
-
-	c.Cleanup()
 
 	// notify systemd that we're shutting down
 	notifyStopping()
@@ -397,10 +378,9 @@ type routerOptions struct {
 	features       func() map[string]bool
 	buildkit       *buildkit.Builder
 	daemon         *daemon.Daemon
-	cluster        *cluster.Cluster
 }
 
-func newRouterOptions(ctx context.Context, config *config.Config, d *daemon.Daemon, c *cluster.Cluster) (routerOptions, error) {
+func newRouterOptions(ctx context.Context, config *config.Config, d *daemon.Daemon) (routerOptions, error) {
 	sm, err := session.NewManager()
 	if err != nil {
 		return routerOptions{}, errors.Wrap(err, "failed to create sessionmanager")
@@ -450,7 +430,6 @@ func newRouterOptions(ctx context.Context, config *config.Config, d *daemon.Daem
 		features:       d.Features,
 		buildkit:       bk,
 		daemon:         d,
-		cluster:        c,
 	}, nil
 }
 
@@ -677,8 +656,6 @@ func (opts routerOptions) Build() []router.Router {
 	}
 
 	routers := []router.Router{
-		// we need to add the checkpoint router before the container router or the DELETE gets masked
-		checkpointrouter.NewRouter(opts.daemon, decoder),
 		container.NewRouter(opts.daemon, decoder, opts.daemon.RawSysInfo().CgroupUnified),
 		image.NewRouter(
 			opts.daemon.ImageService(),
@@ -688,10 +665,9 @@ func (opts routerOptions) Build() []router.Router {
 			opts.daemon.ImageService().DistributionServices().LayerStore,
 		),
 		systemrouter.NewRouter(opts.daemon, opts.buildkit, opts.daemon.Features),
-		volume.NewRouter(opts.daemon.VolumesService(), opts.cluster),
+		volume.NewRouter(opts.daemon.VolumesService(), nil),
 		build.NewRouter(opts.buildBackend, opts.daemon),
 		sessionrouter.NewRouter(opts.sessionManager),
-		swarmrouter.NewRouter(opts.cluster),
 		pluginrouter.NewRouter(opts.daemon.PluginManager()),
 		distributionrouter.NewRouter(opts.daemon.ImageBackend()),
 	}
@@ -894,36 +870,6 @@ func loadListeners(cfg *config.Config, tlsConfig *tls.Config) ([]net.Listener, [
 	}
 
 	return lss, hosts, nil
-}
-
-func createAndStartCluster(cli *DaemonCli, d *daemon.Daemon) (*cluster.Cluster, error) {
-	name, _ := os.Hostname()
-
-	// Use a buffered channel to pass changes from store watch API to daemon
-	// A buffer allows store watch API and daemon processing to not wait for each other
-	watchStream := make(chan *swarmapi.WatchMessage, 32)
-
-	c, err := cluster.New(cluster.Config{
-		Root:                   cli.Config.Root,
-		Name:                   name,
-		Backend:                d,
-		VolumeBackend:          d.VolumesService(),
-		ImageBackend:           d.ImageBackend(),
-		PluginBackend:          d.PluginManager(),
-		NetworkSubnetsProvider: d,
-		DefaultAdvertiseAddr:   cli.Config.SwarmDefaultAdvertiseAddr,
-		RaftHeartbeatTick:      cli.Config.SwarmRaftHeartbeatTick,
-		RaftElectionTick:       cli.Config.SwarmRaftElectionTick,
-		RuntimeRoot:            cli.getSwarmRunRoot(),
-		WatchStream:            watchStream,
-	})
-	if err != nil {
-		return nil, err
-	}
-	d.SetCluster(c)
-	err = c.Start()
-
-	return c, err
 }
 
 // validates that the plugins requested with the --authorization-plugin flag are valid AuthzDriver
