@@ -71,7 +71,7 @@ func (daemon *Daemon) handleContainerExit(c *container.Container, e *libcontaine
 
 	daemonShutdown := daemon.IsShuttingDown()
 	execDuration := time.Since(c.StartedAt)
-	restart, wait, err := c.RestartManager().ShouldRestart(uint32(exitStatus.ExitCode), daemonShutdown || c.HasBeenManuallyStopped, execDuration)
+	restart, wait, err := c.RestartManager().ShouldRestart(uint32(exitStatus.ExitCode), daemonShutdown || c.HasBeenManuallyStopped, execDuration, c.Health.Health)
 	if err != nil {
 		log.G(ctx).WithFields(log.Fields{
 			"error":                  err,
