@@ -131,6 +131,11 @@ type ImageBuildResponse struct {
 	OSType string
 }
 
+// ImageDeltaOptions holds information to create image deltas
+type ImageDeltaOptions struct {
+	Tag string
+}
+
 // RequestPrivilegeFunc is a function interface that
 // clients can supply to retry operations after
 // getting an authorization error.

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-"github.com/containerd/log"
+	"github.com/containerd/log"
 	"github.com/containerd/platforms"
 	"github.com/distribution/reference"
 	"github.com/docker/docker/api/types"
@@ -385,7 +385,7 @@ func maximumSpec() ocispec.Platform {
 
 // DeltaCreate creates a delta of the specified src and dest images
 // This is called directly from the Engine API
-func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Writer) error {
+func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, options types.ImageDeltaOptions, outStream io.Writer) error {
 	progressOutput := streamformatter.NewJSONProgressOutput(outStream, false)
 
 	srcImg, err := daemon.GetImage(deltaSrc)
@@ -415,7 +415,7 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 	progressReader := progress.NewProgressReader(srcData, progressOutput, srcDataLen, deltaSrc, "Fingerprinting")
 	defer progressReader.Close()
 
-	srcSig, err := librsync.Signature(bufio.NewReaderSize(progressReader, 65536), ioutil.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
+	srcSig, err := librsync.Signature(bufio.NewReaderSize(progressReader, 65536), io.Discard, 512, 32, librsync.BLAKE2_SIG_MAGIC)
 	if err != nil {
 		return err
 	}
@@ -485,7 +485,7 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 
 			layerData = pR
 
-			tmpDelta, err := ioutil.TempFile("", "docker-delta-")
+			tmpDelta, err := os.CreateTemp("", "docker-delta-")
 			if err != nil {
 				return err
 			}
@@ -590,5 +590,27 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 
 	outStream.Write(streamformatter.FormatStatus("", "Normal size: %s, Delta size: %s, %.2fx improvement", humanTotal, humanDelta, deltaRatio))
 	outStream.Write(streamformatter.FormatStatus("", "Created delta: %s", id.String()))
+
+	if options.Tag == "" {
+		return nil
+	}
+
+	ref, err := reference.ParseNormalizedNamed(options.Tag)
+	if err != nil {
+		return err
+	}
+
+	if _, isCanonical := ref.(reference.Canonical); isCanonical {
+		return errors.New("build tag cannot contain a digest")
+	}
+
+	ref = reference.TagNameOnly(ref)
+
+	if err := daemon.TagImageWithReference(id, runtime.GOOS, ref); err != nil {
+		return err
+	}
+	log.G(context.TODO()).Debugf("Tagged delta %s with %s", id.String(), reference.FamiliarString(ref))
+	outStream.Write(streamformatter.FormatStatus("", "Successfully tagged %s\n", reference.FamiliarString(ref)))
+
 	return nil
 }

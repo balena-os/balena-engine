@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/distribution/reference"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -22,7 +23,7 @@ type Backend interface {
 }
 
 type imageBackend interface {
-	DeltaCreate(deltaSrc, deltaDest string, outStream io.Writer) error
+	DeltaCreate(deltaSrc, deltaDest string, options types.ImageDeltaOptions, outStream io.Writer) error
 	ImageDelete(ctx context.Context, imageRef string, force, prune bool) ([]image.DeleteResponse, error)
 	ImageHistory(ctx context.Context, imageName string) ([]*image.HistoryResponseItem, error)
 	Images(ctx context.Context, opts image.ListOptions) ([]*image.Summary, error)
