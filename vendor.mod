@@ -232,3 +232,9 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 	tags.cncf.io/container-device-interface/specs-go v0.8.0 // indirect
 )
+
+replace github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.1.13-0.20240202185956-538e236b0059
+
+replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.6.23-0.20251204223054-27af7c297d34
+
+replace github.com/docker/cli => github.com/balena-os/balena-engine-cli v23.0.16-0.20251204204926-70bd8080ab94+incompatible
