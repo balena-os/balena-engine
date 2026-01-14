@@ -238,3 +238,11 @@ replace github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.1.
 replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.6.23-0.20251204223054-27af7c297d34
 
 replace github.com/docker/cli => github.com/balena-os/balena-engine-cli v23.0.16-0.20251204204926-70bd8080ab94+incompatible
+
+// Pin genproto to older version for gogo/protobuf compatibility.
+// balena-containerd uses gogo/protobuf for ttrpc, but newer genproto generates
+// types with protoimpl internal fields that cause gogo/protobuf to panic.
+// Based on: https://github.com/balena-os/balena-containerd/commit/de059b11ba3aafe24d64a1245e1f8ceccdbccaa1
+// Note: golang/protobuf and grpc not pinned - moby needs newer versions
+// See: .quint/knowledge/L1/protobuf-gogo-google-mismatch.md
+replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20200224152610-e50cd9704f63
