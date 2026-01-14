@@ -619,8 +619,8 @@ RUN --mount=type=bind,target=.,rw \
   target=$([ "$DOCKER_STATIC" = "1" ] && echo "binary" || echo "dynbinary")
   xx-go --wrap
   PKG_CONFIG=$(xx-go env PKG_CONFIG) ./hack/make.sh $target
-  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/dockerd$([ "$(xx-info os)" = "windows" ] && echo ".exe")
-  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/docker-proxy$([ "$(xx-info os)" = "windows" ] && echo ".exe")
+  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/balena-engine$([ "$(xx-info os)" = "windows" ] && echo ".exe")
+  xx-verify $([ "$DOCKER_STATIC" = "1" ] && echo "--static") /tmp/bundles/${target}-daemon/balena-engine-proxy$([ "$(xx-info os)" = "windows" ] && echo ".exe")
   mkdir /build
   mv /tmp/bundles/${target}-daemon/* /build/
 EOT
@@ -654,9 +654,9 @@ COPY --from=build /build .
 RUN <<EOT
   set -ex
   file dockerd
-  dockerd --version
+  balena-engine --version
   file docker-proxy
-  docker-proxy --version
+  balena-engine-proxy --version
 EOT
 
 # devcontainer is a stage used by .devcontainer/devcontainer.json
