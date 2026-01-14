@@ -68,7 +68,7 @@ func main() {
 	// Any mounts done by initrd will be transfered in the new root
 	mounts, err := mount.GetMounts(nil)
 
-	rawGraphDriver, err := ioutil.ReadFile("/current/storage-driver")
+	rawGraphDriver, err := ioutil.ReadFile("/current/boot/storage-driver")
 	if err != nil {
 		log.Fatal("could not get storage driver:", err)
 	}
