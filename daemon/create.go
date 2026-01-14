@@ -561,16 +561,6 @@ func (daemon *Daemon) DeltaCreate(deltaSrc, deltaDest string, outStream io.Write
 		return err
 	}
 
-	ref, _ := reference.WithName("delta")
-
-	deltaTag := "delta-" + digest.FromString(srcImg.ID().String() + "-" + dstImg.ImageID()).Hex()[:8]
-
-	ref2, _ := reference.WithTag(ref, deltaTag)
-
-	if err := daemon.TagImageWithReference(id, "linux", ref2); err != nil {
-		return err
-	}
-
 	outStream.Write(streamformatter.FormatStatus("", id.String()))
 	return nil
 }
