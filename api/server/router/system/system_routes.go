@@ -37,7 +37,7 @@ func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r
 		w.Header().Set("Builder-Version", string(bv))
 	}
 
-	w.Header().Set("Swarm", s.swarmStatus())
+	w.Header().Set("Swarm", string(swarm.LocalNodeStateInactive))
 
 	if r.Method == http.MethodHead {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -48,26 +48,12 @@ func (s *systemRouter) pingHandler(ctx context.Context, w http.ResponseWriter, r
 	return err
 }
 
-func (s *systemRouter) swarmStatus() string {
-	if s.cluster != nil {
-		if p, ok := s.cluster.(StatusProvider); ok {
-			return p.Status()
-		}
-	}
-	return string(swarm.LocalNodeStateInactive)
-}
-
 func (s *systemRouter) getInfo(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	version := httputils.VersionFromContext(ctx)
 	info, _, _ := s.collectSystemInfo.Do(ctx, version, func(ctx context.Context) (*system.Info, error) {
 		info, err := s.backend.SystemInfo(ctx)
 		if err != nil {
 			return nil, err
-		}
-
-		if s.cluster != nil {
-			info.Swarm = s.cluster.Info(ctx)
-			info.Warnings = append(info.Warnings, info.Swarm.Warnings...)
 		}
 
 		if versions.LessThan(version, "1.25") {
