@@ -237,6 +237,8 @@ func (s *DockerCLIEventSuite) TestEventsImageLoad(c *testing.T) {
 }
 
 func (s *DockerCLIEventSuite) TestEventsPluginOps(c *testing.T) {
+	c.Skip("Plugins aren't supported")
+
 	testRequires(c, DaemonIsLinux, IsAmd64, Network)
 
 	since := daemonUnixTime(c)
