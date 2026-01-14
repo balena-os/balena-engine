@@ -3,7 +3,7 @@
 Service: `balena.service`
 
 balenaEngine is balena's fork of Docker, offering a range of added features
-including real delta downloads, minimal disk writes (for improved media wear)
+including real delta downloads, minimal disk writes (for reduced media wear)
 and other benefits for edge devices, in a small resource footprint.
 
 balenaEngine is responsible for the fetching and storage of service
@@ -267,8 +267,8 @@ layers that make up an image. Without going into detail (there are plenty of
 easily Google-able pages describing this), each balena image is made up of a
 series of layers, usually associated with a `COPY`, `ADD`, `RUN`, etc.
 Dockerfile command at build time. Each layer makes up part of the images
-filing system, and when a service container is created from an image, it uses
-these layers 'merged' together for the underlying filing system.
+file system, and when a service container is created from an image, it uses
+these layers 'merged' together for the underlying file system.
 
 We can look at these individual layers by making a note of each SHA256 hash ID
 and then finding this hash in the `/var/lib/docker/image/overlay2/layerdb/sha256` directory
@@ -347,7 +347,7 @@ f77ebf3b4836d289c2515c82537cd774354b7342c2a4899fcffb51ac23e9e9b7
 
 We now have the corresponding `cache-id` for the layer's directory layout,
 and we can now examine the file system for this layer (all the diffs are
-store in the `/var/lib/docker/overlay2/<ID>/diff` directory):
+stored in the `/var/lib/docker/overlay2/<ID>/diff` directory):
 
 ```shell
 roroot@debug-device:~# du -hc /var/lib/docker/overlay2/f278e81229574468df2f798e3ffbe576a51c2ad0c752c0b1997fdb33314130ae/diff/
