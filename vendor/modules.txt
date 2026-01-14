@@ -199,6 +199,9 @@ github.com/aws/smithy-go/sync
 github.com/aws/smithy-go/time
 github.com/aws/smithy-go/transport/http
 github.com/aws/smithy-go/transport/http/internal/io
+# github.com/balena-os/librsync-go v0.9.0
+## explicit; go 1.17
+github.com/balena-os/librsync-go
 # github.com/beorn7/perks v1.0.1
 ## explicit; go 1.11
 github.com/beorn7/perks/quantile
