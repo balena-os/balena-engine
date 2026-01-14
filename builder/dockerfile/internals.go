@@ -10,8 +10,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/containerd/log"
+"github.com/containerd/log"
 	"github.com/containerd/platforms"
+	"github.com/docker/cli/cli/compose/loader"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
@@ -349,6 +350,14 @@ func (b *Builder) probeAndCreate(ctx context.Context, dispatchState *dispatchSta
 }
 
 func (b *Builder) create(ctx context.Context, runConfig *container.Config) (string, error) {
+	// only allow bind-mounting during build
+	for _, bind := range b.options.Volumes {
+		parsed, _ := loader.ParseVolume(bind)
+		if parsed.Source == "" {
+			return "", fmt.Errorf("Cannot use non-bind mount during build: %s", bind)
+		}
+	}
+
 	log.G(ctx).Debugf("[BUILDER] Command to be executed: %v", runConfig.Cmd)
 
 	hostConfig := hostConfigFromOptions(b.options)
@@ -394,6 +403,7 @@ func hostConfigFromOptions(options *types.ImageBuildOptions) *container.HostConf
 		// Set a log config to override any default value set on the daemon
 		LogConfig:  defaultLogConfig,
 		ExtraHosts: options.ExtraHosts,
+		Binds:      options.Volumes,
 	}
 	return hc
 }
