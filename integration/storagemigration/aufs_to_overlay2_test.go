@@ -18,7 +18,7 @@ import (
 func TestAufsToOverlay2Migration(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	skip.If(t, testEnv.DaemonInfo.Driver != "overlay2")
-	defer setupTest(t)()
+	_ = setupTest(t)
 
 	var err error
 

@@ -1,7 +1,6 @@
 package hostapp
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,10 +16,9 @@ import (
 func TestBareRuntime(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot start daemon on remote test run")
-	defer setupTest(t)()
+	ctx := setupTest(t)
 
 	client := request.NewAPIClient(t)
-	ctx := context.Background()
 
 	c, err := client.ContainerCreate(ctx,
 		&container.Config{Image: "busybox:latest"},

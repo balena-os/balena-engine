@@ -37,7 +37,7 @@ func (v *volumeRouter) getVolumesList(ctx context.Context, w http.ResponseWriter
 	}
 
 	version := httputils.VersionFromContext(ctx)
-	if versions.GreaterThanOrEqualTo(version, clusterVolumesVersion) && v.cluster.IsManager() {
+	if versions.GreaterThanOrEqualTo(version, clusterVolumesVersion) && v.cluster != nil && v.cluster.IsManager() {
 		clusterVolumes, swarmErr := v.cluster.GetVolumes(volume.ListOptions{Filters: filters})
 		if swarmErr != nil {
 			// if there is a swarm error, we may not want to error out right
@@ -69,7 +69,7 @@ func (v *volumeRouter) getVolumeByName(ctx context.Context, w http.ResponseWrite
 	// if the volume is not found in the regular volume backend, and the client
 	// is using an API version greater than 1.42 (when cluster volumes were
 	// introduced), then check if Swarm has the volume.
-	if errdefs.IsNotFound(err) && versions.GreaterThanOrEqualTo(version, clusterVolumesVersion) && v.cluster.IsManager() {
+	if errdefs.IsNotFound(err) && versions.GreaterThanOrEqualTo(version, clusterVolumesVersion) && v.cluster != nil && v.cluster.IsManager() {
 		swarmVol, err := v.cluster.GetVolume(vars["name"])
 		// if swarm returns an error and that error indicates that swarm is not
 		// initialized, return original NotFound error. Otherwise, we'd return
@@ -130,7 +130,7 @@ func (v *volumeRouter) postVolumesCreate(ctx context.Context, w http.ResponseWri
 }
 
 func (v *volumeRouter) putVolumesUpdate(ctx context.Context, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
-	if !v.cluster.IsManager() {
+	if v.cluster == nil || !v.cluster.IsManager() {
 		return errdefs.Unavailable(errors.New("volume update only valid for cluster volumes, but swarm is unavailable"))
 	}
 
@@ -174,7 +174,7 @@ func (v *volumeRouter) deleteVolumes(ctx context.Context, w http.ResponseWriter,
 	// In that case we always try to delete cluster volumes as well.
 	if errdefs.IsNotFound(err) || force {
 		version := httputils.VersionFromContext(ctx)
-		if versions.GreaterThanOrEqualTo(version, clusterVolumesVersion) && v.cluster.IsManager() {
+		if versions.GreaterThanOrEqualTo(version, clusterVolumesVersion) && v.cluster != nil && v.cluster.IsManager() {
 			err = v.cluster.RemoveVolume(vars["name"], force)
 		}
 	}

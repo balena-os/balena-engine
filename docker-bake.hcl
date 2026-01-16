@@ -79,6 +79,8 @@ group "default" {
 }
 
 target "_platforms" {
+  // Note: Windows is not supported for the busybox-style binary
+  // as it includes containerd, runc, etc. which are Linux-only
   platforms = [
     "linux/amd64",
     "linux/arm/v5",
@@ -86,8 +88,7 @@ target "_platforms" {
     "linux/arm/v7",
     "linux/arm64",
     "linux/ppc64le",
-    "linux/s390x",
-    "windows/amd64"
+    "linux/s390x"
   ]
 }
 

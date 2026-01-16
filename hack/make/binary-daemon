@@ -33,3 +33,11 @@ copy_binaries() {
 	source "${MAKEDIR}/.binary"
 	copy_binaries "$DEST"
 )
+
+# Create symlinks for busybox-style dispatch
+# The balena-engine binary dispatches based on argv[0]
+echo "Creating symlinks for busybox-style binary..."
+for name in balena-engine-daemon balena-engine-containerd balena-engine-containerd-shim-runc-v2 balena-engine-containerd-ctr balena-engine-runc balena-engine-proxy balena-runc balena-containerd balenad balena; do
+	ln -sf "balena-engine" "$DEST/$name"
+done
+echo "Created symlinks in $DEST"

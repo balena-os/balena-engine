@@ -559,7 +559,7 @@ func TestDefaultBridgeAddresses(t *testing.T) {
 				// Check that the expected addresses have been applied to the bridge. (Skip in
 				// rootless mode, because the bridge is in a different network namespace.)
 				if !testEnv.IsRootless() {
-					res := testutil.RunCommand(ctx, "ip", "-6", "addr", "show", "docker0")
+					res := testutil.RunCommand(ctx, "ip", "-6", "addr", "show", "balena0")
 					assert.Equal(t, res.ExitCode, 0, step.stepName)
 					stdout := res.Stdout()
 					for _, expAddr := range step.expAddrs {

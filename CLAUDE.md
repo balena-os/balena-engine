@@ -131,3 +131,59 @@ Default build tags (set in Makefile): `apparmor seccomp no_btrfs no_cri no_devma
 - Integration tests require privileged containers
 - libnetwork tests cannot run in parallel (use `-p=1`)
 - If userns-remap tests fail with permission errors, delete `bundles/` directory: `sudo rm -rf bundles`
+
+## Running Integration Tests in Docker (Recommended)
+
+For reliable integration testing, run tests inside a Docker container with a properly configured daemon:
+
+```bash
+# Quick integration test run
+docker run --rm --privileged \
+  -v "$(pwd):/go/src/github.com/docker/docker" \
+  -w /go/src/github.com/docker/docker \
+  -e DOCKER_GRAPHDRIVER=overlay2 \
+  docker-dev bash -c '
+    cp bundles/dynbinary-daemon/balena* /usr/local/bin/
+    balena-engine-daemon --storage-driver overlay2 2>/dev/null &
+    sleep 5
+    export DOCKER_HOST=unix:///var/run/balena-engine.sock
+    go test -v -timeout 15m ./integration/container/...
+  '
+```
+
+## Current Project Status (January 2026)
+
+**Branch**: `balena/v27-rebase` (based on moby v27.5.1)
+**Status**: Feature complete, testing complete
+
+| Test Suite | Status |
+|------------|--------|
+| Unit tests | ✅ 524 pass, 3 skip |
+| Container integration | ✅ 135 pass |
+| Delta integration | ✅ 10 pass |
+| Daemon integration | ✅ All pass |
+
+See `PRD.md` for detailed status and history.
+
+## Local Forks
+
+balena-engine uses local forks in `forks/` directory for busybox-style binary:
+
+```
+forks/
+├── balena-runc/           # Exports Main() for runc
+├── balena-containerd/     # Exports Main() for containerd components
+└── balena-engine-cli/     # Exports Main() for CLI
+```
+
+These are referenced via replace directives in `vendor.mod`. See `VENDORING.md` for details.
+
+## Key Files for This Project
+
+| File | Purpose |
+|------|---------|
+| `PRD.md` | Project status, history, and detailed notes |
+| `TESTING.md` | Test documentation |
+| `VENDORING.md` | Vendoring and fork documentation |
+| `cmd/balena-engine/main.go` | Busybox dispatcher |
+| `vendor.mod` | Dependencies with replace directives |

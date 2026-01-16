@@ -35,7 +35,7 @@ const (
 
 	// userlandProxyBinary is the name of the userland-proxy binary.
 	// In rootless-mode, [rootless.RootlessKitDockerProxyBinary] is used instead.
-	userlandProxyBinary = "docker-proxy"
+	userlandProxyBinary = "balena-engine-proxy"
 )
 
 // BridgeConfig stores all the parameters for both the bridge driver and the default bridge network.
@@ -127,8 +127,8 @@ func lookupBinPath(binary string) (string, error) {
 	}
 
 	// According to FHS 3.0, it is not necessary to have a subdir here (see note and reference above).
-	// If the binary has a `docker-` prefix, let's look it up without the dir prefix.
-	if strings.HasPrefix(binary, "docker-") {
+	// If the binary has a `docker-` or `balena-engine-` prefix, let's look it up without the dir prefix.
+	if strings.HasPrefix(binary, "docker-") || strings.HasPrefix(binary, "balena-engine-") {
 		lookupPaths = append(lookupPaths, "/usr/local/libexec")
 		lookupPaths = append(lookupPaths, "/usr/libexec")
 	}

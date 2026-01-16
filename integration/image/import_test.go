@@ -307,7 +307,7 @@ func TestDeltaOnImageLoadTruncatedDelta(t *testing.T) {
 	respBody, err := loadDeltaOnLoadTestTar(t, ctx, apiClient, "busybox-delta-truncated")
 	assert.NilError(t, err)
 	assert.Assert(t, is.Contains(string(respBody), `"errorDetail":`))
-	assert.Assert(t, is.Contains(string(respBody), `unexpected EOF`))
+	assert.Assert(t, is.Contains(string(respBody), `applying delta: EOF`))
 }
 
 // Test the case in which we try to load a file that is a valid tar file, but

@@ -124,3 +124,82 @@ by setting `GO_VERSION` variable, for example:
 ```
 make GO_VERSION=1.12.8 test
 ```
+
+## Balena-Specific Testing
+
+### Running Tests in Docker (Recommended)
+
+The integration tests require a running daemon with proper socket access. The recommended approach is to run tests inside a Docker container:
+
+```bash
+# Quick test run for container tests
+docker run --rm --privileged \
+  -v "$(pwd):/go/src/github.com/docker/docker" \
+  -w /go/src/github.com/docker/docker \
+  -e DOCKER_GRAPHDRIVER=overlay2 \
+  docker-dev bash -c '
+    cp bundles/dynbinary-daemon/balena* /usr/local/bin/
+    balena-engine-daemon --storage-driver overlay2 2>/dev/null &
+    sleep 5
+    export DOCKER_HOST=unix:///var/run/balena-engine.sock
+    go test -v -timeout 15m ./integration/container/...
+  '
+```
+
+### Delta Tests
+
+Delta functionality is a key balena-engine feature. Run delta tests specifically:
+
+```bash
+# Run delta tests
+make test-integration TEST_FILTER=TestDelta
+
+# Or inside Docker container
+go test -v -timeout 30m ./integration/image/... -run TestDelta
+```
+
+Expected: 10 tests pass (TestDeltaCreate, TestDeltaSize, TestDeltaCorrectness, etc.)
+
+### Test Categories
+
+| Category | Command | Expected |
+|----------|---------|----------|
+| Unit tests | `make test-unit` | 524 pass, 3 skip |
+| Delta | `TEST_FILTER=TestDelta make test-integration` | 10 pass |
+| Container | `go test ./integration/container/...` | 135 pass |
+| Daemon | `go test ./integration/daemon/...` | All pass |
+
+### Known Test Skips/Failures
+
+These are expected and not bugs:
+
+1. **Plugin tests** - balena-engine doesn't support plugins (returns 404)
+2. **Swarm tests** - swarm functionality removed from balena-engine
+3. **Schema1 tests** - legacy image format, not used
+4. **Some legacy integration-cli tests** - rely on shared daemon infrastructure
+
+### Debugging Test Failures
+
+1. **EOF errors during cleanup**: The shared daemon stopped. Tests that manage their own daemons can affect the shared daemon.
+
+2. **"page not found" for plugins**: Expected behavior. The test framework's cleanup tries to list plugins.
+
+3. **"daemon is not started"**: Run tests inside Docker container with daemon already running.
+
+### Manual Verification
+
+After running automated tests, verify key functionality manually:
+
+```bash
+# Inside dev container with daemon running
+balena-engine pull alpine:latest
+balena-engine run --rm alpine echo "Hello World"
+balena-engine images
+
+# Test delta
+balena-engine pull alpine:3.18
+balena-engine pull alpine:3.19
+curl -X POST --unix-socket /var/run/balena-engine.sock \
+  "http://localhost/images/delta?src=alpine:3.18&dest=alpine:3.19&t=test-delta"
+balena-engine images  # Should show test-delta image smaller than alpine:3.19
+```

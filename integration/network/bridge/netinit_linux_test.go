@@ -13,14 +13,14 @@ import (
 // TestNetworkInitError checks that, if the default bridge network can't be restored on startup,
 // it doesn't prevent the daemon from starting once the underlying problem is resolved.
 // Regression test for https://github.com/moby/moby/issues/49291
-func TestNetworkInitErrorDocker0(t *testing.T) {
+func TestNetworkInitErrorBalena0(t *testing.T) {
 	d := daemon.New(t)
 	d.Start(t)
 	defer func() {
 		_ = d.StopWithError()
 	}()
 
-	const brName = "docker0"
+	const brName = "balena0"
 	d.SetEnvVar("DOCKER_TEST_BRIDGE_INIT_ERROR", brName)
 	err := d.RestartWithError()
 	assert.Assert(t, is.ErrorContains(err, "daemon exited during startup"))

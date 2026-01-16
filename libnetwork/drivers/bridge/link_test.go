@@ -23,7 +23,7 @@ func TestLinkNew(t *testing.T) {
 	const (
 		pIP        = "172.0.17.3"
 		cIP        = "172.0.17.2"
-		bridgeName = "docker0"
+		bridgeName = "balena0"
 	)
 
 	parentIP := net.ParseIP(pIP)

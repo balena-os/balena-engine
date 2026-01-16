@@ -172,7 +172,8 @@ func deleteAllPlugins(ctx context.Context, t testing.TB, c client.PluginAPIClien
 	t.Helper()
 	plugins, err := c.PluginList(ctx, filters.Args{})
 	// Docker EE does not allow cluster-wide plugin management.
-	if errdefs.IsNotImplemented(err) {
+	// balena-engine does not support plugins at all (returns 404).
+	if errdefs.IsNotImplemented(err) || errdefs.IsNotFound(err) {
 		return
 	}
 	assert.Check(t, err, "failed to list plugins")

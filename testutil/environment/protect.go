@@ -191,7 +191,8 @@ func getExistingPlugins(ctx context.Context, t testing.TB, testEnv *Execution) [
 	client := testEnv.APIClient()
 	pluginList, err := client.PluginList(ctx, filters.Args{})
 	// Docker EE does not allow cluster-wide plugin management.
-	if errdefs.IsNotImplemented(err) {
+	// balena-engine does not support plugins at all (returns 404).
+	if errdefs.IsNotImplemented(err) || errdefs.IsNotFound(err) {
 		return []string{}
 	}
 	assert.NilError(t, err, "failed to list plugins")

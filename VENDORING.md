@@ -44,3 +44,90 @@ cadence for vendoring updates. e.g. monthly.
 ## Pre-merge vendoring tests
 All related repos will be vendored into docker/docker.
 CI on docker/docker should catch any breaking changes involving multiple repos.
+
+## Balena Engine Local Forks
+
+balena-engine uses local forks of three key dependencies to enable the busybox-style single binary. These forks export `Main()` functions so the busybox dispatcher can call into them.
+
+### Fork Directory Structure
+
+```
+forks/
+├── balena-runc/           # Fork of opencontainers/runc
+├── balena-containerd/     # Fork of containerd/containerd
+└── balena-engine-cli/     # Fork of docker/cli
+```
+
+### vendor.mod Replace Directives
+
+```
+replace github.com/opencontainers/runc => ./forks/balena-runc
+replace github.com/containerd/containerd => ./forks/balena-containerd
+replace github.com/containerd/containerd/api => ./forks/balena-containerd/api
+replace github.com/docker/cli => ./forks/balena-engine-cli
+```
+
+### Fork Modifications
+
+Each fork is modified to export a `Main()` function:
+
+**balena-runc** (`forks/balena-runc/main.go`):
+- Package changed from `main` to `runc`
+- Function changed from `main()` to `Main()`
+
+**balena-containerd** (multiple files):
+- `cmd/containerd/main.go` - Package `containerd`, exports `Main()`
+- `cmd/ctr/main.go` - Package `ctr`, exports `Main()`
+- `cmd/containerd-shim-runc-v2/main.go` - Package `main`, exports `Main()`
+- Additional compatibility patches for API changes
+
+**balena-engine-cli** (`cmd/docker/docker.go`):
+- Already had `package docker` and exported `Main()` - no changes needed
+
+### Updating Local Forks
+
+1. **Pull upstream changes**:
+   ```bash
+   cd forks/balena-containerd
+   git fetch origin
+   git merge v1.7.31  # desired version
+   ```
+
+2. **Re-apply balena patches**:
+   - Main() exports in cmd/*/main.go
+   - API compatibility fixes if needed
+   - go.mod version constraints
+
+3. **Regenerate vendor**:
+   ```bash
+   ./hack/vendor.sh all
+   ```
+
+4. **Test**:
+   ```bash
+   make dynbinary
+   make test-unit
+   ```
+
+### Publishing Forks for Production
+
+For production releases, push local forks to GitHub:
+
+```bash
+# Create tagged release branch
+cd forks/balena-containerd
+git remote add balena git@github.com:balena-os/balena-containerd.git
+git tag v1.7.30-balena.1
+git push balena v1.7.30-balena.1
+
+# Update vendor.mod to use remote
+# replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.30-balena.1
+```
+
+### Version Compatibility Notes
+
+When updating containerd:
+- API submodule versions must match (e.g., api/v1.8.0 for containerd v1.7.30)
+- Check go-runc interface changes (`StartLocked()` added in v1.1.0)
+- Check cri-api changes (`RuntimeConfig()` added in v0.28.3)
+- golang.org/x/* packages may need downgrading for Go version compatibility

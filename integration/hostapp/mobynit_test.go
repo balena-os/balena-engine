@@ -18,10 +18,10 @@ import (
 func TestMobynitMountContainer(t *testing.T) {
 	skip.If(t, testEnv.DaemonInfo.OSType != "linux")
 	skip.If(t, testEnv.IsRemoteDaemon, "cannot start daemon on remote test run")
-	defer setupTest(t)()
+	ctx := setupTest(t)
 
 	d := daemon.New(t)
-	d.StartWithBusybox(t)
+	d.StartWithBusybox(ctx, t)
 	defer d.Stop(t)
 
 	client := d.NewClientT(t)

@@ -7,5 +7,10 @@ source "${MAKEDIR}/.install"
 
 (
 	DEST="$(dirname $DEST)/binary-proxy"
-	install_binary "${DEST}/balena-engine-proxy-${VERSION}"
+	# For dev builds, VERSION is empty or "dev" - no suffix
+	if [ -z "$VERSION" ] || [ "$VERSION" = "dev" ]; then
+		install_binary "${DEST}/balena-engine-proxy"
+	else
+		install_binary "${DEST}/balena-engine-proxy-${VERSION}"
+	fi
 )
