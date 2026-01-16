@@ -14,7 +14,6 @@ import (
 	"github.com/docker/docker/distribution"
 	progressutils "github.com/docker/docker/distribution/utils"
 	"github.com/docker/docker/errdefs"
-	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/streamformatter"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"

@@ -23,7 +23,7 @@ func TestConfigCreateUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	_, err := client.ConfigCreate(context.Background(), swarm.ConfigSpec{})
-	assert.Check(t, is.Error(err, `"config create" requires API version 1.30, but the Docker daemon API version is 1.29`))
+	assert.Check(t, is.Error(err, `"config create" requires API version 1.30, but the balenaEngine daemon API version is 1.29`))
 }
 
 func TestConfigCreateError(t *testing.T) {

@@ -10,9 +10,8 @@ import (
 	"fmt"
 	"strings"
 
-"github.com/containerd/log"
+	"github.com/containerd/log"
 	"github.com/containerd/platforms"
-	"github.com/docker/cli/cli/compose/loader"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
@@ -23,6 +22,7 @@ import (
 	"github.com/docker/docker/pkg/archive"
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/volume/mounts"
 	"github.com/docker/go-connections/nat"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -351,9 +351,10 @@ func (b *Builder) probeAndCreate(ctx context.Context, dispatchState *dispatchSta
 
 func (b *Builder) create(ctx context.Context, runConfig *container.Config) (string, error) {
 	// only allow bind-mounting during build
+	parser := mounts.NewLinuxParser()
 	for _, bind := range b.options.Volumes {
-		parsed, _ := loader.ParseVolume(bind)
-		if parsed.Source == "" {
+		parsed, _ := parser.ParseMountRaw(bind, "")
+		if parsed == nil || parsed.Source == "" {
 			return "", fmt.Errorf("Cannot use non-bind mount during build: %s", bind)
 		}
 	}

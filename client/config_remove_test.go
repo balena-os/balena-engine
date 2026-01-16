@@ -20,7 +20,7 @@ func TestConfigRemoveUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	err := client.ConfigRemove(context.Background(), "config_id")
-	assert.Check(t, is.Error(err, `"config remove" requires API version 1.30, but the Docker daemon API version is 1.29`))
+	assert.Check(t, is.Error(err, `"config remove" requires API version 1.30, but the balenaEngine daemon API version is 1.29`))
 }
 
 func TestConfigRemoveError(t *testing.T) {

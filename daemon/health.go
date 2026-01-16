@@ -12,6 +12,7 @@ import (
 	"github.com/containerd/log"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
+	containertypes "github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/strslice"
 	"github.com/docker/docker/container"
@@ -258,7 +259,10 @@ func handleProbeResult(d *Daemon, c *container.Container, result *types.Healthch
 					err := <-wait
 					if err == nil {
 						d.stopHealthchecks(c)
-						if err := d.containerRestart(c, c.StopTimeout()); err != nil {
+						cfg := d.config()
+						timeout := c.StopTimeout()
+						stopOpts := containertypes.StopOptions{Timeout: &timeout}
+						if err := d.containerRestart(context.Background(), cfg, c, stopOpts); err != nil {
 							log.G(context.TODO()).Debugf("failed to restart container: %+v", err)
 						}
 					} else if err != restartmanager.ErrRestartCanceled {

@@ -17,7 +17,7 @@ func TestDistributionInspectUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	_, err := client.DistributionInspect(context.Background(), "foobar:1.0", "")
-	assert.Check(t, is.Error(err, `"distribution inspect" requires API version 1.30, but the Docker daemon API version is 1.29`))
+	assert.Check(t, is.Error(err, `"distribution inspect" requires API version 1.30, but the balenaEngine daemon API version is 1.29`))
 }
 
 func TestDistributionInspectWithEmptyID(t *testing.T) {

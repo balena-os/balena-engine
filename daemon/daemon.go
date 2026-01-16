@@ -1256,7 +1256,7 @@ d.volumes, err = volumesservice.NewVolumeService(cfgStore.Root, d.PluginStore, r
 			EventsService:             d.EventsService,
 			ImageStore:                imageStore,
 			LayerStore:                layerStore,
-			DeltaStore:                deltaStore,
+			DeltaImageStore:           deltaStore,
 			MaxConcurrentDownloads:    config.MaxConcurrentDownloads,
 			MaxConcurrentUploads:      config.MaxConcurrentUploads,
 			MaxDownloadAttempts:       config.MaxDownloadAttempts,

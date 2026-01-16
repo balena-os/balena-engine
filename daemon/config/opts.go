@@ -7,6 +7,10 @@ import (
 )
 
 // ParseGenericResources parses and validates the specified string as a list of GenericResource
+// balena: Generic resources are not supported, but we allow empty values to not break config validation
 func ParseGenericResources(value []string) ([]swarm.GenericResource, error) {
-	return nil, fmt.Errorf("Unsupported feature")
+	if len(value) > 0 {
+		return nil, fmt.Errorf("Unsupported feature: generic resources")
+	}
+	return nil, nil
 }

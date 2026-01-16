@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"gotest.tools/skip"
+	"gotest.tools/v3/skip"
 )
 
 func TestLayerStore_prune(t *testing.T) {

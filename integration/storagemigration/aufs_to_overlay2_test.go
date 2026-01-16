@@ -7,14 +7,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/testutil/daemon"
 
-	"github.com/docker/docker/internal/test/daemon"
-
-	"gotest.tools/assert"
-	"gotest.tools/fs"
-	"gotest.tools/skip"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/fs"
+	"gotest.tools/v3/skip"
 )
 
 func TestAufsToOverlay2Migration(t *testing.T) {
@@ -61,11 +59,12 @@ func TestAufsToOverlay2Migration(t *testing.T) {
 		},
 		nil,
 		nil,
+		nil,
 		"",
 	)
 	assert.NilError(t, err)
 
-	err = cl.ContainerStart(ctx, ctr.ID, types.ContainerStartOptions{})
+	err = cl.ContainerStart(ctx, ctr.ID, container.StartOptions{})
 	assert.NilError(t, err)
 
 	// original f1 should be removed (.wh.)

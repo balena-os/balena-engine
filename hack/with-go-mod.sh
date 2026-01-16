@@ -30,4 +30,4 @@ else
 	trap 'rm -f "${ROOTDIR}/go.mod"' EXIT
 fi
 
-GO111MODULE=on GOTOOLCHAIN=local "$@"
+GO111MODULE=on GOTOOLCHAIN=${GOTOOLCHAIN:-local} "$@"

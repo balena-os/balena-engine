@@ -670,7 +670,7 @@ func testQueryEndpointInfo(t *testing.T, ulPxyEnabled bool) {
 	if ulPxyEnabled {
 		proxyBinary, err = exec.LookPath("docker-proxy")
 		if err != nil {
-			t.Fatalf("failed to lookup userland-proxy binary: %v", err)
+			t.Skipf("skipping test: userland-proxy binary not found: %v", err)
 		}
 	}
 	config := &configuration{

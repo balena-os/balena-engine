@@ -23,7 +23,7 @@ func TestSecretCreateUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	_, err := client.SecretCreate(context.Background(), swarm.SecretSpec{})
-	assert.Check(t, is.Error(err, `"secret create" requires API version 1.25, but the Docker daemon API version is 1.24`))
+	assert.Check(t, is.Error(err, `"secret create" requires API version 1.25, but the balenaEngine daemon API version is 1.24`))
 }
 
 func TestSecretCreateError(t *testing.T) {

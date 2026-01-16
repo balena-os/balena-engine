@@ -105,15 +105,17 @@ func TestExecSetPlatformOptPrivileged(t *testing.T) {
 	if !apparmor.HostSupports() {
 		t.Skip("requires AppArmor to be enabled")
 	}
-	d := &Daemon{configStore: &config.Config{}}
+	cfg := &configStore{}
+	d := &Daemon{}
+	d.configStore.Store(cfg)
 	c := &container.Container{
-		AppArmorProfile: "",
+		SecurityOptions: container.SecurityOptions{AppArmorProfile: ""},
 		HostConfig:      &containertypes.HostConfig{Privileged: true},
 	}
-	ec := &exec.Config{Privileged: false}
+	ec := &container.ExecConfig{Container: c, Privileged: false}
 	p := &specs.Process{}
 
-	err := d.execSetPlatformOpt(c, ec, p)
+	err := d.execSetPlatformOpt(context.Background(), &cfg.Config, ec, p)
 	assert.NilError(t, err)
 	assert.Equal(t, unconfinedAppArmorProfile, p.ApparmorProfile)
 }

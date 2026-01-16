@@ -42,7 +42,7 @@ func TestConfigInspectUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	_, _, err := client.ConfigInspectWithRaw(context.Background(), "nothing")
-	assert.Check(t, is.Error(err, `"config inspect" requires API version 1.30, but the Docker daemon API version is 1.29`))
+	assert.Check(t, is.Error(err, `"config inspect" requires API version 1.30, but the balenaEngine daemon API version is 1.29`))
 }
 
 func TestConfigInspectError(t *testing.T) {

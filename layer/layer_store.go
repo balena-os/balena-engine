@@ -133,7 +133,7 @@ func newStoreFromGraphDriver(root string, driver graphdriver.Driver) (Store, err
 	// graphdriver since previous versions of the engine were not properly persisting cacheID.
 	leakedDriverLayers, err := ls.findUnreferencedDriverLayers()
 	if err != nil {
-		logrus.Errorf("Failed to detect leaked driver layers: %s", err)
+		log.G(context.TODO()).Errorf("Failed to detect leaked driver layers: %s", err)
 		leakedDriverLayers = nil
 	}
 
@@ -147,7 +147,7 @@ func newStoreFromGraphDriver(root string, driver graphdriver.Driver) (Store, err
 		totalDeletionsCount += ls.deleteUnreferencedDriverLayers(leakedDriverLayers)
 
 		if totalDeletionsCount > 0 {
-			logrus.Infof("Pruned %d unused graph driver layers", totalDeletionsCount)
+			log.G(context.TODO()).Infof("Pruned %d unused graph driver layers", totalDeletionsCount)
 		}
 	}()
 
@@ -844,16 +844,16 @@ func (ls *layerStore) prune(txData []fileMetadataTxData) []string {
 	for _, tx := range txData {
 		if cacheID, err := tx.GetCacheID(); err == nil {
 			if err := ls.driver.Remove(cacheID); err == nil {
-				logrus.Debugf("Deleted layer %s", cacheID)
+				log.G(context.TODO()).Debugf("Deleted layer %s", cacheID)
 				treatedCacheIDs = append(treatedCacheIDs, cacheID)
 			} else {
-				logrus.Debugf("Failed to delete layer %s: %s", cacheID, err)
+				log.G(context.TODO()).Debugf("Failed to delete layer %s: %s", cacheID, err)
 			}
 		} else {
-			logrus.Errorf("Failed to read cacheID from tx [%s] data: %s", tx, err)
+			log.G(context.TODO()).Errorf("Failed to read cacheID from tx [%s] data: %s", tx, err)
 		}
 		if err := tx.Delete(); err != nil {
-			logrus.Errorf("Failed to delete tx [%s] data that should be pruned: %s", tx, err)
+			log.G(context.TODO()).Errorf("Failed to delete tx [%s] data that should be pruned: %s", tx, err)
 		}
 	}
 
@@ -914,7 +914,7 @@ func (ls *layerStore) deleteUnreferencedDriverLayers(ids []string) int {
 	total := 0
 	for _, leakedCachedID := range ids {
 		if err := ls.driver.Remove(leakedCachedID); err == nil {
-			logrus.Debugf("Deleted leaked driver layer %s", leakedCachedID)
+			log.G(context.TODO()).Debugf("Deleted leaked driver layer %s", leakedCachedID)
 			total++
 		}
 	}

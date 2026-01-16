@@ -22,9 +22,9 @@ func TestOptionWithHostFromEnv(t *testing.T) {
 		assert.Check(t, is.Equal(c.proto, "npipe"))
 		assert.Check(t, is.Equal(c.addr, "//./pipe/docker_engine"))
 	} else {
-		assert.Check(t, is.Equal(c.host, "unix:///var/run/docker.sock"))
+		assert.Check(t, is.Equal(c.host, "unix:///var/run/balena-engine.sock"))
 		assert.Check(t, is.Equal(c.proto, "unix"))
-		assert.Check(t, is.Equal(c.addr, "/var/run/docker.sock"))
+		assert.Check(t, is.Equal(c.addr, "/var/run/balena-engine.sock"))
 	}
 
 	t.Setenv("DOCKER_HOST", "tcp://foo.example.com:2376/test/")

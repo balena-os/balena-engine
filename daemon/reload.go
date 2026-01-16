@@ -100,6 +100,7 @@ func (daemon *Daemon) Reload(conf *config.Config) error {
 		daemon.reloadDebug,
 		daemon.reloadMaxConcurrentDownloadsAndUploads,
 		daemon.reloadMaxDownloadAttempts,
+		daemon.reloadMaxUploadAttempts,
 		daemon.reloadShutdownTimeout,
 		daemon.reloadFeatures,
 		daemon.reloadLabels,
@@ -203,16 +204,17 @@ func (daemon *Daemon) reloadMaxDownloadAttempts(txn *reloadTxn, newCfg *configSt
 
 // reloadMaxUploadAttempts updates configuration with max concurrent
 // upload attempts when a connection is lost and updates the passed attributes
-func (daemon *Daemon) reloadMaxUploadAttempts(conf *config.Config, attributes map[string]string) {
+func (daemon *Daemon) reloadMaxUploadAttempts(txn *reloadTxn, newCfg *configStore, conf *config.Config, attributes map[string]string) error {
 	// We always "reset" as the cost is lightweight and easy to maintain.
-	daemon.configStore.MaxUploadAttempts = config.DefaultUploadAttempts
+	newCfg.MaxUploadAttempts = config.DefaultUploadAttempts
 	if conf.IsValueSet("max-upload-attempts") && conf.MaxUploadAttempts != 0 {
-		daemon.configStore.MaxUploadAttempts = conf.MaxUploadAttempts
+		newCfg.MaxUploadAttempts = conf.MaxUploadAttempts
 	}
 
 	// prepare reload event attributes with updatable configurations
-	attributes["max-upload-attempts"] = strconv.Itoa(daemon.configStore.MaxUploadAttempts)
-	logrus.Debug("Reset Max Upload Attempts: ", attributes["max-upload-attempts"])
+	attributes["max-upload-attempts"] = strconv.Itoa(newCfg.MaxUploadAttempts)
+	log.G(context.TODO()).Debug("Reset Max Upload Attempts: ", attributes["max-upload-attempts"])
+	return nil
 }
 
 // reloadShutdownTimeout updates configuration with daemon shutdown timeout option

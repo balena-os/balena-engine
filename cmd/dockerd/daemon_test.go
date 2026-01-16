@@ -26,6 +26,10 @@ func defaultOptions(t *testing.T, configFile string) *daemonOptions {
 	assert.NilError(t, err)
 	opts.flags.StringVar(&opts.configFile, "config-file", defaultDaemonConfigFile, "")
 	opts.configFile = configFile
+	// Disable userland-proxy in tests since the proxy binary may not exist
+	// in the test environment and these tests don't test proxy functionality.
+	// This must be set after flags are installed but before parsing.
+	assert.NilError(t, opts.flags.Set("userland-proxy", "false"))
 	err = opts.flags.Parse([]string{})
 	assert.NilError(t, err)
 	return opts

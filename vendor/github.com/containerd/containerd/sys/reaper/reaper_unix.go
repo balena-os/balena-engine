@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -97,6 +98,20 @@ func (m *Monitor) Start(c *exec.Cmd) (chan runc.Exit, error) {
 		m.Unsubscribe(ec)
 		return nil, err
 	}
+	return ec, nil
+}
+
+// StartLocked starts the command with the goroutine locked to the OS thread.
+// This is useful when the command has Pdeathsig set.
+func (m *Monitor) StartLocked(c *exec.Cmd) (chan runc.Exit, error) {
+	ec := m.Subscribe()
+	runtime.LockOSThread()
+	if err := c.Start(); err != nil {
+		runtime.UnlockOSThread()
+		m.Unsubscribe(ec)
+		return nil, err
+	}
+	runtime.UnlockOSThread()
 	return ec, nil
 }
 

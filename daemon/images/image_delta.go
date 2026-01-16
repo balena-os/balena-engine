@@ -84,10 +84,7 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 	statDeltaSize := int64(0)
 
 	for idx, diffID := range dstImg.RootFS.DiffIDs {
-		var (
-			layerData io.Reader
-			platform  layer.OS
-		)
+		var layerData io.Reader
 
 		commonLayer := false
 		dstRootFS := *dstImg.RootFS
@@ -106,7 +103,6 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 		// layers for common layers
 		if commonLayer {
 			layerData, _ = layer.EmptyLayer.TarStream()
-			platform = layer.EmptyLayer.OS()
 		} else {
 			l, err := ls.Get(dstRootFS.ChainID())
 			if err != nil {
@@ -114,18 +110,13 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 			}
 			defer layer.ReleaseAndLog(ls, l)
 
-			platform = l.OS()
-
 			input, err := l.TarStream()
 			if err != nil {
 				return err
 			}
 			defer input.Close()
 
-			inputSize, err := l.DiffSize()
-			if err != nil {
-				return err
-			}
+			inputSize := l.DiffSize()
 
 			statTotalSize += inputSize
 
@@ -189,7 +180,7 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 			}()
 		}
 
-		newLayer, err := ls.Register(layerData, deltaRootFS.ChainID(), platform)
+		newLayer, err := ls.Register(layerData, deltaRootFS.ChainID())
 		if err != nil {
 			return err
 		}
@@ -198,10 +189,7 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 		if commonLayer {
 			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Skipping common layer")
 		} else {
-			deltaSize, err := newLayer.DiffSize()
-			if err != nil {
-				return err
-			}
+			deltaSize := newLayer.DiffSize()
 			statDeltaSize += deltaSize
 			progress.Update(progressOutput, stringid.TruncateID(diffID.String()), "Delta complete")
 		}
@@ -209,10 +197,11 @@ func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.Ima
 		deltaRootFS.Append(newLayer.DiffID())
 	}
 
+	createdTime := time.Now().UTC()
 	config := image.Image{
 		RootFS: deltaRootFS,
 		V1Image: image.V1Image{
-			Created: time.Now().UTC(),
+			Created: &createdTime,
 			Config: &containertypes.Config{
 				Labels: map[string]string{
 					"io.resin.delta.base":   srcImg.ID().String(),

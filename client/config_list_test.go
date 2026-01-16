@@ -24,7 +24,7 @@ func TestConfigListUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	_, err := client.ConfigList(context.Background(), types.ConfigListOptions{})
-	assert.Check(t, is.Error(err, `"config list" requires API version 1.30, but the Docker daemon API version is 1.29`))
+	assert.Check(t, is.Error(err, `"config list" requires API version 1.30, but the balenaEngine daemon API version is 1.29`))
 }
 
 func TestConfigListError(t *testing.T) {

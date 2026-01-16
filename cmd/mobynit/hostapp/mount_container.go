@@ -4,7 +4,6 @@ import (
 	"log"
 	"path/filepath"
 
-	_ "github.com/docker/docker/daemon/graphdriver/aufs"
 	_ "github.com/docker/docker/daemon/graphdriver/overlay2"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/idtools"
@@ -27,11 +26,10 @@ func MountContainer(layer_root, containerID, graphDriver string) string {
 		log.Fatal("error getting container layer:", err)
 	}
 
-	newRoot, err := rwlayer.Mount("")
+	newRootPath, err := rwlayer.Mount("")
 	if err != nil {
 		log.Fatal("error mounting container fs:", err)
 	}
-	newRootPath := newRoot.Path()
 
 	if err := unix.Mount("", newRootPath, "", unix.MS_REMOUNT, ""); err != nil {
 		log.Fatal("error remounting container as read/write:", err)

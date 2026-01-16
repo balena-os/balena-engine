@@ -8,9 +8,15 @@ binary_extension() {
 	fi
 }
 
-GO_PACKAGE='github.com/docker/docker/cmd/dockerd'
-BINARY_SHORT_NAME='balena-engine-daemon'
-BINARY_NAME="$BINARY_SHORT_NAME-$VERSION"
+# balena-engine uses a busybox-style binary that dispatches based on argv[0]
+GO_PACKAGE="${GO_PACKAGE:-github.com/docker/docker/cmd/balena-engine}"
+BINARY_SHORT_NAME="${BINARY_SHORT_NAME:-balena-engine}"
+# For release builds, VERSION is non-empty; for development builds, omit the suffix
+if [ -z "$VERSION" ] || [ "$VERSION" = "dev" ]; then
+	BINARY_NAME="$BINARY_SHORT_NAME"
+else
+	BINARY_NAME="$BINARY_SHORT_NAME-$VERSION"
+fi
 BINARY_EXTENSION="$(binary_extension)"
 BINARY_FULLNAME="$BINARY_NAME$BINARY_EXTENSION"
 

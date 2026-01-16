@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/image"
 	apiclient "github.com/docker/docker/client"
 	"github.com/docker/docker/daemon/graphdriver/copy"
 	"github.com/docker/docker/testutil/daemon"
@@ -115,7 +116,7 @@ func TestDeltaCreateDestinationLock(t *testing.T) {
 	inspectTarget, _, err := client.ImageInspectWithRaw(ctx, target)
 
 	<-waitFingerprinting
-	deleted, err := client.ImageRemove(ctx, target, types.ImageRemoveOptions{})
+	deleted, err := client.ImageRemove(ctx, target, image.RemoveOptions{})
 	assert.NilError(t, err)
 	for _, item := range deleted {
 		for i := 0; i < len(inspectTarget.RootFS.Layers); i++ {
@@ -141,14 +142,14 @@ func pullBaseAndTargetImages(t *testing.T, client apiclient.APIClient, base, tar
 
 	rc, err = client.ImagePull(ctx,
 		base,
-		types.ImagePullOptions{})
+		image.PullOptions{})
 	assert.NilError(t, err)
 	io.Copy(ioutil.Discard, rc)
 	rc.Close()
 
 	rc, err = client.ImagePull(ctx,
 		target,
-		types.ImagePullOptions{})
+		image.PullOptions{})
 	assert.NilError(t, err)
 	io.Copy(ioutil.Discard, rc)
 	rc.Close()
@@ -448,11 +449,11 @@ func TestPullUsingDeltaStore(t *testing.T) {
 		client := d.NewClientT(t)
 		ctx := context.Background()
 
-		rc, err := client.ImagePull(ctx, basis, types.ImagePullOptions{})
+		rc, err := client.ImagePull(ctx, basis, image.PullOptions{})
 		_, err = readAllAndClose(rc)
 		assert.NilError(t, err)
 
-		imgs, err := client.ImageList(ctx, types.ImageListOptions{All: true})
+		imgs, err := client.ImageList(ctx, image.ListOptions{All: true})
 		assert.NilError(t, err)
 		assert.Equal(t, len(imgs), 1)
 
@@ -536,8 +537,8 @@ func ttrBuildImage(ctx context.Context, t *testing.T, client apiclient.APIClient
 }
 
 // ttrRemoveImage removes a given image.
-func ttrRemoveImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
-	resp, err := client.ImageRemove(ctx, ttrImageName(image), types.ImageRemoveOptions{})
+func ttrRemoveImage(ctx context.Context, t *testing.T, client apiclient.APIClient, img string) {
+	resp, err := client.ImageRemove(ctx, ttrImageName(img), image.RemoveOptions{})
 	assert.Assert(t, err)
 	assert.Assert(t, len(resp) > 0)
 }
@@ -567,8 +568,8 @@ func ttrCreateDelta(ctx context.Context, t *testing.T, client apiclient.APIClien
 }
 
 // ttrPushImage pushes a given image to the temporary test registry.
-func ttrPushImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
-	rc, err := client.ImagePush(ctx, ttrImageName(image), types.ImagePushOptions{RegistryAuth: "{}"})
+func ttrPushImage(ctx context.Context, t *testing.T, client apiclient.APIClient, img string) {
+	rc, err := client.ImagePush(ctx, ttrImageName(img), image.PushOptions{RegistryAuth: "{}"})
 	assert.Assert(t, err)
 	if rc != nil {
 		body, err := readAllAndClose(rc)
@@ -580,8 +581,8 @@ func ttrPushImage(ctx context.Context, t *testing.T, client apiclient.APIClient,
 // ttrPullImageNoAsserts pulls a given image from the temporary test registry. The image
 // parameter must not include the registry name. Unlike the typical ttr*()
 // function, this one returns an error instead of doing the asserts internally.
-func ttrPullImageNoAsserts(ctx context.Context, client apiclient.APIClient, image string) error {
-	rc, err := client.ImagePull(ctx, ttrImageName(image), types.ImagePullOptions{RegistryAuth: "{}"})
+func ttrPullImageNoAsserts(ctx context.Context, client apiclient.APIClient, img string) error {
+	rc, err := client.ImagePull(ctx, ttrImageName(img), image.PullOptions{RegistryAuth: "{}"})
 	if err != nil {
 		return err
 	}
@@ -599,8 +600,8 @@ func ttrPullImageNoAsserts(ctx context.Context, client apiclient.APIClient, imag
 
 // ttrPullImage pulls a given image from the temporary test registry. The image
 // parameter must not include the registry name. Asserts for any error.
-func ttrPullImage(ctx context.Context, t *testing.T, client apiclient.APIClient, image string) {
-	err := ttrPullImageNoAsserts(ctx, client, image)
+func ttrPullImage(ctx context.Context, t *testing.T, client apiclient.APIClient, img string) {
+	err := ttrPullImageNoAsserts(ctx, client, img)
 	assert.NilError(t, err)
 }
 
@@ -710,13 +711,13 @@ func sliceContains(haystack []string, needle string) bool {
 
 // pullAndTag pulls a given image and tags it with a given tag. This function
 // asserts that all operations are successful.
-func pullAndTag(ctx context.Context, t *testing.T, client apiclient.APIClient, image, tag string) {
-	rc, err := client.ImagePull(ctx, image, types.ImagePullOptions{})
+func pullAndTag(ctx context.Context, t *testing.T, client apiclient.APIClient, img, tag string) {
+	rc, err := client.ImagePull(ctx, img, image.PullOptions{})
 	assert.NilError(t, err)
 
 	_, err = readAllAndClose(rc)
 	assert.NilError(t, err)
 
-	err = client.ImageTag(ctx, image, tag)
+	err = client.ImageTag(ctx, img, tag)
 	assert.NilError(t, err)
 }

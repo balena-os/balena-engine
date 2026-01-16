@@ -7,5 +7,5 @@ source "${MAKEDIR}/.install"
 
 (
 	DEST="$(dirname $DEST)/binary-proxy"
-	install_binary "${DEST}/docker-proxy"
+	install_binary "${DEST}/balena-engine-proxy-${VERSION}"
 )

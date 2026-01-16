@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containerd/containerd/log"
-	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/log"
+	"github.com/containerd/platforms"
 	"github.com/docker/distribution"
 	"github.com/docker/distribution/manifest/manifestlist"
 	"github.com/docker/distribution/manifest/ocischema"
 	"github.com/docker/distribution/manifest/schema1"
 	"github.com/docker/distribution/manifest/schema2"
-	"github.com/docker/distribution/reference"
+	"github.com/distribution/reference"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/distribution/metadata"
 	"github.com/docker/docker/distribution/xfer"
@@ -27,7 +27,6 @@ import (
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/docker/docker/pkg/progress"
 	"github.com/docker/docker/pkg/stringid"
-	"github.com/docker/docker/pkg/system"
 	refstore "github.com/docker/docker/reference"
 	"github.com/docker/docker/registry"
 	"github.com/opencontainers/go-digest"
@@ -471,7 +470,7 @@ func (p *puller) pullSchema1(ctx context.Context, ref reference.Reference, unver
 	if platform != nil {
 		// Early bath if the requested OS doesn't match that of the configuration.
 		// This avoids doing the download, only to potentially fail later.
-		if !system.IsOSSupported(platform.OS) {
+		if err := image.CheckOS(platform.OS); err != nil {
 			return "", "", fmt.Errorf("cannot download image with operating system %q when requesting %q", runtime.GOOS, platform.OS)
 		}
 	}
@@ -662,8 +661,10 @@ func (p *puller) pullSchema2Layers(ctx context.Context, target distribution.Desc
 
 	// Assume that the operating system is the host OS if blank, and validate it
 	// to ensure we don't cause a panic by an invalid index into the layerstores.
-	if layerStoreOS != "" && !system.IsOSSupported(layerStoreOS) {
-		return "", system.ErrNotSupportedOperatingSystem
+	if layerStoreOS != "" {
+		if err := image.CheckOS(layerStoreOS); err != nil {
+			return "", err
+		}
 	}
 
 	if p.config.DownloadManager != nil {

@@ -21,7 +21,7 @@ func TestSecretUpdateUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	err := client.SecretUpdate(context.Background(), "secret_id", swarm.Version{}, swarm.SecretSpec{})
-	assert.Check(t, is.Error(err, `"secret update" requires API version 1.25, but the Docker daemon API version is 1.24`))
+	assert.Check(t, is.Error(err, `"secret update" requires API version 1.25, but the balenaEngine daemon API version is 1.24`))
 }
 
 func TestSecretUpdateError(t *testing.T) {

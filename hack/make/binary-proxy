@@ -7,6 +7,6 @@ set -e
 
 	DOCKER_STATIC=1
 	GO_PACKAGE='github.com/docker/docker/cmd/docker-proxy'
-	BINARY_NAME='balena-engine-proxy'
+	BINARY_SHORT_NAME='balena-engine-proxy'
 	source "${MAKEDIR}/.binary"
 )

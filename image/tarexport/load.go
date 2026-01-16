@@ -143,15 +143,17 @@ func (l *tarexporter) Load(ctx context.Context, inTar io.ReadCloser, outStream i
 			}
 		}
 
-		configRootFS, err := imgConfigStore.RootFSFromConfig(config)
-		if err == nil && configRootFS == nil {
-			return errors.New("nil target image root filesystem")
-		}
+		// For delta images, config may have been replaced with targetConfig above.
+		// Re-parse to get the correct rootFS diffIDs.
+		configImg, err := image.NewFromJSON(config)
 		if err != nil {
 			return err
 		}
+		if configImg.RootFS == nil {
+			return errors.New("nil target image root filesystem")
+		}
 
-		for i, diffID := range configRootFS.DiffIDs {
+		for i, diffID := range configImg.RootFS.DiffIDs {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

@@ -186,9 +186,13 @@ func DirCopy(srcDir, dstDir string, copyMode Mode, copyOpaqueXattrs bool) error 
 			}
 
 		case mode&os.ModeNamedPipe != 0:
-			fallthrough
-		case mode&os.ModeSocket != 0:
 			if err := unix.Mkfifo(dstPath, stat.Mode); err != nil {
+				return err
+			}
+
+		case mode&os.ModeSocket != 0:
+			// Unix sockets need to be created with Mknod, not Mkfifo
+			if err := unix.Mknod(dstPath, stat.Mode, 0); err != nil {
 				return err
 			}
 

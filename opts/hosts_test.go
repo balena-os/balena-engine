@@ -211,10 +211,10 @@ func TestParseTCP(t *testing.T) {
 }
 
 func TestParseInvalidUnixAddrInvalid(t *testing.T) {
-	if _, err := parseSimpleProtoAddr("unix", "tcp://127.0.0.1", "unix:///var/run/balena-engine.sock"); err == nil || err.Error() != "invalid proto, expected unix: tcp://127.0.0.1" {
+	if _, err := parseSimpleProtoAddr("unix", "tcp://127.0.0.1", "unix:///var/run/balena-engine.sock"); err == nil || err.Error() != "invalid unix address: tcp://127.0.0.1" {
 		t.Fatalf("Expected an error, got %v", err)
 	}
-	if _, err := parseSimpleProtoAddr("unix", "unix://tcp://127.0.0.1", "/var/run/balena-engine.sock"); err == nil || err.Error() != "invalid proto, expected unix: tcp://127.0.0.1" {
+	if _, err := parseSimpleProtoAddr("unix", "unix://tcp://127.0.0.1", "/var/run/balena-engine.sock"); err == nil || err.Error() != "invalid unix address: unix://tcp://127.0.0.1" {
 		t.Fatalf("Expected an error, got %v", err)
 	}
 	if v, err := parseSimpleProtoAddr("unix", "", "/var/run/balena-engine.sock"); err != nil || v != "unix:///var/run/balena-engine.sock" {

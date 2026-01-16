@@ -3,6 +3,7 @@ package containerd
 import (
 	"context"
 	"fmt"
+	"io"
 	"sync/atomic"
 
 	"github.com/containerd/containerd"
@@ -15,6 +16,7 @@ import (
 	"github.com/containerd/log"
 	"github.com/containerd/platforms"
 	"github.com/distribution/reference"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/container"
 	daemonevents "github.com/docker/docker/daemon/events"
 	dimages "github.com/docker/docker/daemon/images"
@@ -204,4 +206,9 @@ func (i *ImageService) GetContainerLayerSize(ctx context.Context, containerID st
 
 	// TODO(thaJeztah): include content-store size for the image (similar to "GET /images/json")
 	return rwLayerUsage.Size, rwLayerUsage.Size + unpackedUsage.Size, nil
+}
+
+// DeltaCreate is not supported with containerd image store
+func (i *ImageService) DeltaCreate(deltaSrc, deltaDest string, options types.ImageDeltaOptions, outStream io.Writer) error {
+	return errdefs.NotImplemented(errors.New("delta images are not supported with containerd image store"))
 }

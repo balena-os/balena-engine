@@ -21,7 +21,7 @@ func TestConfigUpdateUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	err := client.ConfigUpdate(context.Background(), "config_id", swarm.Version{}, swarm.ConfigSpec{})
-	assert.Check(t, is.Error(err, `"config update" requires API version 1.30, but the Docker daemon API version is 1.29`))
+	assert.Check(t, is.Error(err, `"config update" requires API version 1.30, but the balenaEngine daemon API version is 1.29`))
 }
 
 func TestConfigUpdateError(t *testing.T) {

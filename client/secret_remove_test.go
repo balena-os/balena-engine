@@ -20,7 +20,7 @@ func TestSecretRemoveUnsupported(t *testing.T) {
 		client:  &http.Client{},
 	}
 	err := client.SecretRemove(context.Background(), "secret_id")
-	assert.Check(t, is.Error(err, `"secret remove" requires API version 1.25, but the Docker daemon API version is 1.24`))
+	assert.Check(t, is.Error(err, `"secret remove" requires API version 1.25, but the balenaEngine daemon API version is 1.24`))
 }
 
 func TestSecretRemoveError(t *testing.T) {

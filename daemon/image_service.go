@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/distribution/reference"
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -78,4 +79,7 @@ type ImageService interface {
 	Cleanup() error
 	StorageDriver() string
 	UpdateConfig(maxDownloads, maxUploads int)
+
+	// Delta images
+	DeltaCreate(deltaSrc, deltaDest string, options types.ImageDeltaOptions, outStream io.Writer) error
 }
