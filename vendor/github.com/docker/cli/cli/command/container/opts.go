@@ -91,6 +91,7 @@ type containerOptions struct {
 	oomKillDisable      bool
 	oomScoreAdj         int
 	containerIDFile     string
+	containerIDEnv      string
 	entrypoint          string
 	hostname            string
 	domainname          string
@@ -274,6 +275,7 @@ func addFlags(flags *pflag.FlagSet) *containerOptions {
 	flags.Uint16Var(&copts.blkioWeight, "blkio-weight", 0, "Block IO (relative weight), between 10 and 1000, or 0 to disable (default 0)")
 	flags.Var(&copts.blkioWeightDevice, "blkio-weight-device", "Block IO weight (relative device weight)")
 	flags.StringVar(&copts.containerIDFile, "cidfile", "", "Write the container ID to the file")
+	flags.StringVar(&copts.containerIDEnv, "cidenv", "", "Write the container ID to the environment variable")
 	flags.StringVar(&copts.cpusetCpus, "cpuset-cpus", "", "CPUs in which to allow execution (0-3, 0,1)")
 	flags.StringVar(&copts.cpusetMems, "cpuset-mems", "", "MEMs in which to allow execution (0-3, 0,1)")
 	flags.Int64Var(&copts.cpuCount, "cpu-count", 0, "CPU count (Windows only)")
@@ -660,6 +662,7 @@ func parse(flags *pflag.FlagSet, copts *containerOptions, serverOS string) (*con
 	hostConfig := &container.HostConfig{
 		Binds:           binds,
 		ContainerIDFile: copts.containerIDFile,
+		ContainerIDEnv:  copts.containerIDEnv,
 		OomScoreAdj:     copts.oomScoreAdj,
 		AutoRemove:      copts.autoRemove,
 		Privileged:      copts.privileged,
