@@ -858,12 +858,17 @@ The following patches were cherry-picked and applied to the v27 port (January 20
 | `23bf0f1257` | Fix double locking in OOM events | v27 already has correct locking |
 | `448ee8958a` | Container locks to avoid races | This commit INTRODUCED the bug that `23bf0f1257` fixed - regressive |
 
-#### Skipped - Incompatible with v27 ⚠️
+#### Skipped - Already Present in v27 ✅
+
+| Original | Description | Reason |
+|----------|-------------|--------|
+| `3c1db95462` | libnetwork: Enable remote driver | v27 registers remote driver in `controller.go:132` instead of `drivers_linux.go` |
+
+#### Skipped - Needs Investigation ⚠️
 
 | Original | Description | Reason |
 |----------|-------------|--------|
 | `ddbc8580e2` | libnetwork: Fix sandbox cleanup | v27 libnetwork significantly restructured; needs fresh investigation |
-| `3c1db95462` | libnetwork: Enable remote driver | Complex conflicts with v27 driver registration; deferred |
 
 #### Low Priority (Test/CI Related)
 
