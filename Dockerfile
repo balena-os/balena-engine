@@ -592,7 +592,7 @@ RUN --mount=type=cache,sharing=locked,id=moby-build-aptlib,target=/var/lib/apt \
             libsystemd-dev \
             libudev-dev \
             pkg-config
-ARG DOCKER_BUILDTAGS
+ARG DOCKER_BUILDTAGS="apparmor seccomp no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs"
 ARG DOCKER_DEBUG
 ARG DOCKER_GITCOMMIT=HEAD
 ARG DOCKER_LDFLAGS

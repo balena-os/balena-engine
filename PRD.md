@@ -617,5 +617,323 @@ For production releases, the local forks should be pushed to GitHub branches:
 
 - **Branch**: `balena/v27-rebase`
 - **Base**: moby v27.5.1
-- **Status**: Feature complete, testing complete
+- **Status**: Feature complete, device testing complete
 - **Next Steps**: CI pipeline setup, release preparation
+
+---
+
+## Device Testing (January 2026)
+
+### Summary
+
+Successfully deployed and tested balena-engine v27 on a Raspberry Pi 5 running balenaOS. All containers run correctly with full seccomp support.
+
+### Test Device
+
+- **Hardware**: Raspberry Pi 5
+- **OS**: balenaOS
+- **Architecture**: ARM64 (aarch64)
+- **Access**: `ssh root@58cf949.local -p22222`
+
+### Deployment Process
+
+1. **Build ARM64 static binary**:
+   ```bash
+   docker buildx bake --set '*.platform=linux/arm64' binary
+   ```
+
+2. **Deploy to device**:
+   ```bash
+   ssh root@58cf949.local -p22222 "systemctl stop balena"
+   scp -P22222 bundles/binary/balena-engine root@58cf949.local:/tmp/
+   ssh root@58cf949.local -p22222 "cp /tmp/balena-engine /usr/bin/balena-engine && systemctl start balena"
+   ```
+
+3. **Verify**:
+   ```bash
+   ssh root@58cf949.local -p22222 "balena ps && balena run --rm alpine:latest echo 'seccomp works!'"
+   ```
+
+### Issues Found and Fixed
+
+#### 1. Shim Dispatcher Bug (CRITICAL)
+
+**Problem**: When containerd started a shim process, it failed with "error: unknown command: runc" because the shim used `os.Executable()` to re-exec itself, which resolved the symlink to the real binary path, losing the argv[0] dispatch information.
+
+**Root Cause**: `os.Executable()` returns the resolved binary path (e.g., `/usr/bin/balena-engine`) instead of the symlink name (`containerd-shim-runc-v2`).
+
+**Fix** (`vendor/github.com/containerd/containerd/runtime/v2/runc/manager/manager_linux.go`):
+```go
+// Before (broken):
+self, err := os.Executable()
+
+// After (fixed):
+// Use os.Args[0] instead of os.Executable() to preserve the symlink name.
+// This is required for busybox-style binaries where the dispatcher uses
+// argv[0] to determine which component to run.
+self := os.Args[0]
+```
+
+#### 2. Shim Plugin Loading Panic (CRITICAL)
+
+**Problem**: The shim process crashed with a nil pointer panic when loading plugins, because the busybox binary registers all containerd plugins globally, but shim only needs a subset.
+
+**Root Cause**: Plugin loading tried to access configuration objects that weren't initialized for shim-only plugins.
+
+**Fix** (`vendor/github.com/containerd/containerd/runtime/v2/shim/shim.go`):
+```go
+// Filter plugins to only load those needed by the shim.
+// This is required for busybox-style binaries where all containerd
+// plugins are registered but the shim only needs a subset.
+shimPlugins := map[string]bool{
+    "io.containerd.internal.v1.shutdown":  true,
+    "io.containerd.event.v1.publisher":    true,
+    "io.containerd.ttrpc.v1.task":         true,
+}
+plugins := plugin.Graph(func(r *plugin.Registration) bool {
+    uri := fmt.Sprintf("%s.%s", r.Type, r.ID)
+    return !shimPlugins[uri]  // Skip non-shim plugins
+})
+```
+
+#### 3. Missing Seccomp Build Tag (CRITICAL)
+
+**Problem**: Containers failed to start with "seccomp: config provided but seccomp not supported" even though libseccomp was linked.
+
+**Root Cause**: The `seccomp` build tag was lost during the v27 rebase. Without this tag, runc's `seccomp_unsupported.go` is compiled instead of `seccomp_linux.go`.
+
+**v20.10 (working)**:
+```dockerfile
+ARG DOCKER_BUILDTAGS="apparmor seccomp no_btrfs no_cri no_devmapper no_zfs ..."
+```
+
+**v27 rebase (broken)**:
+```dockerfile
+ARG DOCKER_BUILDTAGS
+```
+
+**Fix**: Restored default build tags in both files:
+- `Dockerfile:595` - Added default value with seccomp
+- `docker-bake.hcl:10-12` - Added matching default for buildx builds
+
+```dockerfile
+ARG DOCKER_BUILDTAGS="apparmor seccomp no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs"
+```
+
+#### 4. Missing Symlink Dispatch Names
+
+**Problem**: The busybox dispatcher didn't recognize plain names like `runc` and `containerd-shim-runc-v2`.
+
+**Fix** (`cmd/balena-engine/main.go`): Added plain names to the dispatcher switch statement.
+
+### Test Results
+
+| Test | Result | Notes |
+|------|--------|-------|
+| Daemon startup | ✅ PASS | Service starts cleanly |
+| Container listing | ✅ PASS | `balena ps` shows all containers |
+| Container creation | ✅ PASS | New containers start successfully |
+| Seccomp enforcement | ✅ PASS | Works without `seccomp-profile: unconfined` |
+| Existing workloads | ✅ PASS | Supervisor, detector, hailo-kmod all running |
+
+### Build Command for ARM64
+
+```bash
+# Build static ARM64 binary with all features
+docker buildx bake --set '*.platform=linux/arm64' binary
+
+# Output: bundles/binary/balena-engine (70MB static binary)
+```
+
+### Known Warnings (Non-Critical)
+
+1. **runc version parse warning**: The daemon logs a warning about parsing runc version output format. This is cosmetic and doesn't affect functionality.
+
+2. **cgroup OOM monitor warning**: On cgroup v2 systems, there may be warnings about missing cgroup v1 paths. This is expected behavior.
+
+---
+
+## Key Learnings
+
+### Busybox Binary Considerations
+
+1. **Symlink-based dispatch requires argv[0]**: Any code that re-execs itself must use `os.Args[0]` instead of `os.Executable()` to preserve the symlink name.
+
+2. **Global plugin registry is a problem**: When multiple containerd components are compiled into one binary, plugins are registered globally. Components that don't need all plugins must filter them.
+
+3. **Build tags must be explicitly set**: The default build tags (`DOCKER_BUILDTAGS`) in both `Dockerfile` and `docker-bake.hcl` must include all required features like `seccomp` and `apparmor`.
+
+### Testing on Real Hardware
+
+1. **balenaOS devices can be updated in-place**: Stop the service, replace the binary, restart. No reboot needed.
+
+2. **Symlinks are managed separately**: The binary symlinks in `/usr/bin/` (like `runc`, `containerd`) are managed by balenaOS, not the binary itself.
+
+3. **Device testing catches issues unit tests miss**: The shim dispatcher bug only manifested when containerd tried to start a container, which requires the full runtime stack.
+
+### Version Compatibility
+
+1. **Build tags can silently regress**: During rebases, ARG defaults in Dockerfiles can be lost without causing build failures, but features like seccomp won't work at runtime.
+
+2. **Always check build output**: The build logs show exactly which tags are being used (e.g., `-tags 'netgo osusergo static_build apparmor seccomp ...'`).
+
+---
+
+## Files Modified for Device Compatibility
+
+```
+# Shim dispatcher fix
+vendor/github.com/containerd/containerd/runtime/v2/runc/manager/manager_linux.go
+
+# Shim plugin filtering
+vendor/github.com/containerd/containerd/runtime/v2/shim/shim.go
+
+# Build tags restoration
+Dockerfile
+docker-bake.hcl
+
+# Dispatcher plain names (already committed)
+cmd/balena-engine/main.go
+```
+
+---
+
+## Patch Comparison: kyle/rerun-rebase-v23.0.18 vs balena/v27-rebase
+
+### Summary
+
+The `kyle/rerun-rebase-v23.0.18` branch contains **211 commits** on top of moby v23.0.18. The `balena/v27-rebase` branch contains **135 commits** on top of moby v27.5.1.
+
+The difference in commit count is due to:
+1. Some patches were merged upstream in moby v24-v27
+2. Some v23-specific compatibility patches are not needed for v27
+3. Some patches are missing and should be evaluated for porting
+
+### Patches Present in Both Branches ✅
+
+These core balena features have been successfully ported:
+
+| Category | Status | Notes |
+|----------|--------|-------|
+| Delta Support | ✅ Complete | Full delta create/apply/load functionality |
+| Resilient Pulls | ✅ Complete | Resume interrupted downloads, retry config |
+| Swarm Removal | ✅ Complete | API endpoints and tests removed |
+| Mobynit/Host App | ✅ Complete | Host OS booting support |
+| Storage Migration | ✅ Complete | AUFS to overlay2 migration |
+| Healthcheck Enhancements | ✅ Complete | Restart on unhealthy |
+| Bridge Rebranding | ✅ Complete | `docker0` → `balena0` |
+| Proxy Naming | ✅ Complete | `docker-proxy` → `balena-engine-proxy` |
+| Documentation | ✅ Complete | DEVELOPMENT.md, README, masterclass docs |
+| Build System | ✅ Complete | Busybox binary, symlinks, Dockerfile |
+| Layer Store Optimizations | ✅ Complete | Prune unused data, persist cacheID early |
+| fadvise Page Cache | ✅ Complete | Prevent pagecache thrashing |
+
+### Patches Missing - Should Be Ported ⚠️
+
+These patches are in kyle's branch but not in our v27 port and should be considered for porting:
+
+#### High Priority
+
+| Commit | Description | Impact |
+|--------|-------------|--------|
+| `d84a0d64a7` | Allow passing container ID via environment variable | Feature: `ContainerIDEnv` in HostConfig |
+| `f9d6ab2771` | graphdriver/copy: fix handling of sockets | Bugfix: socket vs FIFO handling in copy |
+| `7ae8eb62e3` | Lock destination layers while delta is being processed | Bugfix: race condition during delta create |
+| `127b6718b7` | Close DecompressStream after layer is downloaded | Resource leak fix |
+| `31af08261a` | Fix container data deletion | Bugfix: layer store vs graphdriver sync |
+| `23bf0f1257` | Fix double locking in OOM event handling | Bugfix: potential deadlock |
+| `448ee8958a` | Add appropriate container locks to avoid races | Bugfix: race conditions |
+
+#### Medium Priority
+
+| Commit | Description | Impact |
+|--------|-------------|--------|
+| `c98dfb4337` | aufs,overlay2: Add driver opts for disk sync | Feature: configurable sync behavior |
+| `b770e18b05` | Disable macvlan,overlay,remote network drivers | Size reduction, attack surface |
+| `ddbc8580e2` | libnetwork: Fix sandbox cleanup | Bugfix: endpoint store sync on crash |
+| `3c1db95462` | libnetwork: Enable remote driver for `network create -d` | Feature: remote network driver |
+
+#### Low Priority (Test/CI Related)
+
+| Commit | Description | Impact |
+|--------|-------------|--------|
+| `880ed6a680` | Fix tests for environments with limited IPv6 | Test fix |
+| `e273d54400` | Adjust nofile limits for runc v1.3.3 | Test fix |
+| `b4e1873f8d` | Update GitHub issue and PR templates | CI/Templates |
+
+### Patches Not Needed for v27 ❌
+
+These patches from kyle's branch are not needed because they were either:
+- Merged upstream in moby v24-v27
+- Specific to v23 API/behavior
+- Superseded by v27 changes
+
+| Commit | Description | Reason Not Needed |
+|--------|-------------|-------------------|
+| `c52142dd13` | Fix cgroup path for CPU RT controller | Already uses `GetOwnCgroup` in v27 |
+| `ca3b90cbe8` | Restore seccomp build tag constraint | Fixed differently (DOCKER_BUILDTAGS default) |
+| `36c31c43c3` | Update balena-runc to 1.2.8-balena | Using different runc version in v27 |
+| `c42d75a490` | Update balena-engine-cli to v23.0.16 | Using CLI v27.x |
+| `f41c819f91` | Fix integration-cli tests for CLI v23 | v23-specific |
+| `7f40424a4f` | Fix CLI error message expectations for v23 | v23-specific |
+| `e66288d3ab` | Fix aufs migration test for error types | AUFS removed in v27 |
+| `697e842f0e` | graphdriver: aufs refactor io/ioutil | AUFS removed in v27 |
+| `576c087bab` | aufs: Add List support | AUFS removed in v27 |
+| `d9324eac85` | Add buildtag to disable buildkit backend | BuildKit is integral to v27 |
+| `16edebf1c2` | router/grpc: add no_buildkit build constraint | BuildKit is integral to v27 |
+| `78d5518ef0` | Disable memory cgroups in chrootarchive | Different approach in v27 |
+| `3aaf53072c` | Pull: rely on memory cgroups for page cache | Different approach in v27 |
+
+### Patches with Different Implementation
+
+These features exist in both branches but with different implementations:
+
+| Feature | kyle Branch | v27 Branch | Notes |
+|---------|-------------|------------|-------|
+| Seccomp support | Build tag constraint | DOCKER_BUILDTAGS default | Both achieve same result |
+| Shim re-exec | Standard containerd | Modified for busybox | Required vendored patch |
+| Plugin filtering | N/A | Added shim plugin filter | Required for busybox binary |
+| CLI integration | v23.0.16 fork | v27.4.0 fork | Different base version |
+
+### Recommendations
+
+#### Immediate (Before Release)
+
+1. **Port container ID environment variable** (`d84a0d64a7`) - This is a user-facing feature used by balena supervisor
+2. **Port socket handling fix** (`f9d6ab2771`) - Bugfix for storage migration edge case
+3. **Port delta layer locking** (`7ae8eb62e3`) - Race condition during delta creation
+
+#### Short Term (Next Release)
+
+1. **Port OOM locking fixes** (`23bf0f1257`, `448ee8958a`) - Stability improvements
+2. **Port DecompressStream close** (`127b6718b7`) - Resource leak
+3. **Consider disabling macvlan/overlay drivers** (`b770e18b05`) - Reduces attack surface
+
+#### Deferred (Evaluate Need)
+
+1. **Sandbox cleanup fix** (`ddbc8580e2`) - Investigate if still relevant for v27
+2. **Container data deletion fix** (`31af08261a`) - Investigate if still relevant for v27
+3. **Disk sync options** (`c98dfb4337`) - Feature, evaluate user demand
+
+### File-by-File Comparison
+
+Key files and their patch status:
+
+| File | kyle Branch | v27 Branch | Status |
+|------|-------------|------------|--------|
+| `daemon/images/image_delta.go` | Full delta support | Full delta support | ✅ Match |
+| `distribution/xfer/download.go` | Delta + resilient pulls | Delta + resilient pulls | ⚠️ Missing DecompressStream close |
+| `daemon/health.go` | Restart on unhealthy | Restart on unhealthy | ✅ Match |
+| `libnetwork/drivers_linux.go` | Disabled macvlan/overlay | Enabled | ⚠️ Different |
+| `libnetwork/sandbox_store.go` | Crash recovery fix | Standard | ⚠️ Missing fix |
+| `daemon/graphdriver/copy/copy.go` | Socket handling fix | Standard | ⚠️ Missing fix |
+| `api/types/container/hostconfig.go` | ContainerIDEnv field | Standard | ⚠️ Missing feature |
+| `pkg/storagemigration/` | Full implementation | Full implementation | ✅ Match |
+| `cmd/mobynit/` | Full implementation | Full implementation | ✅ Match |
+
+### Next Steps
+
+1. Create tracking issues for high-priority missing patches
+2. Port critical bugfixes before production release
+3. Evaluate feature requests based on user demand
+4. Update this document as patches are ported
