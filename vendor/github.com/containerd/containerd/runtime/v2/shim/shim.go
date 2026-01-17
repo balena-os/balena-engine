@@ -396,7 +396,20 @@ func run(ctx context.Context, manager Manager, initFunc Init, name string, confi
 
 		ttrpcUnaryInterceptors = []ttrpc.UnaryServerInterceptor{}
 	)
-	plugins := plugin.Graph(func(*plugin.Registration) bool { return false })
+	// Filter plugins to only load those needed by the shim.
+	// This is required for busybox-style binaries where all containerd
+	// plugins are registered but the shim only needs a subset.
+	// We filter by both type AND ID to only include plugins the shim registers.
+	shimPlugins := map[string]bool{
+		"io.containerd.internal.v1.shutdown":  true,
+		"io.containerd.event.v1.publisher":    true,
+		"io.containerd.ttrpc.v1.task":         true,
+	}
+	plugins := plugin.Graph(func(r *plugin.Registration) bool {
+		// Return true to skip plugins not needed by the shim
+		uri := fmt.Sprintf("%s.%s", r.Type, r.ID)
+		return !shimPlugins[uri]
+	})
 	for _, p := range plugins {
 		id := p.URI()
 		log.G(ctx).WithField("type", p.Type).Debugf("loading plugin %q...", id)

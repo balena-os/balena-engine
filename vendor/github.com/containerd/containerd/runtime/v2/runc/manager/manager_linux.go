@@ -76,10 +76,10 @@ func newCommand(ctx context.Context, id, containerdAddress, containerdTTRPCAddre
 	if err != nil {
 		return nil, err
 	}
-	self, err := os.Executable()
-	if err != nil {
-		return nil, err
-	}
+	// Use os.Args[0] instead of os.Executable() to preserve the symlink name.
+	// This is required for busybox-style binaries where the dispatcher uses
+	// argv[0] to determine which component to run.
+	self := os.Args[0]
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, err
