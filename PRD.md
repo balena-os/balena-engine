@@ -905,6 +905,93 @@ These features exist in both branches but with different implementations:
 | Plugin filtering | N/A | Added shim plugin filter | Required for busybox binary |
 | CLI integration | v23.0.16 fork | v27.4.0 fork | Different base version |
 
+### Known Differences: v23 vs v27
+
+This section documents functional differences between the two branches that users or developers should be aware of.
+
+#### 1. CLI `--cidenv` Flag Not Available
+
+**Status**: API implemented, CLI flag missing
+
+The container ID environment variable feature (`ContainerIDEnv`) is partially implemented in v27:
+
+| Component | v23 Branch | v27 Branch |
+|-----------|------------|------------|
+| `api/types/container/hostconfig.go` | ✅ `ContainerIDEnv` field | ✅ `ContainerIDEnv` field |
+| `daemon/create.go` | ✅ `setContainerIDEnv()` | ✅ `setContainerIDEnv()` |
+| CLI `--cidenv` flag | ✅ In balena-engine-cli v23.0.16 | ❌ Not in CLI v27.4.0 |
+
+**Impact**: Users cannot use `balena run --cidenv MYVAR ...` from the command line. The feature works via the API (e.g., from balena-supervisor using the Docker API directly).
+
+**To fix**: Port the following changes to `forks/balena-engine-cli/cli/command/container/opts.go`:
+```go
+// Add to containerOptions struct (~line 79):
+containerIDEnv     string
+
+// Add flag registration (~line 258):
+flags.StringVar(&copts.containerIDEnv, "cidenv", "", "Write the container ID to the environment variable")
+
+// Add to HostConfig mapping (~line 619):
+ContainerIDEnv:  copts.containerIDEnv,
+```
+
+#### 2. AUFS Storage Driver Removed
+
+**Status**: Expected, not a regression
+
+| Feature | v23 Branch | v27 Branch |
+|---------|------------|------------|
+| AUFS driver | ✅ Supported | ❌ Removed upstream |
+| AUFS→overlay2 migration | ✅ Supported | ✅ Supported |
+| `overlay2.sync_diffs` option | ✅ Supported | ✅ Supported |
+| `aufs.sync_diffs` option | ✅ Supported | ❌ N/A (AUFS removed) |
+
+**Impact**: Devices using AUFS must migrate to overlay2 before upgrading. The storage migration code is present to facilitate this.
+
+#### 3. Network Drivers
+
+**Status**: Intentionally reduced for IoT use case
+
+| Driver | v23 Branch | v27 Branch |
+|--------|------------|------------|
+| bridge | ✅ Enabled | ✅ Enabled |
+| host | ✅ Enabled | ✅ Enabled |
+| null | ✅ Enabled | ✅ Enabled |
+| ipvlan | ✅ Enabled | ✅ Enabled |
+| macvlan | ❌ Disabled | ❌ Disabled |
+| overlay | ❌ Disabled | ❌ Disabled |
+| remote | ❌ Disabled | ❌ Disabled |
+
+**Impact**: None for typical balenaOS usage. These drivers are not used in IoT deployments.
+
+#### 4. Swarm Mode
+
+**Status**: Removed in both branches
+
+Swarm mode is completely removed in both v23 and v27 balena-engine branches. This is intentional - balena uses its own orchestration.
+
+#### 5. Component Versions
+
+| Component | v23 Branch | v27 Branch |
+|-----------|------------|------------|
+| Moby base | v23.0.18 | v27.5.1 |
+| containerd | v1.6.22 (balena fork) | v1.7.30 (balena fork) |
+| runc | v1.2.8 (balena fork) | v1.2.4 (balena fork) |
+| CLI | v23.0.16 (balena fork) | v27.4.0 (balena fork) |
+| Go version | 1.21.x | 1.22.x |
+
+#### 6. API Compatibility
+
+The v27 branch uses moby v27.5.1 API, which has some differences from v23:
+
+| Change | Impact |
+|--------|--------|
+| Context parameters added to many functions | Internal only, no API change |
+| Logging changed from logrus to containerd/log | Internal only, no API change |
+| Some deprecated fields removed | May affect very old clients |
+
+**For balena-supervisor**: The supervisor uses the Docker API, not CLI flags. All API-level features (including `ContainerIDEnv`) work correctly.
+
 ### Recommendations
 
 #### Completed ✅
