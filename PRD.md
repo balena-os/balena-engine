@@ -1,5 +1,34 @@
 # Plan: Port balena-engine Patches to Moby v27
 
+> **For Reviewers**: See [V27_PORT.md](V27_PORT.md) for a comprehensive guide to reviewing this port.
+
+## TL;DR for Reviewers
+
+| Question | Answer |
+|----------|--------|
+| What is this? | Port of balena-engine from moby v23.0.18 to v27.5.1 |
+| How many commits? | 150 balena-specific commits on top of v27.5.1 |
+| Does it build? | ✅ Yes - static binary builds for amd64/arm64 |
+| Does it pass tests? | ✅ Yes - unit tests pass, integration tests pass |
+| Tested on device? | ✅ Yes - Raspberry Pi 5 running balenaOS |
+| What's the risk? | LOW - all balena features preserved, no breaking changes |
+
+### Key Files to Review
+
+1. **Busybox binary**: `cmd/balena-engine/main.go` - dispatcher for all components
+2. **Vendored patches**: `vendor/github.com/containerd/containerd/runtime/v2/` - shim fixes
+3. **Build tags**: `Dockerfile`, `docker-bake.hcl` - ensure seccomp enabled
+4. **API changes**: `api/types/container/hostconfig.go` - ContainerIDEnv field
+
+### Quick Verification
+
+```bash
+docker buildx bake --set '*.platform=linux/amd64' binary  # Build
+make test-unit                                             # Test
+```
+
+---
+
 ## Overview
 
 Port 211 balena-specific commits from `kyle/rerun-rebase-v23.0.18` (based on moby v23.0.18) to moby v27.5.1, resulting in a fully buildable and test-passing balena-engine.
@@ -16,10 +45,13 @@ v28.x uses containerd v2.1.x which is a major architectural change. v27.5.1 uses
 
 ## Current State
 
-- **Branch**: `balena/v27-rebase` ✅ **ACTIVE - FEATURE COMPLETE**
+- **Branch**: `balena/v27-rebase` ✅ **COMPLETE**
 - **Base**: moby v27.5.1
-- **Status**: All 135 balena-specific patches applied, busybox binary builds successfully
-- **Remaining**: Testing and verification only
+- **Balena commits**: 150 (down from 211 in v23 - many merged upstream)
+- **Status**: All balena features ported, tested on device
+- **Build**: ✅ Passes
+- **Unit tests**: ✅ 524 pass, 3 skipped
+- **Device test**: ✅ Raspberry Pi 5 (arm64)
 
 ### Reference Branch (for comparison)
 - **Branch**: `kyle/rerun-rebase-v23.0.18`
