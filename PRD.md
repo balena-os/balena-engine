@@ -841,6 +841,8 @@ The following patches were cherry-picked and applied to the v27 port (January 20
 | `d72f5a59b3` | `31af08261a` | Fix container data deletion | Test imports updated for v27 |
 | `65cfe6f7d3` | `c98dfb4337` | aufs,overlay2: Add driver opts for disk sync | AUFS parts skipped (removed in v27) |
 | `b420d8fd3f` | `b770e18b05` | libnetwork: disable macvlan,overlay network drivers | Adapted to v27 driver registration API |
+| `978ba95047` | v23 CLI | cli: Add --cidenv flag | Ported to vendored CLI and CLI fork |
+| `9c87fc4b9a` | `50e13f776c` | daemon: fix HostConfig validation for bare runtime | Adapted to v27 Runtimes.Get API |
 
 #### Skipped - Already Applied Upstream ✅
 
@@ -909,31 +911,19 @@ These features exist in both branches but with different implementations:
 
 This section documents functional differences between the two branches that users or developers should be aware of.
 
-#### 1. CLI `--cidenv` Flag Not Available
+#### 1. CLI `--cidenv` Flag ✅ FIXED
 
-**Status**: API implemented, CLI flag missing
+**Status**: Fully implemented (January 2026)
 
-The container ID environment variable feature (`ContainerIDEnv`) is partially implemented in v27:
+The container ID environment variable feature (`ContainerIDEnv`) is now fully implemented in v27:
 
 | Component | v23 Branch | v27 Branch |
 |-----------|------------|------------|
 | `api/types/container/hostconfig.go` | ✅ `ContainerIDEnv` field | ✅ `ContainerIDEnv` field |
 | `daemon/create.go` | ✅ `setContainerIDEnv()` | ✅ `setContainerIDEnv()` |
-| CLI `--cidenv` flag | ✅ In balena-engine-cli v23.0.16 | ❌ Not in CLI v27.4.0 |
+| CLI `--cidenv` flag | ✅ In balena-engine-cli v23.0.16 | ✅ Added in commit `978ba95047` |
 
-**Impact**: Users cannot use `balena run --cidenv MYVAR ...` from the command line. The feature works via the API (e.g., from balena-supervisor using the Docker API directly).
-
-**To fix**: Port the following changes to `forks/balena-engine-cli/cli/command/container/opts.go`:
-```go
-// Add to containerOptions struct (~line 79):
-containerIDEnv     string
-
-// Add flag registration (~line 258):
-flags.StringVar(&copts.containerIDEnv, "cidenv", "", "Write the container ID to the environment variable")
-
-// Add to HostConfig mapping (~line 619):
-ContainerIDEnv:  copts.containerIDEnv,
-```
+**Usage**: `balena run --cidenv CONTAINER_ID alpine sh -c 'echo $CONTAINER_ID'`
 
 #### 2. AUFS Storage Driver Removed
 
