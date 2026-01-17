@@ -828,30 +828,40 @@ These core balena features have been successfully ported:
 | Layer Store Optimizations | ✅ Complete | Prune unused data, persist cacheID early |
 | fadvise Page Cache | ✅ Complete | Prevent pagecache thrashing |
 
-### Patches Missing - Should Be Ported ⚠️
+### Patches Ported from kyle/rerun-rebase-v23.0.18 ✅
 
-These patches are in kyle's branch but not in our v27 port and should be considered for porting:
+The following patches were cherry-picked and applied to the v27 port (January 2026):
 
-#### High Priority
+#### Successfully Applied ✅
 
-| Commit | Description | Impact |
-|--------|-------------|--------|
-| `d84a0d64a7` | Allow passing container ID via environment variable | Feature: `ContainerIDEnv` in HostConfig |
-| `f9d6ab2771` | graphdriver/copy: fix handling of sockets | Bugfix: socket vs FIFO handling in copy |
-| `7ae8eb62e3` | Lock destination layers while delta is being processed | Bugfix: race condition during delta create |
-| `127b6718b7` | Close DecompressStream after layer is downloaded | Resource leak fix |
-| `31af08261a` | Fix container data deletion | Bugfix: layer store vs graphdriver sync |
-| `23bf0f1257` | Fix double locking in OOM event handling | Bugfix: potential deadlock |
-| `448ee8958a` | Add appropriate container locks to avoid races | Bugfix: race conditions |
+| New Commit | Original | Description | Notes |
+|------------|----------|-------------|-------|
+| `8f7bd4cd86` | `d84a0d64a7` | Allow passing container ID via environment variable | Adapted to v27 logging (logrus → log.G) |
+| `f063f93e40` | `f9d6ab2771` | graphdriver/copy: fix handling of sockets | Minor import conflict resolved |
+| `d72f5a59b3` | `31af08261a` | Fix container data deletion | Test imports updated for v27 |
+| `65cfe6f7d3` | `c98dfb4337` | aufs,overlay2: Add driver opts for disk sync | AUFS parts skipped (removed in v27) |
+| `b420d8fd3f` | `b770e18b05` | libnetwork: disable macvlan,overlay network drivers | Adapted to v27 driver registration API |
 
-#### Medium Priority
+#### Skipped - Already Applied Upstream ✅
 
-| Commit | Description | Impact |
-|--------|-------------|--------|
-| `c98dfb4337` | aufs,overlay2: Add driver opts for disk sync | Feature: configurable sync behavior |
-| `b770e18b05` | Disable macvlan,overlay,remote network drivers | Size reduction, attack surface |
-| `ddbc8580e2` | libnetwork: Fix sandbox cleanup | Bugfix: endpoint store sync on crash |
-| `3c1db95462` | libnetwork: Enable remote driver for `network create -d` | Feature: remote network driver |
+| Original | Description | Reason |
+|----------|-------------|--------|
+| `7ae8eb62e3` | Lock destination layers during delta | Already present in v27 codebase |
+| `127b6718b7` | Close DecompressStream after layer download | Already present in v27 codebase |
+
+#### Skipped - v27 Has Correct Implementation ✅
+
+| Original | Description | Reason |
+|----------|-------------|--------|
+| `23bf0f1257` | Fix double locking in OOM events | v27 already has correct locking |
+| `448ee8958a` | Container locks to avoid races | This commit INTRODUCED the bug that `23bf0f1257` fixed - regressive |
+
+#### Skipped - Incompatible with v27 ⚠️
+
+| Original | Description | Reason |
+|----------|-------------|--------|
+| `ddbc8580e2` | libnetwork: Fix sandbox cleanup | v27 libnetwork significantly restructured; needs fresh investigation |
+| `3c1db95462` | libnetwork: Enable remote driver | Complex conflicts with v27 driver registration; deferred |
 
 #### Low Priority (Test/CI Related)
 
@@ -897,23 +907,24 @@ These features exist in both branches but with different implementations:
 
 ### Recommendations
 
-#### Immediate (Before Release)
+#### Completed ✅
 
-1. **Port container ID environment variable** (`d84a0d64a7`) - This is a user-facing feature used by balena supervisor
-2. **Port socket handling fix** (`f9d6ab2771`) - Bugfix for storage migration edge case
-3. **Port delta layer locking** (`7ae8eb62e3`) - Race condition during delta creation
+1. ✅ **Container ID environment variable** (`d84a0d64a7`) - Ported as `8f7bd4cd86`
+2. ✅ **Socket handling fix** (`f9d6ab2771`) - Ported as `f063f93e40`
+3. ✅ **Delta layer locking** (`7ae8eb62e3`) - Already in v27 upstream
+4. ✅ **DecompressStream close** (`127b6718b7`) - Already in v27 upstream
+5. ✅ **Disable macvlan/overlay drivers** (`b770e18b05`) - Ported as `b420d8fd3f`
+6. ✅ **Container data deletion fix** (`31af08261a`) - Ported as `d72f5a59b3`
+7. ✅ **Disk sync options** (`c98dfb4337`) - Ported as `65cfe6f7d3`
 
-#### Short Term (Next Release)
+#### Not Needed ❌
 
-1. **Port OOM locking fixes** (`23bf0f1257`, `448ee8958a`) - Stability improvements
-2. **Port DecompressStream close** (`127b6718b7`) - Resource leak
-3. **Consider disabling macvlan/overlay drivers** (`b770e18b05`) - Reduces attack surface
+1. **OOM locking fixes** (`23bf0f1257`, `448ee8958a`) - v27 already has correct locking; `448ee8958a` was regressive
 
 #### Deferred (Evaluate Need)
 
-1. **Sandbox cleanup fix** (`ddbc8580e2`) - Investigate if still relevant for v27
-2. **Container data deletion fix** (`31af08261a`) - Investigate if still relevant for v27
-3. **Disk sync options** (`c98dfb4337`) - Feature, evaluate user demand
+1. **Sandbox cleanup fix** (`ddbc8580e2`) - v27 libnetwork significantly different; needs fresh investigation
+2. **Remote network driver** (`3c1db95462`) - Complex conflicts; evaluate user demand
 
 ### File-by-File Comparison
 
@@ -922,18 +933,20 @@ Key files and their patch status:
 | File | kyle Branch | v27 Branch | Status |
 |------|-------------|------------|--------|
 | `daemon/images/image_delta.go` | Full delta support | Full delta support | ✅ Match |
-| `distribution/xfer/download.go` | Delta + resilient pulls | Delta + resilient pulls | ⚠️ Missing DecompressStream close |
+| `distribution/xfer/download.go` | Delta + resilient pulls | Delta + resilient pulls | ✅ Match (upstream has fix) |
 | `daemon/health.go` | Restart on unhealthy | Restart on unhealthy | ✅ Match |
-| `libnetwork/drivers_linux.go` | Disabled macvlan/overlay | Enabled | ⚠️ Different |
-| `libnetwork/sandbox_store.go` | Crash recovery fix | Standard | ⚠️ Missing fix |
-| `daemon/graphdriver/copy/copy.go` | Socket handling fix | Standard | ⚠️ Missing fix |
-| `api/types/container/hostconfig.go` | ContainerIDEnv field | Standard | ⚠️ Missing feature |
+| `libnetwork/drivers_linux.go` | Disabled macvlan/overlay | Disabled macvlan/overlay | ✅ Match |
+| `libnetwork/sandbox_store.go` | Crash recovery fix | Standard | ⚠️ Needs investigation for v27 |
+| `daemon/graphdriver/copy/copy.go` | Socket handling fix | Socket handling fix | ✅ Match |
+| `api/types/container/hostconfig.go` | ContainerIDEnv field | ContainerIDEnv field | ✅ Match |
+| `daemon/graphdriver/overlay2/overlay.go` | syncDiffs option | syncDiffs option | ✅ Match |
 | `pkg/storagemigration/` | Full implementation | Full implementation | ✅ Match |
 | `cmd/mobynit/` | Full implementation | Full implementation | ✅ Match |
 
 ### Next Steps
 
-1. Create tracking issues for high-priority missing patches
-2. Port critical bugfixes before production release
-3. Evaluate feature requests based on user demand
-4. Update this document as patches are ported
+1. ✅ ~~Create tracking issues for high-priority missing patches~~ - Completed
+2. ✅ ~~Port critical bugfixes before production release~~ - Completed (January 2026)
+3. ⏳ Investigate sandbox cleanup fix (`ddbc8580e2`) for v27 compatibility
+4. ⏳ Evaluate remote network driver need based on user demand
+5. ⏳ Complete CI pipeline setup and release preparation

@@ -93,7 +93,7 @@ func TestLayerMigration(t *testing.T) {
 	}
 
 	newTarDataPath := filepath.Join(td, ".migration-tardata")
-	diffID, size, err := ls.(*layerStore).ChecksumForGraphID(graphID1, "", tf1, newTarDataPath)
+	diffID, size, err := ls.(*layerStore).ChecksumForGraphID(graphID1, "", newTarDataPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestLayerMigration(t *testing.T) {
 	if err := writeTarSplitFile(tf2, tar2); err != nil {
 		t.Fatal(err)
 	}
-	diffID, size, err = ls.(*layerStore).ChecksumForGraphID(graphID2, graphID1, tf2, newTarDataPath)
+	diffID, size, err = ls.(*layerStore).ChecksumForGraphID(graphID2, graphID1, newTarDataPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestLayerMigrationNoTarsplit(t *testing.T) {
 	}
 
 	newTarDataPath := filepath.Join(td, ".migration-tardata")
-	diffID, size, err := ls.(*layerStore).ChecksumForGraphID(graphID1, "", "", newTarDataPath)
+	diffID, size, err := ls.(*layerStore).ChecksumForGraphID(graphID1, "", newTarDataPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestLayerMigrationNoTarsplit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diffID, size, err = ls.(*layerStore).ChecksumForGraphID(graphID2, graphID1, "", newTarDataPath)
+	diffID, size, err = ls.(*layerStore).ChecksumForGraphID(graphID2, graphID1, newTarDataPath)
 	if err != nil {
 		t.Fatal(err)
 	}

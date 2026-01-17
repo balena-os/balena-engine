@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/docker/docker/daemon/graphdriver"
-	"github.com/docker/docker/pkg/containerfs"
 	"gotest.tools/v3/skip"
 )
 
@@ -57,7 +56,7 @@ func TestLayerStore_unreferencedDriverLayers(t *testing.T) {
 	createGraphDriverLayer(t, lStore, "test-leaked-layer2")
 
 	_, err := lStore.CreateRWLayer("test-container-1", "", &CreateRWLayerOpts{
-		InitFunc: func(root containerfs.ContainerFS) error {
+		InitFunc: func(root string) error {
 			return nil
 		}},
 	)
