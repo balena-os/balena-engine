@@ -1,7 +1,6 @@
 package container // import "github.com/docker/docker/integration/container"
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -14,10 +13,9 @@ import (
 )
 
 func TestContainerIDEnvOK(t *testing.T) {
-	defer setupTest(t)()
+	ctx := setupTest(t)
 
 	cidEnv := "CONTAINER_ID"
-	ctx := context.Background()
 	apiclient := testEnv.APIClient()
 
 	config := &testcontainer.TestContainerConfig{
@@ -40,10 +38,9 @@ func TestContainerIDEnvOK(t *testing.T) {
 }
 
 func TestContainerIDEnvVariableExists(t *testing.T) {
-	defer setupTest(t)()
+	ctx := setupTest(t)
 
 	cidEnv := "PATH"
-	ctx := context.Background()
 	apiclient := testEnv.APIClient()
 
 	config := &testcontainer.TestContainerConfig{

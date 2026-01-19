@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/testutil/daemon"
 
 	"golang.org/x/sys/unix"
@@ -64,11 +65,11 @@ func TestAufsToOverlay2Migration(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, info.Driver, "overlay2")
 
-	images, err := cl.ImageList(ctx, types.ImageListOptions{})
+	images, err := cl.ImageList(ctx, image.ListOptions{})
 	assert.NilError(t, err)
 	assert.Equal(t, len(images), 2)
 
-	containers, err := cl.ContainerList(ctx, types.ContainerListOptions{All: true})
+	containers, err := cl.ContainerList(ctx, container.ListOptions{All: true})
 	assert.NilError(t, err)
 	assert.Equal(t, len(containers), 0)
 

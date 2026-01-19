@@ -5,20 +5,11 @@ import (
 
 	"github.com/docker/cli/cli/command"
 	"github.com/docker/cli/cli/command/builder"
-	"github.com/docker/cli/cli/command/checkpoint"
-	"github.com/docker/cli/cli/command/config"
 	"github.com/docker/cli/cli/command/container"
-	"github.com/docker/cli/cli/command/context"
 	"github.com/docker/cli/cli/command/image"
 	"github.com/docker/cli/cli/command/manifest"
 	"github.com/docker/cli/cli/command/network"
-	"github.com/docker/cli/cli/command/node"
-	"github.com/docker/cli/cli/command/plugin"
 	"github.com/docker/cli/cli/command/registry"
-	"github.com/docker/cli/cli/command/secret"
-	"github.com/docker/cli/cli/command/service"
-	"github.com/docker/cli/cli/command/stack"
-	"github.com/docker/cli/cli/command/swarm"
 	"github.com/docker/cli/cli/command/system"
 	"github.com/docker/cli/cli/command/trust"
 	"github.com/docker/cli/cli/command/volume"
@@ -44,24 +35,13 @@ func AddCommands(cmd *cobra.Command, dockerCli command.Cli) {
 
 		// management commands
 		builder.NewBuilderCommand(dockerCli),
-		checkpoint.NewCheckpointCommand(dockerCli),
 		container.NewContainerCommand(dockerCli),
-		context.NewContextCommand(dockerCli),
 		image.NewImageCommand(dockerCli),
 		manifest.NewManifestCommand(dockerCli),
 		network.NewNetworkCommand(dockerCli),
-		plugin.NewPluginCommand(dockerCli),
 		system.NewSystemCommand(dockerCli),
 		trust.NewTrustCommand(dockerCli),
 		volume.NewVolumeCommand(dockerCli),
-
-		// orchestration (swarm) commands
-		config.NewConfigCommand(dockerCli),
-		node.NewNodeCommand(dockerCli),
-		secret.NewSecretCommand(dockerCli),
-		service.NewServiceCommand(dockerCli),
-		stack.NewStackCommand(dockerCli),
-		swarm.NewSwarmCommand(dockerCli),
 
 		// legacy commands may be hidden
 		hide(container.NewAttachCommand(dockerCli)),

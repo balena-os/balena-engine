@@ -13,10 +13,10 @@ This document explains the work done to port balena-engine from moby v23.0.18 to
 | Metric | Value |
 |--------|-------|
 | Base version | moby v27.5.1 |
-| Balena commits on top | 150 |
+| Balena commits on top | 150+ |
 | Original v23 balena commits | 211 |
 | Commits merged upstream | ~60 |
-| Binary size (static) | ~73MB |
+| Binary size (static, stripped) | ~55MB (amd64) |
 | Tested platforms | linux/amd64, linux/arm64 |
 
 ## Why v27 Instead of v28?
@@ -249,6 +249,114 @@ docker buildx bake --set '*.platform=linux/amd64' binary
 # Full test
 make test-unit
 make test-integration TEST_FILTER=TestDelta
+```
+
+## Current State: Swarm Code Removal
+
+### Why Swarm Was Removed
+
+v27 upstream includes full swarm support which pulls in `github.com/moby/swarmkit/v2` (~5MB of vendor code). Since balena-engine doesn't use swarm mode, this code was stubbed/removed to reduce binary size, matching the approach taken in v23.
+
+### What Was Changed
+
+#### 1. Daemon Swarm Code Stubbed
+
+**Files removed from `daemon/cluster/`:**
+- All files except `provider/network.go` (type definitions only)
+- Entire `executor/container/` directory
+- Entire `convert/` directory
+- Entire `controllers/` directory
+
+**Files stubbed:**
+- `daemon/cluster/executor/backend.go` - Reduced to only `ImageBackend` interface (no swarmkit import)
+- `daemon/secrets.go` - Removed `SetContainerDependencyStore()` function and swarmkit import
+
+**Directory deleted:**
+- `libnetwork/cnmallocator/` - Container Networking Model allocator for swarm networking
+
+#### 2. CLI Swarm Commands Removed
+
+**Files modified:**
+- `forks/balena-engine-cli/cli/command/commands/commands.go`
+- `vendor/github.com/docker/cli/cli/command/commands/commands.go`
+
+**Commands removed from CLI:**
+- `config` - Swarm config management
+- `node` - Swarm node management
+- `secret` - Swarm secret management
+- `service` - Swarm service management
+- `stack` - Swarm stack management
+- `swarm` - Swarm cluster management
+- `checkpoint` - Container checkpoint (depends on swarm)
+- `plugin` - Plugin management (not used)
+- `context` - Docker context (not needed for IoT)
+
+#### 3. Test Files Deleted
+
+**Swarm-related test files removed:**
+- `integration-cli/docker_cli_swarm_test.go`
+- `integration-cli/docker_api_swarm_test.go`
+- `integration-cli/docker_cli_service_health_test.go`
+
+### Size Impact
+
+| State | Binary Size (amd64) |
+|-------|---------------------|
+| Before stripping | ~70MB |
+| After stripping (`-s -w`) | ~61MB |
+| After swarm removal | ~55MB |
+
+Total reduction: ~15MB (~21% smaller)
+
+### Files Modified Summary
+
+```
+daemon/secrets.go                                    # Removed swarmkit import
+daemon/cluster/executor/backend.go                   # Stubbed to ImageBackend only
+daemon/cluster/provider/network.go                   # Kept (type definitions)
+forks/balena-engine-cli/cli/command/commands/commands.go  # Removed swarm commands
+vendor/github.com/docker/cli/cli/command/commands/commands.go  # Same
+```
+
+### Files/Directories Deleted
+
+```
+daemon/cluster/cluster.go
+daemon/cluster/configs.go
+daemon/cluster/errors.go
+daemon/cluster/filters.go
+daemon/cluster/helpers.go
+daemon/cluster/listen_addr*.go
+daemon/cluster/networks.go
+daemon/cluster/noderunner.go
+daemon/cluster/nodes.go
+daemon/cluster/secrets.go
+daemon/cluster/services.go
+daemon/cluster/swarm.go
+daemon/cluster/tasks.go
+daemon/cluster/utils.go
+daemon/cluster/volumes.go
+daemon/cluster/convert/
+daemon/cluster/controllers/
+daemon/cluster/executor/container/
+libnetwork/cnmallocator/
+integration-cli/docker_cli_swarm_test.go
+integration-cli/docker_api_swarm_test.go
+integration-cli/docker_cli_service_health_test.go
+```
+
+### Verification
+
+After swarm removal, verify no swarmkit in binary:
+```bash
+strings bundles/binary/balena-engine | grep -c "swarmkit"
+# Should return 0
+```
+
+Verify CLI doesn't have swarm commands:
+```bash
+./bundles/binary/balena-engine --help | grep -E "swarm|service|stack|node|secret|config"
+# Should return no matches
 ```
 
 ## References
