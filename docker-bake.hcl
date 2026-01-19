@@ -5,7 +5,7 @@ variable "DOCKER_STATIC" {
   default = "1"
 }
 variable "DOCKER_LDFLAGS" {
-  default = ""
+  default = "-s -w"  # -s: strip symbol table, -w: strip DWARF debug info
 }
 variable "DOCKER_BUILDTAGS" {
   default = "apparmor seccomp no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs"
