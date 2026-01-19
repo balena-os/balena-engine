@@ -320,6 +320,7 @@ vendor/github.com/docker/cli/cli/command/commands/commands.go  # Same
 
 ### Files/Directories Deleted
 
+**Daemon files:**
 ```
 daemon/cluster/cluster.go
 daemon/cluster/configs.go
@@ -339,11 +340,36 @@ daemon/cluster/volumes.go
 daemon/cluster/convert/
 daemon/cluster/controllers/
 daemon/cluster/executor/container/
+daemon/oci_windows_test.go
 libnetwork/cnmallocator/
+```
+
+**CLI command packages (from both forks/ and vendor/):**
+```
+cli/command/config/
+cli/command/idresolver/
+cli/command/node/
+cli/command/secret/
+cli/command/service/
+cli/command/stack/
+cli/command/swarm/
+cli/command/task/
+```
+
+**Test files:**
+```
 integration-cli/docker_cli_swarm_test.go
 integration-cli/docker_api_swarm_test.go
 integration-cli/docker_cli_service_health_test.go
 ```
+
+**Vendor directories:**
+```
+vendor/github.com/moby/swarmkit/    # 5MB swarmkit library
+```
+
+**Vendor.mod changes:**
+- Removed `github.com/moby/swarmkit/v2` from require section
 
 ### Verification
 
