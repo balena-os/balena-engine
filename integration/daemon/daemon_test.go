@@ -80,11 +80,7 @@ func TestDaemonConfigValidation(t *testing.T) {
 	assert.NilError(t, err)
 	params := []string{"--validate", "--config-file"}
 
-	dest := os.Getenv("DOCKER_INTEGRATION_DAEMON_DEST")
-	if dest == "" {
-		dest = os.Getenv("DEST")
-	}
-	testdata := filepath.Join(dest, "..", "..", "integration", "daemon", "testdata")
+	testdata := "testdata"
 
 	const (
 		validOut  = "configuration OK"
