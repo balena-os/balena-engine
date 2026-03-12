@@ -37,6 +37,7 @@ import (
 	"github.com/containerd/containerd/plugin"
 	"github.com/containerd/containerd/protobuf"
 	"github.com/containerd/containerd/protobuf/proto"
+	"github.com/containerd/containerd/runtime/v2/balena"
 	"github.com/containerd/containerd/version"
 	"github.com/containerd/ttrpc"
 	"github.com/sirupsen/logrus"
@@ -396,7 +397,7 @@ func run(ctx context.Context, manager Manager, initFunc Init, name string, confi
 
 		ttrpcUnaryInterceptors = []ttrpc.UnaryServerInterceptor{}
 	)
-	plugins := plugin.Graph(func(*plugin.Registration) bool { return false })
+	plugins := plugin.Graph(balena.DisableShimPlugins)
 	for _, p := range plugins {
 		id := p.URI()
 		log.G(ctx).WithField("type", p.Type).Infof("loading plugin %q...", id)

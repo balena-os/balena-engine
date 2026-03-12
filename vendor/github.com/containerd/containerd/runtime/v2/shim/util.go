@@ -29,12 +29,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/containerd/pkg/atomicfile"
+	"github.com/containerd/containerd/runtime/v2/balena"
 	"github.com/containerd/ttrpc"
 	"github.com/containerd/typeurl/v2"
 
 	"github.com/containerd/containerd/errdefs"
-	"github.com/containerd/containerd/namespaces"
-	"github.com/containerd/containerd/pkg/atomicfile"
 	"github.com/containerd/containerd/protobuf/proto"
 	"github.com/containerd/containerd/protobuf/types"
 )
@@ -55,7 +56,7 @@ func Command(ctx context.Context, config *CommandConfig) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	self, err := os.Executable()
+	self, err := balena.Executable()
 	if err != nil {
 		return nil, err
 	}
