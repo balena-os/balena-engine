@@ -132,6 +132,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.18.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.21.7 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.26.7 // indirect
+	github.com/balena-os/circbuf v0.1.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.13.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.1 // indirect
@@ -224,7 +225,10 @@ require (
 	tags.cncf.io/container-device-interface/specs-go v0.6.0 // indirect
 )
 
-require github.com/moby/sys/userns v0.1.0 // indirect
+require (
+	github.com/balena-os/librsync-go v0.9.0
+	github.com/moby/sys/userns v0.1.0 // indirect
+)
 
 replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260312152543-c69d1a3f4104
 

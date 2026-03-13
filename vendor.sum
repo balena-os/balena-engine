@@ -947,6 +947,10 @@ github.com/balena-os/balena-containerd v1.7.13-0.20260312152543-c69d1a3f4104 h1:
 github.com/balena-os/balena-containerd v1.7.13-0.20260312152543-c69d1a3f4104/go.mod h1:/5OMpE1p0ylxtEUGY8kuCYkDRzJm9NO1TFMWjUpdevk=
 github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03 h1:KAVH48GAeb2cKGuVWDayWw7WnSsat/RX9JOVWKwdyBM=
 github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03/go.mod h1:cC0YkmZcuvr+rtBZ6T7NBoVbMGNAdLa/21vIElJDOzI=
+github.com/balena-os/circbuf v0.1.3 h1:pLkTha46mQ2FOfB4l9sz4fckt8oorpVSWIp6N3xW+wE=
+github.com/balena-os/circbuf v0.1.3/go.mod h1:D8R+zPJf/Sfd43NP++rdNfGAf7KefcKG1b6k2Ww0ZzU=
+github.com/balena-os/librsync-go v0.9.0 h1:BpkzPLY9167oydsffqTyTmWoJFI/yZW4ESY9BvS6MMY=
+github.com/balena-os/librsync-go v0.9.0/go.mod h1:66OAWSdBh+x2Vh1KXFZiQJ7womKOO+qOYO3fYyALgxA=
 github.com/benbjohnson/clock v1.1.0 h1:Q92kusRqC1XV2MjkWETPvjJVqKetz1OzxZB7mHJLju8=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=
 github.com/beorn7/perks v0.0.0-20160804104726-4c0e84591b9a/go.mod h1:Dwedo/Wpr24TaqPxmxbtue+5NUziq4I4S80YR8gNf3Q=

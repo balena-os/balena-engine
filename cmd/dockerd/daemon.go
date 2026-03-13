@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker/api/server/router"
 	"github.com/docker/docker/api/server/router/build"
 	"github.com/docker/docker/api/server/router/container"
+	deltarouter "github.com/docker/docker/api/server/router/delta"
 	distributionrouter "github.com/docker/docker/api/server/router/distribution"
 	grpcrouter "github.com/docker/docker/api/server/router/grpc"
 	"github.com/docker/docker/api/server/router/image"
@@ -664,6 +665,7 @@ func (opts routerOptions) Build() []router.Router {
 			opts.daemon.ImageService().DistributionServices().ImageStore,
 			opts.daemon.ImageService().DistributionServices().LayerStore,
 		),
+		deltarouter.NewRouter(opts.daemon.ImageService()),
 		systemrouter.NewRouter(opts.daemon, nil, opts.buildkit, opts.daemon.Features),
 		volume.NewRouter(opts.daemon.VolumesService(), nil),
 		build.NewRouter(opts.buildBackend, opts.daemon),

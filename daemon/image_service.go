@@ -72,6 +72,10 @@ type ImageService interface {
 	MakeImageCache(ctx context.Context, cacheFrom []string) (builder.ImageCache, error)
 	CommitBuildStep(ctx context.Context, c backend.CommitConfig) (image.ID, error)
 
+	// Deltas
+
+	DeltaCreate(deltaSrc, deltaDest string, options types.ImageDeltaOptions, outStream io.Writer) error
+
 	// Other
 
 	DistributionServices() images.DistributionServices
