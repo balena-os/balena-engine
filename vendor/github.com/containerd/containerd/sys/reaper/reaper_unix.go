@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -94,6 +95,22 @@ type Monitor struct {
 func (m *Monitor) Start(c *exec.Cmd) (chan runc.Exit, error) {
 	ec := m.Subscribe()
 	if err := c.Start(); err != nil {
+		m.Unsubscribe(ec)
+		return nil, err
+	}
+	return ec, nil
+}
+
+// StartLocked is like Start but locks the goroutine to the OS thread.
+func (m *Monitor) StartLocked(c *exec.Cmd) (chan runc.Exit, error) {
+	ec := m.Subscribe()
+	started := make(chan error)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		started <- c.Start()
+	}()
+	if err := <-started; err != nil {
 		m.Unsubscribe(ec)
 		return nil, err
 	}

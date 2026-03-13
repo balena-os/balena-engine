@@ -275,7 +275,7 @@ require (
 	github.com/moby/sys/userns v0.1.0 // indirect
 )
 
-replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260312152543-c69d1a3f4104
+replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260313225604-306362b5aaac
 
 replace github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03
 
