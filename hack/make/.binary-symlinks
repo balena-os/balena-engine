@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -e
+
+symlink_binaries() {
+    local bin="$1"
+    local dest="$2"
+
+    if [ ! -f "$dest/$bin" ]; then
+        echo "Skipping symlinks: $dest/$bin not found (multicall binary not built)"
+        return
+    fi
+
+    binaries=(
+        balenad
+        balena-engine-daemon
+        balena-engine-containerd
+        balena-engine-containerd-ctr
+        balena-engine-runc
+        balena-engine-proxy
+        balena-containerd-shim-runc-v2
+    )
+
+    for file in "${binaries[@]}"; do
+            ln -sf "$bin" "$dest/$file"
+    done
+}
+
+symlink_binaries balena-engine "$DEST"

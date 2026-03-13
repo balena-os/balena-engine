@@ -7,5 +7,7 @@ rm -rf "$DEST"
 	DEST="${DEST}-daemon"
 	ABS_DEST="${ABS_DEST}-daemon"
 	. hack/make/binary-daemon
-	. hack/make/binary-proxy
+	# balena-engine-proxy is a symlink to the balena-engine multicall binary
+	# so we don't need to build a standalone binary-proxy
+	. hack/make/.binary-symlinks
 )
