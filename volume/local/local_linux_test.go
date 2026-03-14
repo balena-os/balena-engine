@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && !exclude_disk_quota && cgo
 
 package local // import "github.com/docker/docker/volume/local"
 
