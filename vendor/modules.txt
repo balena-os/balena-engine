@@ -249,21 +249,11 @@ github.com/cilium/ebpf/internal/unix
 github.com/cilium/ebpf/link
 # github.com/cloudflare/cfssl v1.6.4
 ## explicit; go 1.18
-github.com/cloudflare/cfssl/api
-github.com/cloudflare/cfssl/auth
-github.com/cloudflare/cfssl/certdb
-github.com/cloudflare/cfssl/config
 github.com/cloudflare/cfssl/crypto/pkcs7
-github.com/cloudflare/cfssl/csr
 github.com/cloudflare/cfssl/errors
 github.com/cloudflare/cfssl/helpers
 github.com/cloudflare/cfssl/helpers/derhelpers
-github.com/cloudflare/cfssl/info
-github.com/cloudflare/cfssl/initca
 github.com/cloudflare/cfssl/log
-github.com/cloudflare/cfssl/ocsp/config
-github.com/cloudflare/cfssl/signer
-github.com/cloudflare/cfssl/signer/local
 # github.com/container-orchestrated-devices/container-device-interface v0.6.1
 ## explicit; go 1.17
 github.com/container-orchestrated-devices/container-device-interface/internal/multierror
@@ -295,7 +285,7 @@ github.com/containerd/cgroups/v3/cgroup2/stats
 # github.com/containerd/console v1.0.5
 ## explicit; go 1.13
 github.com/containerd/console
-# github.com/containerd/containerd v1.7.12 => github.com/balena-os/balena-containerd v1.7.13-0.20260313225604-306362b5aaac
+# github.com/containerd/containerd v1.7.12 => github.com/balena-os/balena-containerd v1.7.13-0.20260330175147-b45fa1f9313a
 ## explicit; go 1.19
 github.com/containerd/containerd
 github.com/containerd/containerd/api/events
@@ -866,9 +856,6 @@ github.com/google/btree
 ## explicit; go 1.17
 github.com/google/certificate-transparency-go
 github.com/google/certificate-transparency-go/asn1
-github.com/google/certificate-transparency-go/client
-github.com/google/certificate-transparency-go/client/configpb
-github.com/google/certificate-transparency-go/jsonclient
 github.com/google/certificate-transparency-go/tls
 github.com/google/certificate-transparency-go/x509
 github.com/google/certificate-transparency-go/x509/pkix
@@ -985,9 +972,6 @@ github.com/intel/goresctrl/pkg/utils
 # github.com/ishidawataru/sctp v0.0.0-20230406120618-7ff4192f6ff2
 ## explicit; go 1.12
 github.com/ishidawataru/sctp
-# github.com/jmoiron/sqlx v1.3.3
-## explicit; go 1.10
-github.com/jmoiron/sqlx/types
 # github.com/json-iterator/go v1.1.12
 ## explicit; go 1.12
 github.com/json-iterator/go
@@ -1213,14 +1197,10 @@ github.com/moby/swarmkit/v2/api
 github.com/moby/swarmkit/v2/api/deepcopy
 github.com/moby/swarmkit/v2/api/equality
 github.com/moby/swarmkit/v2/api/naming
-github.com/moby/swarmkit/v2/ca
-github.com/moby/swarmkit/v2/ca/keyutils
-github.com/moby/swarmkit/v2/ca/pkcs8
 github.com/moby/swarmkit/v2/connectionbroker
 github.com/moby/swarmkit/v2/identity
 github.com/moby/swarmkit/v2/internal/csi/capability
 github.com/moby/swarmkit/v2/internal/idm
-github.com/moby/swarmkit/v2/ioutils
 github.com/moby/swarmkit/v2/log
 github.com/moby/swarmkit/v2/manager/allocator
 github.com/moby/swarmkit/v2/manager/allocator/networkallocator
@@ -1478,9 +1458,6 @@ github.com/vishvananda/netlink/nl
 # github.com/vishvananda/netns v0.0.4
 ## explicit; go 1.17
 github.com/vishvananda/netns
-# github.com/weppos/publicsuffix-go v0.15.1-0.20210511084619-b1f36a2d6c0b
-## explicit; go 1.11
-github.com/weppos/publicsuffix-go/publicsuffix
 # github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb
 ## explicit
 github.com/xeipuuv/gojsonpointer
@@ -1490,27 +1467,6 @@ github.com/xeipuuv/gojsonreference
 # github.com/xeipuuv/gojsonschema v1.2.0
 ## explicit
 github.com/xeipuuv/gojsonschema
-# github.com/zmap/zcrypto v0.0.0-20210511125630-18f1e0152cfc
-## explicit; go 1.16
-github.com/zmap/zcrypto/dsa
-github.com/zmap/zcrypto/internal/randutil
-github.com/zmap/zcrypto/json
-github.com/zmap/zcrypto/util
-github.com/zmap/zcrypto/x509
-github.com/zmap/zcrypto/x509/ct
-github.com/zmap/zcrypto/x509/pkix
-# github.com/zmap/zlint/v3 v3.1.0
-## explicit; go 1.15
-github.com/zmap/zlint/v3
-github.com/zmap/zlint/v3/lint
-github.com/zmap/zlint/v3/lints/apple
-github.com/zmap/zlint/v3/lints/cabf_br
-github.com/zmap/zlint/v3/lints/cabf_ev
-github.com/zmap/zlint/v3/lints/community
-github.com/zmap/zlint/v3/lints/etsi
-github.com/zmap/zlint/v3/lints/mozilla
-github.com/zmap/zlint/v3/lints/rfc
-github.com/zmap/zlint/v3/util
 # go.etcd.io/bbolt v1.3.7
 ## explicit; go 1.17
 go.etcd.io/bbolt
@@ -1647,7 +1603,6 @@ golang.org/x/mod/semver
 ## explicit; go 1.18
 golang.org/x/net/bpf
 golang.org/x/net/context
-golang.org/x/net/context/ctxhttp
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
 golang.org/x/net/http2/hpack
@@ -2036,6 +1991,6 @@ tags.cncf.io/container-device-interface/pkg/parser
 # tags.cncf.io/container-device-interface/specs-go v0.6.0
 ## explicit; go 1.19
 tags.cncf.io/container-device-interface/specs-go
-# github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260313225604-306362b5aaac
+# github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260330175147-b45fa1f9313a
 # github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03
 # github.com/docker/cli => github.com/balena-os/balena-engine-cli v25.0.3-0.20260312154932-772ba939846e+incompatible

@@ -191,7 +191,6 @@ require (
 	github.com/in-toto/in-toto-golang v0.5.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/intel/goresctrl v0.3.0 // indirect
-	github.com/jmoiron/sqlx v1.3.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/mattn/go-runewidth v0.0.13 // indirect
@@ -231,12 +230,9 @@ require (
 	github.com/tonistiigi/units v0.0.0-20180711220420-6950e57a87ea // indirect
 	github.com/tonistiigi/vt100 v0.0.0-20230623042737-f9a4f7ef6531 // indirect
 	github.com/urfave/cli v1.22.14 // indirect
-	github.com/weppos/publicsuffix-go v0.15.1-0.20210511084619-b1f36a2d6c0b // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
-	github.com/zmap/zcrypto v0.0.0-20210511125630-18f1e0152cfc // indirect
-	github.com/zmap/zlint/v3 v3.1.0 // indirect
 	go.etcd.io/etcd/raft/v3 v3.5.6 // indirect
 	go.mozilla.org/pkcs7 v0.0.0-20200128120323-432b2356ecb1 // indirect
 	go.opencensus.io v0.24.0 // indirect
@@ -275,7 +271,7 @@ require (
 	github.com/moby/sys/userns v0.1.0 // indirect
 )
 
-replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260313225604-306362b5aaac
+replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260330175147-b45fa1f9313a
 
 replace github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03
 
