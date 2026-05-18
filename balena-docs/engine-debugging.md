@@ -1,4 +1,4 @@
-### 9. Working with balenaEngine
+# Working with balenaEngine
 
 Service: `balena.service`
 
@@ -91,7 +91,7 @@ Aug 19 18:24:40 debug-device e593ab6439fe[4543]: [success] Device state apply su
 Aug 19 18:24:49 debug-device e593ab6439fe[4543]: [info]    Internet Connectivity: OK
 ```
 
-#### 9.1 Service Image, Container and Volume Locations
+## Service Image, Container and Volume Locations
 
 balenaEngine stores all its writeable data in the `/var/lib/docker` directory,
 which is part of the data partition. We can see this by using the `mount`
@@ -429,7 +429,7 @@ root@debug-device:/var/lib/docker/image/overlay2/layerdb/mounts# cat /var/lib/do
 This is a new, container-only writeable file!
 ```
 
-#### 9.2 Restarting balenaEngine
+## Restarting balenaEngine
 
 As with the Supervisor, it's very rare to actually need to carry this out.
 However, for completeness, should you need to, this again is as simple as
@@ -486,7 +486,7 @@ One example could be due to corruption in the `/var/lib/docker` directory, usual
 Many examples of these are documented in the support knowledge base, so we will
 not delve into them here.
 
-#### 9.3 Quick Troubleshooting Tips
+## Quick Troubleshooting Tips
 
 Here are some quick tips we have found useful when troubleshooting balenaEngine
 issues.
