@@ -1,8 +1,8 @@
 module github.com/moby/sys/mount
 
-go 1.16
+go 1.18
 
 require (
-	github.com/moby/sys/mountinfo v0.5.0
-	golang.org/x/sys v0.0.0-20211025201205-69cdffdb9359
+	github.com/moby/sys/mountinfo v0.7.2
+	golang.org/x/sys v0.1.0
 )

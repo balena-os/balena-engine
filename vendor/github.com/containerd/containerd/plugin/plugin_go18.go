@@ -19,7 +19,7 @@
 
 package plugin
 
-func loadPlugins(path string) error {
+func loadPlugins(path string) (int, error) {
 	// no plugin support to avoid binary size costs in balena
-	return nil
+	return 0, nil
 }

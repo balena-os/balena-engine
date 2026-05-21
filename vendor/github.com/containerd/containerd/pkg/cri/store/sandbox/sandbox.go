@@ -125,8 +125,8 @@ func (s *Store) List() []Sandbox {
 }
 
 func (s *Store) UpdateContainerStats(id string, newContainerStats *stats.ContainerStats) error {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	id, err := s.idIndex.Get(id)
 	if err != nil {
 		if err == truncindex.ErrNotExist {
@@ -156,6 +156,6 @@ func (s *Store) Delete(id string) {
 		return
 	}
 	s.labels.Release(s.sandboxes[id].ProcessLabel)
-	s.idIndex.Delete(id) // nolint: errcheck
+	s.idIndex.Delete(id)
 	delete(s.sandboxes, id)
 }

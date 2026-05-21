@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
+	"k8s.io/klog/v2"
+
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/api/services/containers/v1"
 	"github.com/containerd/containerd/api/services/diff/v1"
@@ -31,17 +34,14 @@ import (
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/leases"
 	"github.com/containerd/containerd/log"
-	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/plugin"
-	"github.com/containerd/containerd/services"
-	"github.com/containerd/containerd/snapshots"
-	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
-	"github.com/sirupsen/logrus"
-	"k8s.io/klog/v2"
-
 	criconfig "github.com/containerd/containerd/pkg/cri/config"
 	"github.com/containerd/containerd/pkg/cri/constants"
 	"github.com/containerd/containerd/pkg/cri/server"
+	"github.com/containerd/containerd/platforms"
+	"github.com/containerd/containerd/plugin"
+	"github.com/containerd/containerd/services"
+	"github.com/containerd/containerd/services/warning"
+	"github.com/containerd/containerd/snapshots"
 )
 
 // Register CRI service plugin
@@ -54,6 +54,7 @@ func init() {
 		Requires: []plugin.Type{
 			plugin.EventPlugin,
 			plugin.ServicePlugin,
+			plugin.WarningPlugin,
 		},
 		InitFn: initCRIService,
 	})
@@ -64,8 +65,18 @@ func initCRIService(ic *plugin.InitContext) (interface{}, error) {
 	ic.Meta.Exports = map[string]string{"CRIVersion": constants.CRIVersion, "CRIVersionAlpha": constants.CRIVersionAlpha}
 	ctx := ic.Context
 	pluginConfig := ic.Config.(*criconfig.PluginConfig)
-	if err := criconfig.ValidatePluginConfig(ctx, pluginConfig); err != nil {
+	ws, err := ic.Get(plugin.WarningPlugin)
+	if err != nil {
+		return nil, err
+	}
+	warn := ws.(warning.Service)
+
+	if warnings, err := criconfig.ValidatePluginConfig(ctx, pluginConfig); err != nil {
 		return nil, fmt.Errorf("invalid plugin config: %w", err)
+	} else if len(warnings) > 0 {
+		for _, w := range warnings {
+			warn.Emit(ctx, w)
+		}
 	}
 
 	c := criconfig.Config{
@@ -97,13 +108,15 @@ func initCRIService(ic *plugin.InitContext) (interface{}, error) {
 		return nil, fmt.Errorf("failed to create containerd client: %w", err)
 	}
 
-	s, err := server.NewCRIService(c, client)
+	s, err := server.NewCRIService(c, client, warn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CRI service: %w", err)
 	}
 
+	// RegisterReadiness() must be called after NewCRIService(): https://github.com/containerd/containerd/issues/9163
+	ready := ic.RegisterReadiness()
 	go func() {
-		if err := s.Run(); err != nil {
+		if err := s.Run(ready); err != nil {
 			log.G(ctx).WithError(err).Fatal("Failed to run CRI service")
 		}
 		// TODO(random-liu): Whether and how we can stop containerd.
@@ -173,24 +186,21 @@ func getServicesOpts(ic *plugin.InitContext) ([]containerd.ServicesOpt, error) {
 
 // Set glog level.
 func setGLogLevel() error {
-	l := logrus.GetLevel()
+	l := log.GetLevel()
 	fs := flag.NewFlagSet("klog", flag.PanicOnError)
 	klog.InitFlags(fs)
 	if err := fs.Set("logtostderr", "true"); err != nil {
 		return err
 	}
 	switch l {
-	case logrus.TraceLevel:
+	case log.TraceLevel:
 		return fs.Set("v", "5")
-	case logrus.DebugLevel:
+	case log.DebugLevel:
 		return fs.Set("v", "4")
-	case logrus.InfoLevel:
+	case log.InfoLevel:
 		return fs.Set("v", "2")
-	// glog doesn't support following filters. Defaults to v=0.
-	case logrus.WarnLevel:
-	case logrus.ErrorLevel:
-	case logrus.FatalLevel:
-	case logrus.PanicLevel:
+	default:
+		// glog doesn't support other filters. Defaults to v=0.
 	}
 	return nil
 }

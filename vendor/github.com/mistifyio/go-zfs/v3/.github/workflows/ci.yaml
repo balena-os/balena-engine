@@ -1,0 +1,40 @@
+name: For each commit and PR
+on:
+  push:
+  pull_request:
+
+jobs:
+  validation:
+    runs-on: [ubuntu-latest]
+    env:
+      CGO_ENABLED: 0
+    steps:
+      - name: Setup Dynamic Env
+        run: |
+          echo "MAKEFLAGS=-j$(nproc)" | tee $GITHUB_ENV
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install nix
+        uses: cachix/install-nix-action@018abf956a0a15673dae4932ae26f0f071ac0944
+        with:
+          nix_path: nixpkgs=channel:nixpkgs-unstable
+
+      - name: Fetch Nix Derivations
+        run: nix-shell --command true
+
+      - name: Install Go tools
+        run: nix-shell --run 'make tools'
+
+      - name: Linters and Go Formatting
+        run: nix-shell --run 'make verify'
+
+      - name: Non Go Formatters
+        run: ./.github/workflows/formatters.sh
+
+      - name: Install ZFS
+        run: sudo apt-get -y update && sudo apt-get -y install zfsutils-linux
+
+      - name: Tests
+        run: nix-shell --run 'sudo make test'

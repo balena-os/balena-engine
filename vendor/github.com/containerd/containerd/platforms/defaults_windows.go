@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Microsoft/hcsshim/osversion"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sys/windows"
@@ -46,12 +47,37 @@ type matchComparer struct {
 
 // Match matches platform with the same windows major, minor
 // and build version.
-func (m matchComparer) Match(p imagespec.Platform) bool {
-	if m.defaults.Match(p) {
-		// TODO(windows): Figure out whether OSVersion is deprecated.
-		return strings.HasPrefix(p.OSVersion, m.osVersionPrefix)
+func (m matchComparer) Match(p specs.Platform) bool {
+	match := m.defaults.Match(p)
+
+	if match && p.OS == "windows" {
+		// HPC containers do not have OS version filled
+		if p.OSVersion == "" {
+			return true
+		}
+
+		hostOsVersion := getOSVersion(m.osVersionPrefix)
+		ctrOsVersion := getOSVersion(p.OSVersion)
+		return osversion.CheckHostAndContainerCompat(hostOsVersion, ctrOsVersion)
 	}
 	return false
+}
+
+func getOSVersion(osVersionPrefix string) osversion.OSVersion {
+	parts := strings.Split(osVersionPrefix, ".")
+	if len(parts) < 3 {
+		return osversion.OSVersion{}
+	}
+
+	majorVersion, _ := strconv.Atoi(parts[0])
+	minorVersion, _ := strconv.Atoi(parts[1])
+	buildNumber, _ := strconv.Atoi(parts[2])
+
+	return osversion.OSVersion{
+		MajorVersion: uint8(majorVersion),
+		MinorVersion: uint8(minorVersion),
+		Build:        uint16(buildNumber),
+	}
 }
 
 // Less sorts matched platforms in front of other platforms.

@@ -89,6 +89,15 @@ func NewPoolDevice(ctx context.Context, config *Config) (*PoolDevice, error) {
 	return poolDevice, nil
 }
 
+func skipRetry(err error) bool {
+	if err == nil {
+		return true // skip retry if no error
+	} else if !errors.Is(err, unix.EBUSY) {
+		return true // skip retry if error is not due to device or resource busy
+	}
+	return false
+}
+
 func retry(ctx context.Context, f func() error) error {
 	var (
 		maxRetries = 100
@@ -98,9 +107,8 @@ func retry(ctx context.Context, f func() error) error {
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		retryErr = f()
-		if retryErr == nil {
-			return nil
-		} else if retryErr != unix.EBUSY {
+
+		if skipRetry(retryErr) {
 			return retryErr
 		}
 
@@ -484,7 +492,9 @@ func (p *PoolDevice) IsLoaded(deviceName string) bool {
 // GetUsage reports total size in bytes consumed by a thin-device.
 // It relies on the number of used blocks reported by 'dmsetup status'.
 // The output looks like:
-//  device2: 0 204800 thin 17280 204799
+//
+//	device2: 0 204800 thin 17280 204799
+//
 // Where 17280 is the number of used sectors
 func (p *PoolDevice) GetUsage(deviceName string) (int64, error) {
 	status, err := dmsetup.Status(deviceName)

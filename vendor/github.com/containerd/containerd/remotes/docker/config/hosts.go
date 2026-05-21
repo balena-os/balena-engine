@@ -99,6 +99,27 @@ func ConfigureHosts(ctx context.Context, options HostOptions) docker.RegistryHos
 			if host == "docker.io" {
 				hosts[len(hosts)-1].scheme = "https"
 				hosts[len(hosts)-1].host = "registry-1.docker.io"
+			} else if docker.IsLocalhost(host) {
+				hosts[len(hosts)-1].host = host
+				if options.DefaultScheme == "" {
+					_, port, _ := net.SplitHostPort(host)
+					if port == "" || port == "443" {
+						// If port is default or 443, only use https
+						hosts[len(hosts)-1].scheme = "https"
+					} else {
+						// HTTP fallback logic will be used when protocol is ambiguous
+						hosts[len(hosts)-1].scheme = "http"
+					}
+
+					// When port is 80, protocol is not ambiguous
+					if port != "80" {
+						// Skipping TLS verification for localhost
+						var skipVerify = true
+						hosts[len(hosts)-1].skipVerify = &skipVerify
+					}
+				} else {
+					hosts[len(hosts)-1].scheme = options.DefaultScheme
+				}
 			} else {
 				hosts[len(hosts)-1].host = host
 				if options.DefaultScheme != "" {
@@ -111,8 +132,13 @@ func ConfigureHosts(ctx context.Context, options HostOptions) docker.RegistryHos
 			hosts[len(hosts)-1].capabilities = docker.HostCapabilityPull | docker.HostCapabilityResolve | docker.HostCapabilityPush
 		}
 
+		// tlsConfigured indicates that TLS was configured and HTTP endpoints should
+		// attempt to use the TLS configuration before falling back to HTTP
+		var tlsConfigured bool
+
 		var defaultTLSConfig *tls.Config
 		if options.DefaultTLS != nil {
+			tlsConfigured = true
 			defaultTLSConfig = options.DefaultTLS
 		} else {
 			defaultTLSConfig = &tls.Config{}
@@ -150,14 +176,11 @@ func ConfigureHosts(ctx context.Context, options HostOptions) docker.RegistryHos
 
 		rhosts := make([]docker.RegistryHost, len(hosts))
 		for i, host := range hosts {
-
-			rhosts[i].Scheme = host.scheme
-			rhosts[i].Host = host.host
-			rhosts[i].Path = host.path
-			rhosts[i].Capabilities = host.capabilities
-			rhosts[i].Header = host.header
+			// Allow setting for each host as well
+			explicitTLS := tlsConfigured
 
 			if host.caCerts != nil || host.clientPairs != nil || host.skipVerify != nil {
+				explicitTLS = true
 				tr := defaultTransport.Clone()
 				tlsConfig := tr.TLSClientConfig
 				if host.skipVerify != nil {
@@ -221,6 +244,27 @@ func ConfigureHosts(ctx context.Context, options HostOptions) docker.RegistryHos
 				rhosts[i].Client = client
 				rhosts[i].Authorizer = authorizer
 			}
+
+			// When TLS has been configured for the operation or host and
+			// the protocol from the port number is ambiguous, use the
+			// docker.HTTPFallback roundtripper to catch TLS errors and re-attempt the
+			// request as http. This allows preference for https when configured but
+			// also catches TLS errors early enough in the request to avoid sending
+			// the request twice or consuming the request body.
+			if host.scheme == "http" && explicitTLS {
+				_, port, _ := net.SplitHostPort(host.host)
+				if port != "" && port != "80" {
+					log.G(ctx).WithField("host", host.host).Info("host will try HTTPS first since it is configured for HTTP with a TLS configuration, consider changing host to HTTPS or removing unused TLS configuration")
+					host.scheme = "https"
+					rhosts[i].Client.Transport = docker.HTTPFallback{RoundTripper: rhosts[i].Client.Transport}
+				}
+			}
+
+			rhosts[i].Scheme = host.scheme
+			rhosts[i].Host = host.host
+			rhosts[i].Path = host.path
+			rhosts[i].Capabilities = host.capabilities
+			rhosts[i].Header = host.header
 		}
 
 		return rhosts, nil
@@ -530,13 +574,13 @@ func makeAbsPath(p string, base string) string {
 
 // loadCertsDir loads certs from certsDir like "/etc/docker/certs.d" .
 // Compatible with Docker file layout
-// - files ending with ".crt" are treated as CA certificate files
-// - files ending with ".cert" are treated as client certificates, and
-//   files with the same name but ending with ".key" are treated as the
-//   corresponding private key.
-//   NOTE: If a ".key" file is missing, this function will just return
-//   the ".cert", which may contain the private key. If the ".cert" file
-//   does not contain the private key, the caller should detect and error.
+//   - files ending with ".crt" are treated as CA certificate files
+//   - files ending with ".cert" are treated as client certificates, and
+//     files with the same name but ending with ".key" are treated as the
+//     corresponding private key.
+//     NOTE: If a ".key" file is missing, this function will just return
+//     the ".cert", which may contain the private key. If the ".cert" file
+//     does not contain the private key, the caller should detect and error.
 func loadCertFiles(ctx context.Context, certsDir string) ([]hostConfig, error) {
 	fs, err := os.ReadDir(certsDir)
 	if err != nil && !os.IsNotExist(err) {

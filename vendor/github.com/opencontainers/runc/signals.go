@@ -98,9 +98,15 @@ func (h *signalHandler) forward(process *libcontainer.Process, tty *tty, detach 
 					return e.status, nil
 				}
 			}
+		case unix.SIGURG:
+			// SIGURG is used by go runtime for async preemptive
+			// scheduling, so runc receives it from time to time,
+			// and it should not be forwarded to the container.
+			// Do nothing.
 		default:
-			logrus.Debugf("sending signal to process %s", s)
-			if err := unix.Kill(pid1, s.(unix.Signal)); err != nil {
+			us := s.(unix.Signal)
+			logrus.Debugf("forwarding signal %d (%s) to %d", int(us), unix.SignalName(us), pid1)
+			if err := unix.Kill(pid1, us); err != nil {
 				logrus.Error(err)
 			}
 		}
@@ -118,7 +124,7 @@ func (h *signalHandler) reap() (exits []exit, err error) {
 	for {
 		pid, err := unix.Wait4(-1, &ws, unix.WNOHANG, &rus)
 		if err != nil {
-			if err == unix.ECHILD { //nolint:errorlint // unix errors are bare
+			if err == unix.ECHILD {
 				return exits, nil
 			}
 			return nil, err

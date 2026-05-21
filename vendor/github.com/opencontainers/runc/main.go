@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	//nolint:revive // Enable cgroup manager to manage devices
+	_ "github.com/opencontainers/runc/libcontainer/cgroups/devices"
 	"github.com/opencontainers/runc/libcontainer/seccomp"
 	"github.com/opencontainers/runtime-spec/specs-go"
 
@@ -71,13 +73,12 @@ func Main() {
 	}
 	app.Version = strings.Join(v, "\n")
 
-	xdgRuntimeDir := ""
 	root := "/run/runc"
-	if shouldHonorXDGRuntimeDir() {
-		if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
-			root = runtimeDir + "/runc"
-			xdgRuntimeDir = root
-		}
+	xdgDirUsed := false
+	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if xdgRuntimeDir != "" && shouldHonorXDGRuntimeDir() {
+		root = xdgRuntimeDir + "/runc"
+		xdgDirUsed = true
 	}
 
 	app.Flags = []cli.Flag{
@@ -101,9 +102,9 @@ func Main() {
 			Usage: "root directory for storage of container state (this should be located in tmpfs)",
 		},
 		cli.StringFlag{
-			Name:  "criu",
-			Value: "criu",
-			Usage: "path to the criu binary used for checkpoint and restore",
+			Name:   "criu",
+			Usage:  "(obsoleted; do not use)",
+			Hidden: true,
 		},
 		cli.BoolFlag{
 			Name:  "systemd-cgroup",
@@ -135,7 +136,7 @@ func Main() {
 		featuresCommand,
 	}
 	app.Before = func(context *cli.Context) error {
-		if !context.IsSet("root") && xdgRuntimeDir != "" {
+		if !context.IsSet("root") && xdgDirUsed {
 			// According to the XDG specification, we need to set anything in
 			// XDG_RUNTIME_DIR to have a sticky bit if we don't want it to get
 			// auto-pruned.
@@ -150,6 +151,10 @@ func Main() {
 		}
 		if err := reviseRootDir(context); err != nil {
 			return err
+		}
+		// TODO: remove this in runc 1.3.0.
+		if context.IsSet("criu") {
+			fmt.Fprintln(os.Stderr, "WARNING: --criu ignored (criu binary from $PATH is used); do not use")
 		}
 
 		return configLogrus(context)
