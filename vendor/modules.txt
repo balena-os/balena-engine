@@ -285,7 +285,7 @@ github.com/containerd/cgroups/v3/cgroup2/stats
 # github.com/containerd/console v1.0.5
 ## explicit; go 1.13
 github.com/containerd/console
-# github.com/containerd/containerd v1.7.12 => github.com/balena-os/balena-containerd v1.7.13-0.20260330175147-b45fa1f9313a
+# github.com/containerd/containerd v1.7.12 => github.com/balena-os/balena-containerd v1.7.13-0.20260524124706-4ca7922eaf46
 ## explicit; go 1.19
 github.com/containerd/containerd
 github.com/containerd/containerd/api/events
@@ -1991,6 +1991,6 @@ tags.cncf.io/container-device-interface/pkg/parser
 # tags.cncf.io/container-device-interface/specs-go v0.6.0
 ## explicit; go 1.19
 tags.cncf.io/container-device-interface/specs-go
-# github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260330175147-b45fa1f9313a
+# github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260524124706-4ca7922eaf46
 # github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03
 # github.com/docker/cli => github.com/balena-os/balena-engine-cli v25.0.3-0.20260312154932-772ba939846e+incompatible
