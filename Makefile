@@ -88,7 +88,7 @@ DOCKER_ENVS := \
 	-e DOCKER_BUILDTAGS
 
 # balenaEngine build tags - excludes drivers that need special test privileges
-DOCKER_BUILDTAGS ?= apparmor seccomp no_btrfs no_cri no_devmapper no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs
+DOCKER_BUILDTAGS ?= apparmor seccomp no_btrfs no_cri no_devmapper no_nri no_zfs exclude_disk_quota exclude_graphdriver_btrfs exclude_graphdriver_devicemapper exclude_graphdriver_zfs
 export DOCKER_BUILDTAGS
 
 # to allow `make BIND_DIR=. shell` or `make BIND_DIR= test`

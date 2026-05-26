@@ -946,8 +946,8 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.26.7/go.mod h1:6h2YuIoxaMSCFf5fi1EgZ
 github.com/aws/smithy-go v1.19.0 h1:KWFKQV80DpP3vJrrA9sVAHQ5gc2z8i4EzrLhLlWXcBM=
 github.com/aws/smithy-go v1.19.0/go.mod h1:NukqUGpCZIILqqiV0NIjeFh24kd/FAa4beRb6nbIUPE=
 github.com/aybabtme/rgbterm v0.0.0-20170906152045-cc83f3b3ce59/go.mod h1:q/89r3U2H7sSsE2t6Kca0lfwTK8JdoNGS/yzM/4iH5I=
-github.com/balena-os/balena-containerd v1.7.13-0.20260330175147-b45fa1f9313a h1:TmvHKmehgiS6z4g07O2lRBrSEYeonLAyzbzKAUbZH2Q=
-github.com/balena-os/balena-containerd v1.7.13-0.20260330175147-b45fa1f9313a/go.mod h1:/5OMpE1p0ylxtEUGY8kuCYkDRzJm9NO1TFMWjUpdevk=
+github.com/balena-os/balena-containerd v1.7.13-0.20260524124706-4ca7922eaf46 h1:v3D18EOoO7vUZ5l7BWtDEWUjahuWnNRH1DTGuj8RXno=
+github.com/balena-os/balena-containerd v1.7.13-0.20260524124706-4ca7922eaf46/go.mod h1:/5OMpE1p0ylxtEUGY8kuCYkDRzJm9NO1TFMWjUpdevk=
 github.com/balena-os/balena-engine-cli v25.0.3-0.20260312154932-772ba939846e+incompatible h1:ZIQHbIl0lws8dx5Fg3q3i2Fk80rCRjYtQaN0ZukqI8E=
 github.com/balena-os/balena-engine-cli v25.0.3-0.20260312154932-772ba939846e+incompatible/go.mod h1:QO1dMBjQfxaXuL/iu85TiozUX6zZF7Kg2G9zunxJyWc=
 github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03 h1:KAVH48GAeb2cKGuVWDayWw7WnSsat/RX9JOVWKwdyBM=
