@@ -950,8 +950,8 @@ github.com/balena-os/balena-containerd v1.7.13-0.20260524124706-4ca7922eaf46 h1:
 github.com/balena-os/balena-containerd v1.7.13-0.20260524124706-4ca7922eaf46/go.mod h1:/5OMpE1p0ylxtEUGY8kuCYkDRzJm9NO1TFMWjUpdevk=
 github.com/balena-os/balena-engine-cli v25.0.3-0.20260312154932-772ba939846e+incompatible h1:ZIQHbIl0lws8dx5Fg3q3i2Fk80rCRjYtQaN0ZukqI8E=
 github.com/balena-os/balena-engine-cli v25.0.3-0.20260312154932-772ba939846e+incompatible/go.mod h1:QO1dMBjQfxaXuL/iu85TiozUX6zZF7Kg2G9zunxJyWc=
-github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03 h1:KAVH48GAeb2cKGuVWDayWw7WnSsat/RX9JOVWKwdyBM=
-github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03/go.mod h1:cC0YkmZcuvr+rtBZ6T7NBoVbMGNAdLa/21vIElJDOzI=
+github.com/balena-os/balena-runc v1.2.9-0.20260616192057-02756e81a449 h1:CUuIHBIfZ6OjHhJPyKD6DVrTILSTY+0ihQ4Tw/gksDM=
+github.com/balena-os/balena-runc v1.2.9-0.20260616192057-02756e81a449/go.mod h1:cC0YkmZcuvr+rtBZ6T7NBoVbMGNAdLa/21vIElJDOzI=
 github.com/balena-os/circbuf v0.1.3 h1:pLkTha46mQ2FOfB4l9sz4fckt8oorpVSWIp6N3xW+wE=
 github.com/balena-os/circbuf v0.1.3/go.mod h1:D8R+zPJf/Sfd43NP++rdNfGAf7KefcKG1b6k2Ww0ZzU=
 github.com/balena-os/librsync-go v0.9.0 h1:BpkzPLY9167oydsffqTyTmWoJFI/yZW4ESY9BvS6MMY=

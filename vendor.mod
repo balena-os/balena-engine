@@ -273,6 +273,6 @@ require (
 
 replace github.com/containerd/containerd => github.com/balena-os/balena-containerd v1.7.13-0.20260524124706-4ca7922eaf46
 
-replace github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.2.9-0.20251114161102-6d250e9a9f03
+replace github.com/opencontainers/runc => github.com/balena-os/balena-runc v1.2.9-0.20260616192057-02756e81a449
 
 replace github.com/docker/cli => github.com/balena-os/balena-engine-cli v25.0.3-0.20260312154932-772ba939846e+incompatible
