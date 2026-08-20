@@ -85,7 +85,11 @@ func (daemon *Daemon) populateVolumes(c *container.Container) error {
 			continue
 		}
 
-		log.G(context.TODO()).Debugf("copying image data from %s:%s, to %s", c.ID, mnt.Destination, mnt.Name)
+		if c.HostConfig.Runtime == "bare" {
+			log.G(context.TODO()).Debugf("hardlinking image data from %s:%s, to %s", c.ID, mnt.Destination, mnt.Name)
+		} else {
+			log.G(context.TODO()).Debugf("copying image data from %s:%s, to %s", c.ID, mnt.Destination, mnt.Name)
+		}
 		if err := c.CopyImagePathContent(mnt.Volume, mnt.Destination); err != nil {
 			return err
 		}
