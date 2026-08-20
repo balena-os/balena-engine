@@ -113,7 +113,7 @@ jobs:
           docker cp "${{ env.TEST_CTN_NAME }}`:c`:\containerd\bin\containerd-shim-runhcs-v1.exe" ${{ env.BIN_OUT }}\
       -
         name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: build-${{ inputs.storage }}-${{ inputs.os }}
           path: ${{ env.BIN_OUT }}/*
@@ -196,7 +196,7 @@ jobs:
       -
         name: Upload reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ inputs.os }}-${{ inputs.storage }}-unit-reports
           path: ${{ env.GOPATH }}\src\github.com\docker\docker\bundles\*
@@ -216,7 +216,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       -
         name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: ${{ inputs.os }}-${{ inputs.storage }}-unit-reports
           path: /tmp/artifacts
@@ -311,7 +311,7 @@ jobs:
           Get-ChildItem Env: | Out-String
       -
         name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: build-${{ inputs.storage }}-${{ inputs.os }}
           path: ${{ env.BIN_OUT }}
@@ -517,7 +517,7 @@ jobs:
       -
         name: Upload reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ${{ inputs.os }}-${{ inputs.storage }}-integration-reports-${{ matrix.runtime }}-${{ env.TESTREPORTS_NAME }}
           path: ${{ env.GOPATH }}\src\github.com\docker\docker\bundles\*
@@ -549,7 +549,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       -
         name: Download reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           path: /tmp/reports
           pattern: ${{ inputs.os }}-${{ inputs.storage }}-integration-reports-${{ matrix.runtime }}-*
