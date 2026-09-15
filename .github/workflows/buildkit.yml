@@ -41,7 +41,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
       -
         name: Build
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7
         with:
           targets: binary
       -
