@@ -60,7 +60,7 @@ func newExecutor(root, cgroupParent string, net *libnetwork.Controller, dnsConfi
 
 	return runcexecutor.New(runcexecutor.Opt{
 		Root:                filepath.Join(root, "executor"),
-		CommandCandidates:   []string{"runc"},
+		CommandCandidates:   []string{"balena-engine-runc", "balena-runc", "runc"},
 		DefaultCgroupParent: cgroupParent,
 		Rootless:            rootless,
 		NoPivot:             os.Getenv("DOCKER_RAMDISK") != "",
