@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
-ARG GO_VERSION=1.23.9
-ARG BASE_DEBIAN_DISTRO="bookworm"
+ARG GO_VERSION=1.24.6
+ARG BASE_DEBIAN_DISTRO="trixie"
 ARG GOLANG_IMAGE="golang:${GO_VERSION}-${BASE_DEBIAN_DISTRO}"
 ARG XX_VERSION=1.6.1
 
@@ -239,7 +239,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
      && /build/golangci-lint --version
 
 FROM base AS gotestsum
-ARG GOTESTSUM_VERSION=v1.8.2
+ARG GOTESTSUM_VERSION=v1.12.3
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
         GOBIN=/build/ GO111MODULE=on go install "gotest.tools/gotestsum@${GOTESTSUM_VERSION}" \
