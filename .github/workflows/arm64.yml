@@ -130,7 +130,7 @@ jobs:
           tree -nh /tmp/reports
       -
         name: Send to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           directory: ./bundles
           env_vars: RUNNER_OS
@@ -224,7 +224,7 @@ jobs:
           curl -sSLf localhost:16686/api/traces?service=integration-test-client > $reportsPath/jaeger-trace.json
       -
         name: Send to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           directory: ./bundles/test-integration
           env_vars: RUNNER_OS
