@@ -139,7 +139,7 @@ jobs:
       -
         name: Upload reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: test-reports-unit-arm64-graphdriver
           path: /tmp/reports/*
@@ -161,7 +161,7 @@ jobs:
           cache-dependency-path: vendor.sum
       -
         name: Download reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           pattern: test-reports-unit-arm64-*
           path: /tmp/reports
@@ -238,7 +238,7 @@ jobs:
       -
         name: Upload reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: test-reports-integration-arm64-graphdriver
           path: /tmp/reports/*
@@ -260,7 +260,7 @@ jobs:
           cache-dependency-path: vendor.sum
       -
         name: Download reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           path: /tmp/reports
           pattern: test-reports-integration-arm64-*
