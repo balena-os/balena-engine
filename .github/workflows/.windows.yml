@@ -186,7 +186,7 @@ jobs:
       -
         name: Send to Codecov
         if: inputs.send_coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           working-directory: ${{ env.GOPATH }}\src\github.com\docker\docker
           directory: bundles
@@ -463,7 +463,7 @@ jobs:
       -
         name: Send to Codecov
         if: inputs.send_coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         with:
           working-directory: ${{ env.GOPATH }}\src\github.com\docker\docker
           directory: bundles
