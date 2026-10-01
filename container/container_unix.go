@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/containerd/continuity/fs"
@@ -24,6 +25,9 @@ import (
 )
 
 const (
+	// bareRuntimeName is the balena hostapp runtime; volume populate uses hardlinks.
+	bareRuntimeName = "bare"
+
 	// defaultStopSignal is the default syscall signal used to stop a container.
 	defaultStopSignal = "SIGTERM"
 
@@ -129,13 +133,24 @@ func (container *Container) NetworkMounts() []Mount {
 }
 
 // CopyImagePathContent copies files in destination to the volume.
+// For bare runtime, content is hardlinked from the matching LowerDir layer path.
 func (container *Container) CopyImagePathContent(v volume.Volume, destination string) error {
-	rootfs, err := container.GetResourcePath(destination)
+	var source string
+	var err error
+	bare := container.HostConfig.Runtime == bareRuntimeName
+
+	if bare {
+		source, err = container.bareImageSourcePath(destination)
+	} else {
+		source, err = container.GetResourcePath(destination)
+	}
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
-
-	if _, err := os.Stat(rootfs); err != nil {
+	if _, err := os.Stat(source); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
@@ -156,7 +171,29 @@ func (container *Container) CopyImagePathContent(v volume.Volume, destination st
 	if err := label.Relabel(path, container.MountLabel, true); err != nil && !errors.Is(err, syscall.ENOTSUP) {
 		return err
 	}
-	return copyExistingContents(rootfs, path)
+	if bare {
+		return linkExistingContents(source, path)
+	}
+	return copyExistingContents(source, path)
+}
+
+// bareImageSourcePath returns the LowerDir layer path for destination (e.g. /boot → .../diff/boot).
+func (container *Container) bareImageSourcePath(destination string) (string, error) {
+	if container.RWLayer == nil {
+		return "", errors.New("bare volume populate: container RWLayer is nil")
+	}
+	metadata, err := container.RWLayer.Metadata()
+	if err != nil {
+		return "", err
+	}
+	if len(metadata) == 0 || metadata["LowerDir"] == "" {
+		return "", errors.New("bare volume populate requires overlay2 LowerDir metadata")
+	}
+	source, ok := findInLowerDir(metadata, layerRelativePath(destination))
+	if !ok {
+		return "", os.ErrNotExist
+	}
+	return source, nil
 }
 
 // ShmResourcePath returns path to shm
@@ -423,6 +460,78 @@ func copyExistingContents(source, destination string) error {
 		return nil
 	}
 	return fs.CopyDir(destination, source, ignoreUnsupportedXAttrs())
+}
+
+func layerRelativePath(destination string) string {
+	clean := filepath.Clean(destination)
+	return strings.TrimPrefix(clean, string(filepath.Separator))
+}
+
+// findInLowerDir returns the first image layer diff that contains relPath.
+func findInLowerDir(metadata map[string]string, relPath string) (string, bool) {
+	if relPath == "" {
+		return "", false
+	}
+	lowerDir, ok := metadata["LowerDir"]
+	if !ok || lowerDir == "" {
+		return "", false
+	}
+	for _, layer := range strings.Split(lowerDir, ":") {
+		candidate := filepath.Join(layer, relPath)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func linkFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.Link(src, dst)
+}
+
+// linkExistingContents lists every file under source and hardlinks it into destination.
+func linkExistingContents(source, destination string) error {
+	dstList, err := os.ReadDir(destination)
+	if err != nil {
+		return err
+	}
+	if len(dstList) != 0 {
+		return nil
+	}
+
+	// source could be a file, in that case hardlink it into destination directly
+	sourceInfo, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	if !sourceInfo.IsDir() {
+		return linkFile(source, filepath.Join(destination, filepath.Base(source)))
+	}
+
+	return filepath.WalkDir(source, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == source {
+			return nil
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		destPath := filepath.Join(destination, rel)
+		if d.IsDir() {
+			return os.MkdirAll(destPath, 0o755)
+		}
+		mode := d.Type()
+		if mode.IsRegular() || mode&os.ModeSymlink != 0 {
+			return linkFile(path, destPath)
+		}
+		return nil
+	})
 }
 
 // TmpfsMounts returns the list of tmpfs mounts
