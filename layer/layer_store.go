@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 
 	"github.com/containerd/log"
@@ -897,13 +898,27 @@ func (ls *layerStore) findUnreferencedDriverLayers() ([]string, error) {
 	}
 
 	for _, cacheID := range cacheIDs {
-		if _, used := usedLayers[cacheID]; !used {
-			unused = append(unused, cacheID)
+		if _, used := usedLayers[cacheID]; used {
+			continue
 		}
+		// Only reclaim IDs in the format this store generates. Other
+		// consumers of the graphdriver, such as the BuildKit snapshotter,
+		// create layers with their own ID scheme that this store never
+		// references.
+		if !layerStoreCacheIDRe.MatchString(cacheID) {
+			log.G(context.TODO()).Debugf("Skipping foreign driver layer %s", cacheID)
+			continue
+		}
+		unused = append(unused, cacheID)
 	}
 
 	return unused, nil
 }
+
+// layerStoreCacheIDRe matches the IDs this store creates: 64 hex characters
+// from stringid.GenerateRandomID for cacheID and mountID, plus the "-init"
+// suffix used for init layers.
+var layerStoreCacheIDRe = regexp.MustCompile(`^[0-9a-f]{64}(-init)?$`)
 
 func (ls *layerStore) deleteUnreferencedDriverLayers(ids []string) int {
 	total := 0

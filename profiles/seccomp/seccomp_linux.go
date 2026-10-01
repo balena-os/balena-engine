@@ -1,3 +1,5 @@
+//go:build linux && seccomp
+
 //go:generate go run -tags 'seccomp' generate.go
 
 package seccomp // import "github.com/docker/docker/profiles/seccomp"

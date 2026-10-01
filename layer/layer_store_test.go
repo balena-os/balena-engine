@@ -3,6 +3,7 @@ package layer
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/docker/docker/daemon/graphdriver"
@@ -52,8 +53,15 @@ func TestLayerStore_unreferencedDriverLayers(t *testing.T) {
 		t.Fatalf("Unexpected store implementation %s", s)
 	}
 
-	createGraphDriverLayer(t, lStore, "test-leaked-layer1")
-	createGraphDriverLayer(t, lStore, "test-leaked-layer2")
+	// Leaked layers carry the IDs this store generates.
+	leaked1 := strings.Repeat("a", 64)
+	leaked2 := strings.Repeat("b", 64) + "-init"
+	createGraphDriverLayer(t, lStore, leaked1)
+	createGraphDriverLayer(t, lStore, leaked2)
+	// A layer created by another graphdriver consumer, such as the BuildKit
+	// snapshotter, uses its own ID scheme and must not be reclaimed.
+	foreign := "vr7rqg7xk2f4o1r4o4x2f5a3z"
+	createGraphDriverLayer(t, lStore, foreign)
 
 	_, err := lStore.CreateRWLayer("test-container-1", "", &CreateRWLayerOpts{
 		InitFunc: func(root string) error {
@@ -69,8 +77,8 @@ func TestLayerStore_unreferencedDriverLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 2 leaked layers + 2 containers + init layer for one of container.
-	if ids, _ := lStore.driver.(graphdriver.InspectableDriver).List(); len(ids) != 5 {
+	// 2 leaked layers + 1 foreign layer + 2 containers + init layer for one of container.
+	if ids, _ := lStore.driver.(graphdriver.InspectableDriver).List(); len(ids) != 6 {
 		t.Fatalf("Unexpected graphdriver storage state: %s", ids)
 	}
 
@@ -87,7 +95,7 @@ func TestLayerStore_unreferencedDriverLayers(t *testing.T) {
 		t.Fatal(err)
 	}
 	sort.Strings(ids)
-	if !reflect.DeepEqual(ids, []string{"test-leaked-layer1", "test-leaked-layer2"}) {
+	if !reflect.DeepEqual(ids, []string{leaked1, leaked2}) {
 		t.Errorf("Leaked layers are incorrectly detected: %s", ids)
 	}
 
@@ -100,5 +108,8 @@ func TestLayerStore_unreferencedDriverLayers(t *testing.T) {
 		if lStore.Driver().Exists(cacheID) {
 			t.Errorf("Layer %s was not deleted", cacheID)
 		}
+	}
+	if !lStore.Driver().Exists(foreign) {
+		t.Errorf("Foreign layer %s was deleted", foreign)
 	}
 }
