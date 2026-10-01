@@ -89,7 +89,7 @@ jobs:
         uses: crazy-max/ghaction-github-runtime@v3
       -
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: moby
       -
@@ -107,7 +107,7 @@ jobs:
         working-directory: moby
       -
         name: Checkout BuildKit ${{ env.BUILDKIT_REF }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           repository: ${{ env.BUILDKIT_REPO }}
           ref: ${{ env.BUILDKIT_REF }}

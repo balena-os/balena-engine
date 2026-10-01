@@ -53,7 +53,7 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: ${{ env.GOPATH }}/src/github.com/docker/docker
       -
@@ -132,7 +132,7 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: ${{ env.GOPATH }}/src/github.com/docker/docker
       -
@@ -237,7 +237,7 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       -
         name: Set up Go
         uses: actions/setup-go@v5
@@ -292,7 +292,7 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           path: ${{ env.GOPATH }}/src/github.com/docker/docker
       -
