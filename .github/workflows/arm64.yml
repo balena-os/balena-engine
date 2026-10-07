@@ -161,7 +161,7 @@ jobs:
           cache-dependency-path: vendor.sum
       -
         name: Download reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: test-reports-unit-arm64-*
           path: /tmp/reports
@@ -260,7 +260,7 @@ jobs:
           cache-dependency-path: vendor.sum
       -
         name: Download reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: /tmp/reports
           pattern: test-reports-integration-arm64-*
